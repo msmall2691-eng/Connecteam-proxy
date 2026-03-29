@@ -59,19 +59,26 @@ export default function Dashboard() {
   async function pullConnecteamData() {
     if (dataRef.current) return dataRef.current
     if (!getApiKey()) return null
-    setMessages(prev => [...prev, { role: 'system', content: 'Pulling data from Connecteam... (~10 sec)' }])
+    setMessages(prev => [...prev, { role: 'system', content: 'Pulling data from Connecteam... (this takes a moment due to API rate limits)' }])
 
-    const { start, end } = dateRangeWeeks(weeks)
-    const users = await fetchUsers()
-    const timesheets = await fetchTimesheets(start, end)
-    const activities = await fetchTimeActivities(start, end)
-    let shifts = null
-    try { shifts = await fetchShifts(start, end) } catch {}
+    try {
+      const { start, end } = dateRangeWeeks(weeks)
+      // Pull sequentially with pauses — only essential endpoints
+      const users = await fetchUsers()
+      const timesheets = await fetchTimesheets(start, end)
+      // Activities has mileage + shift details — most useful
+      const activities = await fetchTimeActivities(start, end)
 
-    const data = { users, timesheets, activities, shifts, period: { start, end } }
-    dataRef.current = data
-    setDataLoaded(true)
-    return data
+      const data = { users, timesheets, activities, shifts: null, period: { start, end } }
+      dataRef.current = data
+      setDataLoaded(true)
+      return data
+    } catch (err) {
+      // Don't throw — let the chat handle it gracefully
+      console.error('Connecteam pull failed:', err)
+      setMessages(prev => prev.filter(m => m.role !== 'system'))
+      return null
+    }
   }
 
   function buildContext(data) {
@@ -134,7 +141,19 @@ export default function Dashboard() {
 
     try {
       const data = await pullConnecteamData()
-      const context = data ? buildContext(data) : 'Connecteam API key not set. No employee data available. CRM data may be available.'
+      let context = ''
+      if (data) {
+        context = buildContext(data)
+      } else if (!getApiKey()) {
+        context = 'Connecteam API key not set. No employee data available.'
+      } else {
+        context = 'Could not pull Connecteam data (API rate limited). Try again in a minute or ask about CRM data instead.'
+      }
+      // Add CRM context
+      const crmClients = getClients()
+      if (crmClients.length > 0) {
+        context += `\n\nCRM: ${crmClients.length} clients (${crmClients.filter(c=>c.status==='active').length} active, ${crmClients.filter(c=>c.status==='lead').length} leads)`
+      }
 
       // Try Claude API
       const allMessages = [...messages.filter(m => m.role !== 'system'), { role: 'user', content: text }]
