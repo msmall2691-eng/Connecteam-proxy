@@ -1,6 +1,3 @@
-import https from "https";
-import { URL } from "url";
-
 export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
@@ -20,9 +17,9 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: "Missing 'path' query parameter" });
   }
 
-  const target = new URL(`https://api.connecteam.com/${path}`);
+  const url = new URL(`https://api.connecteam.com/${path}`);
   for (const [key, value] of Object.entries(queryParams)) {
-    target.searchParams.set(key, value);
+    url.searchParams.set(key, value);
   }
 
   const headers = {};
@@ -30,21 +27,13 @@ export default async function handler(req, res) {
     headers["X-API-KEY"] = req.headers["x-api-key"];
   }
 
-  return new Promise((resolve) => {
-    const proxyReq = https.get(target.href, { headers }, (proxyRes) => {
-      let body = "";
-      proxyRes.on("data", (chunk) => (body += chunk));
-      proxyRes.on("end", () => {
-        res.status(proxyRes.statusCode);
-        res.setHeader("Content-Type", "application/json");
-        res.send(body);
-        resolve();
-      });
-    });
+  try {
+    const response = await fetch(url.href, { headers });
+    const data = await response.text();
 
-    proxyReq.on("error", (err) => {
-      res.status(502).json({ error: "Upstream request failed", details: err.message });
-      resolve();
-    });
-  });
-};
+    res.setHeader("Content-Type", "application/json");
+    return res.status(response.status).send(data);
+  } catch (err) {
+    return res.status(502).json({ error: "Upstream request failed", details: err.message });
+  }
+}
