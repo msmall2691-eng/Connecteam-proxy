@@ -9,9 +9,9 @@ export function setApiKey(key) {
   localStorage.setItem('connecteam_api_key', key)
 }
 
-// Rate limit queue — Connecteam allows ~5 requests per 10 seconds
+// Rate limit queue — space out requests to avoid Connecteam 429s
 let lastRequestTime = 0
-const MIN_DELAY = 3000 // ms between requests — Connecteam allows ~5 req/10s
+const MIN_DELAY = 5000 // 5 seconds between requests
 
 async function rateLimitedFetch(url, options = {}) {
   const now = Date.now()
@@ -21,37 +21,22 @@ async function rateLimitedFetch(url, options = {}) {
   return fetch(url, options)
 }
 
-export async function apiGet(path, params = {}, retries = 3) {
+export async function apiGet(path, params = {}) {
   const query = new URLSearchParams({ path, ...params })
   const url = `${PROXY_BASE}?${query}`
   const headers = {}
   const key = getApiKey()
   if (key) headers['X-API-KEY'] = key
 
-  for (let attempt = 0; attempt < retries; attempt++) {
-    const res = await rateLimitedFetch(url, { headers })
+  // Single attempt — proxy handles retries server-side
+  const res = await rateLimitedFetch(url, { headers })
 
-    if (res.status === 429) {
-      // Rate limited — wait and retry
-      const backoff = Math.pow(2, attempt + 1) * 2000 // 4s, 8s, 16s
-      await new Promise(r => setTimeout(r, backoff))
-      continue
-    }
-
-    if (!res.ok) throw new Error(`API error: ${res.status}`)
-
-    const data = await res.json()
-    // Connecteam sometimes returns rate limit in the body
-    if (data?.detail?.includes?.('Too many requests')) {
-      const backoff = Math.pow(2, attempt + 1) * 1000
-      await new Promise(r => setTimeout(r, backoff))
-      continue
-    }
-
-    return data
+  if (!res.ok) {
+    const text = await res.text().catch(() => '')
+    throw new Error(`API error ${res.status}: ${text.slice(0, 100)}`)
   }
 
-  throw new Error('Rate limited by Connecteam API. Try again in a moment.')
+  return res.json()
 }
 
 export async function fetchUsers() {

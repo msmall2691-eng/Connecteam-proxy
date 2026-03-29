@@ -59,22 +59,49 @@ export default function Dashboard() {
   async function pullConnecteamData() {
     if (dataRef.current) return dataRef.current
     if (!getApiKey()) return null
-    setMessages(prev => [...prev, { role: 'system', content: 'Pulling data from Connecteam... (this takes a moment due to API rate limits)' }])
+    setMessages(prev => [...prev, { role: 'system', content: 'Pulling data from Connecteam... (3 calls, ~15 sec)' }])
 
     try {
       const { start, end } = dateRangeWeeks(weeks)
-      // Pull sequentially with pauses — only essential endpoints
-      const users = await fetchUsers()
-      const timesheets = await fetchTimesheets(start, end)
-      // Activities has mileage + shift details — most useful
-      const activities = await fetchTimeActivities(start, end)
+
+      // Call 1: Users
+      let users = {}
+      try {
+        users = await fetchUsers()
+      } catch (e) {
+        console.warn('Users fetch failed, continuing:', e.message)
+      }
+
+      // Wait 5 seconds before next call
+      await new Promise(r => setTimeout(r, 5000))
+
+      // Call 2: Timesheets
+      let timesheets = { data: { users: [] } }
+      try {
+        timesheets = await fetchTimesheets(start, end)
+      } catch (e) {
+        console.warn('Timesheets fetch failed, continuing:', e.message)
+      }
+
+      // Wait 5 seconds before next call
+      await new Promise(r => setTimeout(r, 5000))
+
+      // Call 3: Activities (mileage + shift details)
+      let activities = { data: { timeActivitiesByUsers: [] } }
+      try {
+        activities = await fetchTimeActivities(start, end)
+      } catch (e) {
+        console.warn('Activities fetch failed, continuing:', e.message)
+      }
 
       const data = { users, timesheets, activities, shifts: null, period: { start, end } }
       dataRef.current = data
       setDataLoaded(true)
+
+      // Remove the "pulling data" system message
+      setMessages(prev => prev.filter(m => m.role !== 'system'))
       return data
     } catch (err) {
-      // Don't throw — let the chat handle it gracefully
       console.error('Connecteam pull failed:', err)
       setMessages(prev => prev.filter(m => m.role !== 'system'))
       return null
