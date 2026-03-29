@@ -16,10 +16,13 @@ const QUICK_PROMPTS = [
 export default function Dashboard() {
   const [apiKey, setApiKeyState] = useState(getApiKey())
   const [crmStats, setCrmStats] = useState(null)
+  const [showKeyInput, setShowKeyInput] = useState(false)
 
   // Chat state
   const [messages, setMessages] = useState([
-    { role: 'assistant', content: "Hey! I can pull your Connecteam data and generate reports. Pick a quick prompt below or type your own question." }
+    { role: 'assistant', content: apiKey
+      ? "Hey! I can pull your Connecteam data and generate reports. Pick a quick prompt below or type your own question."
+      : "Hey! Set your Connecteam API key in Settings to pull employee data. In the meantime, I can help with CRM questions — ask about clients, jobs, or invoices." }
   ])
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
@@ -28,12 +31,10 @@ export default function Dashboard() {
   const bottomRef = useRef(null)
   const dataRef = useRef(null) // cached connecteam data
 
-  const needsKey = !apiKey
-
   function saveKey(e) {
     e.preventDefault()
     const key = e.target.elements.key.value.trim()
-    if (key) { setApiKey(key); setApiKeyState(key) }
+    if (key) { setApiKey(key); setApiKeyState(key); setShowKeyInput(false) }
   }
 
   useEffect(() => { loadCrmStats() }, [])
@@ -57,6 +58,7 @@ export default function Dashboard() {
 
   async function pullConnecteamData() {
     if (dataRef.current) return dataRef.current
+    if (!getApiKey()) return null
     setMessages(prev => [...prev, { role: 'system', content: 'Pulling data from Connecteam... (~10 sec)' }])
 
     const { start, end } = dateRangeWeeks(weeks)
@@ -132,7 +134,7 @@ export default function Dashboard() {
 
     try {
       const data = await pullConnecteamData()
-      const context = buildContext(data)
+      const context = data ? buildContext(data) : 'Connecteam API key not set. No employee data available. CRM data may be available.'
 
       // Try Claude API
       const allMessages = [...messages.filter(m => m.role !== 'system'), { role: 'user', content: text }]
@@ -182,21 +184,6 @@ export default function Dashboard() {
     setMessages([{ role: 'assistant', content: "Fresh start! Pick a quick prompt or ask me anything about your operations." }])
     dataRef.current = null
     setDataLoaded(false)
-  }
-
-  if (needsKey) {
-    return (
-      <div className="flex items-center justify-center h-full">
-        <form onSubmit={saveKey} className="bg-gray-900 border border-gray-800 rounded-xl p-8 w-96 space-y-4">
-          <h2 className="text-lg font-semibold text-white">Connect to Connecteam</h2>
-          <p className="text-sm text-gray-400">Enter your API key to get started. You can still use CRM features without it.</p>
-          <input name="key" type="password" placeholder="API Key"
-            className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500" />
-          <button type="submit" className="w-full px-4 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg text-sm font-medium text-white transition-colors">Connect</button>
-          <Link to="/clients" className="block text-center text-sm text-gray-500 hover:text-gray-300 transition-colors">Skip &rarr; CRM</Link>
-        </form>
-      </div>
-    )
   }
 
   return (
