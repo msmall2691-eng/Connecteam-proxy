@@ -1,19 +1,22 @@
 import { useState, useEffect } from 'react'
-import { useParams, Link, useNavigate } from 'react-router-dom'
+import { useParams, Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { getClient, saveClient, getConversations, saveConversation, addMessage, getJobs, saveJob, getInvoices, saveInvoice, generateInvoiceNumber } from '../lib/store'
+import QuoteBuilder from '../components/QuoteBuilder'
 
-const TABS = ['overview', 'conversations', 'jobs', 'invoices', 'notes']
+const TABS = ['overview', 'quotes', 'conversations', 'jobs', 'invoices', 'notes']
 
 export default function ClientDetail() {
   const { id } = useParams()
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
   const [client, setClient] = useState(null)
-  const [tab, setTab] = useState('overview')
+  const [tab, setTab] = useState(searchParams.get('tab') || 'overview')
   const [convos, setConvos] = useState([])
   const [jobs, setJobs] = useState([])
   const [invoices, setInvoices] = useState([])
 
   useEffect(() => { reload() }, [id])
+  useEffect(() => { const t = searchParams.get('tab'); if (t) setTab(t) }, [searchParams])
 
   function reload() {
     const c = getClient(id)
@@ -54,6 +57,12 @@ export default function ClientDetail() {
       </div>
 
       {tab === 'overview' && <OverviewTab client={client} convos={convos} jobs={jobs} invoices={invoices} />}
+      {tab === 'quotes' && (
+        <div className="bg-gray-900 border border-gray-800 rounded-xl p-6">
+          <h3 className="text-base font-semibold text-white mb-4">Send Quote</h3>
+          <QuoteBuilder client={client} onSave={reload} />
+        </div>
+      )}
       {tab === 'conversations' && <ConversationsTab clientId={id} convos={convos} onReload={reload} />}
       {tab === 'jobs' && <JobsTab clientId={id} clientName={client.name} jobs={jobs} onReload={reload} />}
       {tab === 'invoices' && <InvoicesTab clientId={id} clientName={client.name} jobs={jobs} invoices={invoices} onReload={reload} />}
@@ -375,7 +384,23 @@ function JobsTab({ clientId, clientName, jobs, onReload }) {
                 <td className="px-3 py-2.5">{j.assignee || '-'}</td>
                 <td className="px-3 py-2.5 text-right font-mono">{j.price ? `$${j.price}` : '-'}</td>
                 <td className="px-3 py-2.5 text-center">
-                  <select value={j.status} onChange={e => { saveJob({ ...j, status: e.target.value }); onReload() }}
+                  <select value={j.status} onChange={e => {
+                    const newStatus = e.target.value
+                    saveJob({ ...j, status: newStatus })
+                    // Auto-generate invoice when job completed
+                    if (newStatus === 'completed' && j.price) {
+                      saveInvoice({
+                        invoiceNumber: generateInvoiceNumber(),
+                        clientId, clientName,
+                        status: 'draft',
+                        issueDate: new Date().toISOString().split('T')[0],
+                        dueDate: new Date(Date.now() + 30 * 86400000).toISOString().split('T')[0],
+                        subtotal: j.price, taxRate: 0, taxAmount: 0, total: j.price,
+                        items: [{ jobId: j.id, description: `${j.title} (${j.date})`, quantity: 1, unitPrice: j.price, total: j.price }],
+                      })
+                    }
+                    onReload()
+                  }}
                     className="px-2 py-0.5 bg-gray-800 border border-gray-700 rounded text-xs text-white">
                     <option value="scheduled">Scheduled</option><option value="in-progress">In Progress</option>
                     <option value="completed">Completed</option><option value="cancelled">Cancelled</option>
