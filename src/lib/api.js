@@ -9,18 +9,7 @@ export function setApiKey(key) {
   localStorage.setItem('connecteam_api_key', key)
 }
 
-// Rate limit queue — space out requests to avoid Connecteam 429s
-let lastRequestTime = 0
-const MIN_DELAY = 5000 // 5 seconds between requests
-
-async function rateLimitedFetch(url, options = {}) {
-  const now = Date.now()
-  const wait = Math.max(0, lastRequestTime + MIN_DELAY - now)
-  if (wait > 0) await new Promise(r => setTimeout(r, wait))
-  lastRequestTime = Date.now()
-  return fetch(url, options)
-}
-
+// Simple fetch — no client-side retry (proxy is stateless, Vercel Hobby has 10s timeout)
 export async function apiGet(path, params = {}) {
   const query = new URLSearchParams({ path, ...params })
   const url = `${PROXY_BASE}?${query}`
@@ -28,15 +17,22 @@ export async function apiGet(path, params = {}) {
   const key = getApiKey()
   if (key) headers['X-API-KEY'] = key
 
-  // Single attempt — proxy handles retries server-side
-  const res = await rateLimitedFetch(url, { headers })
+  const res = await fetch(url, { headers })
 
-  if (!res.ok) {
-    const text = await res.text().catch(() => '')
-    throw new Error(`API error ${res.status}: ${text.slice(0, 100)}`)
+  if (res.status === 429) {
+    throw new Error('RATE_LIMITED')
   }
 
-  return res.json()
+  if (!res.ok) {
+    throw new Error(`API error: ${res.status}`)
+  }
+
+  const data = await res.json()
+  if (data?.detail?.includes?.('Too many requests')) {
+    throw new Error('RATE_LIMITED')
+  }
+
+  return data
 }
 
 export async function fetchUsers() {

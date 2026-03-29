@@ -59,46 +59,60 @@ export default function Dashboard() {
   async function pullConnecteamData() {
     if (dataRef.current) return dataRef.current
     if (!getApiKey()) return null
-    setMessages(prev => [...prev, { role: 'system', content: 'Pulling data from Connecteam... (3 calls, ~15 sec)' }])
+
+    const { start, end } = dateRangeWeeks(weeks)
+    const updateStatus = (msg) => {
+      setMessages(prev => {
+        const filtered = prev.filter(m => m.role !== 'system')
+        return [...filtered, { role: 'system', content: msg }]
+      })
+    }
 
     try {
-      const { start, end } = dateRangeWeeks(weeks)
-
       // Call 1: Users
+      updateStatus('Step 1/3: Fetching employees...')
       let users = {}
-      try {
-        users = await fetchUsers()
-      } catch (e) {
-        console.warn('Users fetch failed, continuing:', e.message)
+      try { users = await fetchUsers() } catch (e) {
+        if (e.message === 'RATE_LIMITED') {
+          updateStatus('Rate limited. Waiting 15 seconds...')
+          await new Promise(r => setTimeout(r, 15000))
+          try { users = await fetchUsers() } catch { /* continue without */ }
+        }
       }
 
-      // Wait 5 seconds before next call
-      await new Promise(r => setTimeout(r, 5000))
+      // Wait 10 seconds
+      updateStatus('Step 1/3 done. Waiting 10s for rate limit...')
+      await new Promise(r => setTimeout(r, 10000))
 
       // Call 2: Timesheets
+      updateStatus('Step 2/3: Fetching timesheets...')
       let timesheets = { data: { users: [] } }
-      try {
-        timesheets = await fetchTimesheets(start, end)
-      } catch (e) {
-        console.warn('Timesheets fetch failed, continuing:', e.message)
+      try { timesheets = await fetchTimesheets(start, end) } catch (e) {
+        if (e.message === 'RATE_LIMITED') {
+          updateStatus('Rate limited. Waiting 15 seconds...')
+          await new Promise(r => setTimeout(r, 15000))
+          try { timesheets = await fetchTimesheets(start, end) } catch {}
+        }
       }
 
-      // Wait 5 seconds before next call
-      await new Promise(r => setTimeout(r, 5000))
+      // Wait 10 seconds
+      updateStatus('Step 2/3 done. Waiting 10s for rate limit...')
+      await new Promise(r => setTimeout(r, 10000))
 
-      // Call 3: Activities (mileage + shift details)
+      // Call 3: Activities
+      updateStatus('Step 3/3: Fetching shift details & mileage...')
       let activities = { data: { timeActivitiesByUsers: [] } }
-      try {
-        activities = await fetchTimeActivities(start, end)
-      } catch (e) {
-        console.warn('Activities fetch failed, continuing:', e.message)
+      try { activities = await fetchTimeActivities(start, end) } catch (e) {
+        if (e.message === 'RATE_LIMITED') {
+          updateStatus('Rate limited. Waiting 15 seconds...')
+          await new Promise(r => setTimeout(r, 15000))
+          try { activities = await fetchTimeActivities(start, end) } catch {}
+        }
       }
 
       const data = { users, timesheets, activities, shifts: null, period: { start, end } }
       dataRef.current = data
       setDataLoaded(true)
-
-      // Remove the "pulling data" system message
       setMessages(prev => prev.filter(m => m.role !== 'system'))
       return data
     } catch (err) {
