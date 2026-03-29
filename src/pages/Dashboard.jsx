@@ -61,63 +61,33 @@ export default function Dashboard() {
     if (!getApiKey()) return null
 
     const { start, end } = dateRangeWeeks(weeks)
-    const updateStatus = (msg) => {
-      setMessages(prev => {
-        const filtered = prev.filter(m => m.role !== 'system')
-        return [...filtered, { role: 'system', content: msg }]
-      })
-    }
+    setMessages(prev => {
+      const filtered = prev.filter(m => m.role !== 'system')
+      return [...filtered, { role: 'system', content: 'Pulling timesheet data...' }]
+    })
 
     try {
-      // Call 1: Users
-      updateStatus('Step 1/3: Fetching employees...')
-      let users = {}
-      try { users = await fetchUsers() } catch (e) {
-        if (e.message === 'RATE_LIMITED') {
-          updateStatus('Rate limited. Waiting 15 seconds...')
-          await new Promise(r => setTimeout(r, 15000))
-          try { users = await fetchUsers() } catch { /* continue without */ }
-        }
+      // Single API call — timesheets has hours + pay per employee
+      const timesheets = await fetchTimesheets(start, end)
+
+      const data = {
+        users: {},
+        timesheets,
+        activities: { data: { timeActivitiesByUsers: [] } },
+        shifts: null,
+        period: { start, end },
       }
-
-      // Wait 10 seconds
-      updateStatus('Step 1/3 done. Waiting 10s for rate limit...')
-      await new Promise(r => setTimeout(r, 10000))
-
-      // Call 2: Timesheets
-      updateStatus('Step 2/3: Fetching timesheets...')
-      let timesheets = { data: { users: [] } }
-      try { timesheets = await fetchTimesheets(start, end) } catch (e) {
-        if (e.message === 'RATE_LIMITED') {
-          updateStatus('Rate limited. Waiting 15 seconds...')
-          await new Promise(r => setTimeout(r, 15000))
-          try { timesheets = await fetchTimesheets(start, end) } catch {}
-        }
-      }
-
-      // Wait 10 seconds
-      updateStatus('Step 2/3 done. Waiting 10s for rate limit...')
-      await new Promise(r => setTimeout(r, 10000))
-
-      // Call 3: Activities
-      updateStatus('Step 3/3: Fetching shift details & mileage...')
-      let activities = { data: { timeActivitiesByUsers: [] } }
-      try { activities = await fetchTimeActivities(start, end) } catch (e) {
-        if (e.message === 'RATE_LIMITED') {
-          updateStatus('Rate limited. Waiting 15 seconds...')
-          await new Promise(r => setTimeout(r, 15000))
-          try { activities = await fetchTimeActivities(start, end) } catch {}
-        }
-      }
-
-      const data = { users, timesheets, activities, shifts: null, period: { start, end } }
       dataRef.current = data
       setDataLoaded(true)
       setMessages(prev => prev.filter(m => m.role !== 'system'))
       return data
     } catch (err) {
-      console.error('Connecteam pull failed:', err)
-      setMessages(prev => prev.filter(m => m.role !== 'system'))
+      setMessages(prev => {
+        const filtered = prev.filter(m => m.role !== 'system')
+        return [...filtered, { role: 'assistant', content: err.message === 'RATE_LIMITED'
+          ? 'Connecteam rate limited — wait 1-2 minutes and try again. Their API only allows a few requests per minute.'
+          : `Error: ${err.message}` }]
+      })
       return null
     }
   }
