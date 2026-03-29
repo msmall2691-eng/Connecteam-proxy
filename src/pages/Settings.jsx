@@ -198,6 +198,9 @@ export default function Settings() {
         </div>
       </Section>
 
+      {/* ── GOOGLE CALENDAR ── */}
+      <GoogleCalendarSettings />
+
       {/* ── BUSINESS INFO ── */}
       <Section title="Business Info" desc="Used in quotes, invoices, and emails.">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -255,6 +258,157 @@ export default function Settings() {
         </button>
       </div>
     </div>
+  )
+}
+
+// Rental calendar config
+const RENTAL_CAL_KEY = 'workflowhq_rental_calendars'
+const SELECTED_CALS_KEY = 'workflowhq_selected_calendars'
+
+function GoogleCalendarSettings() {
+  const [calendars, setCalendars] = useState([])
+  const [selectedCals, setSelectedCals] = useState(() => {
+    try { return JSON.parse(localStorage.getItem(SELECTED_CALS_KEY)) || [] } catch { return [] }
+  })
+  const [rentalCals, setRentalCals] = useState(() => {
+    try { return JSON.parse(localStorage.getItem(RENTAL_CAL_KEY)) || [] } catch { return [] }
+  })
+  const [loading, setLoading] = useState(false)
+  const [connected, setConnected] = useState(false)
+  const [newRental, setNewRental] = useState({ calendarId: '', name: '', checkoutTime: '10:00', cleaningTime: '11:00' })
+
+  useEffect(() => { loadCalendars() }, [])
+
+  async function loadCalendars() {
+    setLoading(true)
+    try {
+      const res = await fetch('/api/calendar?action=calendars')
+      if (res.ok) {
+        const data = await res.json()
+        setCalendars(data.calendars || [])
+        setConnected(true)
+        // Auto-select all if none selected yet
+        if (selectedCals.length === 0) {
+          const all = (data.calendars || []).map(c => c.id)
+          setSelectedCals(all)
+          localStorage.setItem(SELECTED_CALS_KEY, JSON.stringify(all))
+        }
+      }
+    } catch {}
+    setLoading(false)
+  }
+
+  function toggleCalendar(id) {
+    const updated = selectedCals.includes(id)
+      ? selectedCals.filter(c => c !== id)
+      : [...selectedCals, id]
+    setSelectedCals(updated)
+    localStorage.setItem(SELECTED_CALS_KEY, JSON.stringify(updated))
+  }
+
+  function addRental(e) {
+    e.preventDefault()
+    if (!newRental.calendarId || !newRental.name) return
+    const updated = [...rentalCals, { ...newRental }]
+    localStorage.setItem(RENTAL_CAL_KEY, JSON.stringify(updated))
+    setRentalCals(updated)
+    setNewRental({ calendarId: '', name: '', checkoutTime: '10:00', cleaningTime: '11:00' })
+  }
+
+  function removeRental(idx) {
+    const updated = rentalCals.filter((_, i) => i !== idx)
+    localStorage.setItem(RENTAL_CAL_KEY, JSON.stringify(updated))
+    setRentalCals(updated)
+  }
+
+  if (!connected && !loading) {
+    return (
+      <Section title="Google Calendar" desc="Connect Gmail OAuth to enable calendar features.">
+        <p className="text-sm text-gray-500">Not connected. Add GMAIL_CLIENT_ID, GMAIL_CLIENT_SECRET, GMAIL_REFRESH_TOKEN to Vercel.</p>
+      </Section>
+    )
+  }
+
+  return (
+    <Section title="Google Calendar" desc="Choose which calendars to show on the Schedule page and set up rental turnovers.">
+      {loading && <p className="text-sm text-gray-500">Loading calendars...</p>}
+
+      {/* Calendar selection */}
+      {calendars.length > 0 && (
+        <div>
+          <h3 className="text-xs text-gray-500 uppercase tracking-wider mb-2">Visible Calendars</h3>
+          <div className="space-y-1">
+            {calendars.map(cal => (
+              <label key={cal.id} className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-800 cursor-pointer">
+                <input type="checkbox" checked={selectedCals.includes(cal.id)} onChange={() => toggleCalendar(cal.id)}
+                  className="rounded border-gray-600" />
+                <span className="w-3 h-3 rounded" style={{ backgroundColor: cal.backgroundColor || '#4285f4' }} />
+                <div className="flex-1 min-w-0">
+                  <span className="text-sm text-white">{cal.summaryOverride || cal.summary}</span>
+                  {cal.primary && <span className="text-xs text-gray-500 ml-2">(primary)</span>}
+                  {cal.accessRole === 'reader' && <span className="text-xs text-gray-600 ml-2">(read-only)</span>}
+                </div>
+              </label>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Rental property setup */}
+      <div>
+        <h3 className="text-xs text-gray-500 uppercase tracking-wider mb-2">Rental Properties (Airbnb/VRBO Turnovers)</h3>
+        <p className="text-xs text-gray-600 mb-3">
+          Add rental iCal calendars to auto-detect guest checkouts and schedule cleanings.
+          First subscribe to the iCal URL in Google Calendar, then select it here.
+        </p>
+
+        {rentalCals.length > 0 && (
+          <div className="space-y-2 mb-4">
+            {rentalCals.map((cal, i) => (
+              <div key={i} className="flex items-center justify-between bg-gray-800/50 rounded-lg px-3 py-2">
+                <div>
+                  <span className="text-sm text-white">{cal.name}</span>
+                  <span className="text-xs text-gray-500 ml-2">Checkout {cal.checkoutTime} / Clean {cal.cleaningTime}</span>
+                </div>
+                <button onClick={() => removeRental(i)} className="text-xs text-gray-500 hover:text-red-400">Remove</button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        <form onSubmit={addRental} className="grid grid-cols-1 md:grid-cols-4 gap-3 items-end">
+          <div>
+            <label className="block text-xs text-gray-500 mb-1">Calendar</label>
+            <select value={newRental.calendarId} onChange={e => {
+              const cal = calendars.find(c => c.id === e.target.value)
+              setNewRental({ ...newRental, calendarId: e.target.value, name: cal?.summaryOverride || cal?.summary || '' })
+            }} className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-sm text-white">
+              <option value="">Select...</option>
+              {calendars.map(c => <option key={c.id} value={c.id}>{c.summaryOverride || c.summary}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs text-gray-500 mb-1">Property Name</label>
+            <input value={newRental.name} onChange={e => setNewRental({ ...newRental, name: e.target.value })}
+              placeholder="e.g. Spin Drift"
+              className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-sm text-white" />
+          </div>
+          <div>
+            <label className="block text-xs text-gray-500 mb-1">Checkout / Clean time</label>
+            <div className="flex gap-1">
+              <input type="time" value={newRental.checkoutTime} onChange={e => setNewRental({ ...newRental, checkoutTime: e.target.value })}
+                className="w-full px-2 py-2 bg-gray-800 border border-gray-700 rounded-lg text-xs text-white" />
+              <input type="time" value={newRental.cleaningTime} onChange={e => setNewRental({ ...newRental, cleaningTime: e.target.value })}
+                className="w-full px-2 py-2 bg-gray-800 border border-gray-700 rounded-lg text-xs text-white" />
+            </div>
+          </div>
+          <button type="submit" disabled={!newRental.calendarId}
+            className="px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 rounded-lg text-sm font-medium text-white">
+            Add Property
+          </button>
+        </form>
+      </div>
+    </Section>
   )
 }
 
