@@ -25,11 +25,9 @@ export default function Payroll() {
     setError(null)
     try {
       const { start, end } = dateRangeWeeks(weeks)
-      const [users, timesheets, activities] = await Promise.all([
-        fetchUsers(),
-        fetchTimesheets(start, end),
-        fetchTimeActivities(start, end),
-      ])
+      const users = await fetchUsers()
+      const timesheets = await fetchTimesheets(start, end)
+      const activities = await fetchTimeActivities(start, end)
 
       const tsUsers = timesheets.data?.users || []
       const actUsers = activities.data?.timeActivitiesByUsers || []

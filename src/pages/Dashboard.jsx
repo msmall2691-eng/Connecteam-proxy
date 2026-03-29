@@ -54,12 +54,11 @@ export default function Dashboard() {
     setError(null)
     try {
       const { start, end } = dateRangeWeeks(weeks)
-      const [users, timesheets, activities, shifts] = await Promise.all([
-        fetchUsers(),
-        fetchTimesheets(start, end),
-        fetchTimeActivities(start, end),
-        fetchShifts(start, end),
-      ])
+      // Sequential to avoid Connecteam rate limits
+      const users = await fetchUsers()
+      const timesheets = await fetchTimesheets(start, end)
+      const activities = await fetchTimeActivities(start, end)
+      const shifts = await fetchShifts(start, end)
 
       const tsUsers = timesheets.data?.users || []
       let totalHours = 0

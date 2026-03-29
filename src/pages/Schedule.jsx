@@ -39,11 +39,9 @@ export default function Schedule() {
       const startStr = weekStart.toISOString().split('T')[0]
       const endStr = weekEnd.toISOString().split('T')[0]
 
-      const [usrs, shifts, activities] = await Promise.all([
-        fetchUsers(),
-        fetchShifts(startStr, endStr),
-        fetchTimeActivities(startStr, endStr),
-      ])
+      const usrs = await fetchUsers()
+      const shifts = await fetchShifts(startStr, endStr)
+      const activities = await fetchTimeActivities(startStr, endStr)
 
       setUsers(usrs)
 

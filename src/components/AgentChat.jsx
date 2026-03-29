@@ -21,11 +21,9 @@ export default function AgentChat({ onClose }) {
   async function loadContext() {
     try {
       const { start, end } = dateRangeWeeks(2)
-      const [users, timesheets, activities] = await Promise.all([
-        fetchUsers(),
-        fetchTimesheets(start, end),
-        fetchTimeActivities(start, end),
-      ])
+      const users = await fetchUsers()
+      const timesheets = await fetchTimesheets(start, end)
+      const activities = await fetchTimeActivities(start, end)
       setContext({ users, timesheets, activities, period: { start, end } })
     } catch (err) {
       console.error('Failed to load Connecteam context:', err)
