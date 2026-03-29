@@ -1,0 +1,8 @@
+{
+  "rewrites": [
+    {
+      "source": "/api/connecteam/:path*",
+      "destination": "/api/connecteam?path=:path*"
+    }
+  ]
+}
