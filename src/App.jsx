@@ -9,6 +9,7 @@ import Schedule from './pages/Schedule'
 import Payroll from './pages/Payroll'
 import Invoices from './pages/Invoices'
 import Settings from './pages/Settings'
+import Setup from './pages/Setup'
 import AgentChat from './components/AgentChat'
 
 const navItems = [
@@ -60,6 +61,17 @@ export default function App() {
             AI Agent
             {chatOpen && <span className="ml-auto text-xs text-purple-400">open</span>}
           </button>
+          <NavLink to="/setup"
+            className={({ isActive }) =>
+              `flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors ${
+                isActive ? 'bg-blue-600/20 text-blue-400' : 'text-gray-400 hover:bg-gray-800 hover:text-gray-200'
+              }`
+            }>
+            <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M11.42 15.17l-5.1-3.4a.75.75 0 010-1.28l5.1-3.4a.75.75 0 011.08.67v6.74a.75.75 0 01-1.08.67zM17.25 7.5v9" />
+            </svg>
+            Setup Wizard
+          </NavLink>
           <NavLink to="/settings"
             className={({ isActive }) =>
               `flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors ${
@@ -87,6 +99,7 @@ export default function App() {
           <Route path="/payroll" element={<Payroll />} />
           <Route path="/reports" element={<Reports />} />
           <Route path="/settings" element={<Settings />} />
+          <Route path="/setup" element={<Setup />} />
         </Routes>
       </main>
 
