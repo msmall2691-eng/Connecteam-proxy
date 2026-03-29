@@ -1,5 +1,14 @@
 {
+  "version": 2,
   "framework": null,
+  "buildCommand": "",
+  "outputDirectory": "",
+  "builds": [
+    {
+      "src": "api/connecteam.js",
+      "use": "@vercel/node"
+    }
+  ],
   "rewrites": [
     {
       "source": "/api/connecteam/:path*",

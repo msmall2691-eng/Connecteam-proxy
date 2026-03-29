@@ -1,7 +1,7 @@
-const https = require("https");
-const { URL } = require("url");
+import https from "https";
+import { URL } from "url";
 
-module.exports = async function handler(req, res) {
+export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "X-API-KEY, Content-Type");
