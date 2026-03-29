@@ -11,7 +11,7 @@ export function setApiKey(key) {
 
 // Rate limit queue — Connecteam allows ~5 requests per 10 seconds
 let lastRequestTime = 0
-const MIN_DELAY = 2200 // ms between requests
+const MIN_DELAY = 3000 // ms between requests — Connecteam allows ~5 req/10s
 
 async function rateLimitedFetch(url, options = {}) {
   const now = Date.now()
@@ -33,7 +33,7 @@ export async function apiGet(path, params = {}, retries = 3) {
 
     if (res.status === 429) {
       // Rate limited — wait and retry
-      const backoff = Math.pow(2, attempt + 1) * 1000 // 2s, 4s, 8s
+      const backoff = Math.pow(2, attempt + 1) * 2000 // 4s, 8s, 16s
       await new Promise(r => setTimeout(r, backoff))
       continue
     }
