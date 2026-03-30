@@ -1,6 +1,88 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { Link } from 'react-router-dom'
 import { getInvoices, saveInvoice, getClients, getJobs, generateInvoiceNumber } from '../lib/store'
+
+function buildInvoiceEmailHtml(inv) {
+  const itemRows = (inv.items || []).map(item =>
+    `<tr>
+      <td style="padding:8px 12px;border-bottom:1px solid #e5e7eb;color:#374151;">${item.description}</td>
+      <td style="padding:8px 12px;border-bottom:1px solid #e5e7eb;text-align:center;color:#374151;">${item.quantity}</td>
+      <td style="padding:8px 12px;border-bottom:1px solid #e5e7eb;text-align:right;color:#374151;">$${(parseFloat(item.unitPrice) || 0).toFixed(2)}</td>
+      <td style="padding:8px 12px;border-bottom:1px solid #e5e7eb;text-align:right;color:#374151;font-weight:600;">$${(parseFloat(item.total) || 0).toFixed(2)}</td>
+    </tr>`
+  ).join('');
+
+  return `
+<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;max-width:600px;margin:0 auto;background:#ffffff;border-radius:8px;overflow:hidden;">
+  <div style="background:linear-gradient(135deg,#1e40af,#3b82f6);padding:32px 24px;text-align:center;">
+    <h1 style="color:#ffffff;font-size:22px;margin:0;">Maine Cleaning Co</h1>
+    <p style="color:#bfdbfe;font-size:13px;margin:8px 0 0;">Invoice ${inv.invoiceNumber}</p>
+  </div>
+  <div style="padding:24px;">
+    <table style="width:100%;margin-bottom:20px;font-size:14px;">
+      <tr>
+        <td style="color:#6b7280;">Bill To:</td>
+        <td style="text-align:right;color:#6b7280;">Invoice Date:</td>
+      </tr>
+      <tr>
+        <td style="color:#111827;font-weight:600;padding-bottom:12px;">${inv.clientName || 'N/A'}</td>
+        <td style="text-align:right;color:#111827;padding-bottom:12px;">${inv.issueDate || 'N/A'}</td>
+      </tr>
+      ${inv.dueDate ? `<tr><td></td><td style="text-align:right;color:#6b7280;">Due Date:</td></tr><tr><td></td><td style="text-align:right;color:#dc2626;font-weight:600;">${inv.dueDate}</td></tr>` : ''}
+    </table>
+    <table style="width:100%;border-collapse:collapse;font-size:14px;margin-bottom:20px;">
+      <thead>
+        <tr style="background:#f3f4f6;">
+          <th style="padding:10px 12px;text-align:left;color:#6b7280;font-weight:600;font-size:12px;text-transform:uppercase;">Description</th>
+          <th style="padding:10px 12px;text-align:center;color:#6b7280;font-weight:600;font-size:12px;text-transform:uppercase;">Qty</th>
+          <th style="padding:10px 12px;text-align:right;color:#6b7280;font-weight:600;font-size:12px;text-transform:uppercase;">Price</th>
+          <th style="padding:10px 12px;text-align:right;color:#6b7280;font-weight:600;font-size:12px;text-transform:uppercase;">Total</th>
+        </tr>
+      </thead>
+      <tbody>${itemRows}</tbody>
+    </table>
+    <table style="width:100%;font-size:14px;margin-bottom:24px;">
+      <tr><td style="text-align:right;padding:4px 12px;color:#6b7280;">Subtotal:</td><td style="text-align:right;padding:4px 12px;color:#374151;width:100px;">$${(inv.subtotal || 0).toFixed(2)}</td></tr>
+      ${inv.taxAmount ? `<tr><td style="text-align:right;padding:4px 12px;color:#6b7280;">Tax:</td><td style="text-align:right;padding:4px 12px;color:#374151;">$${inv.taxAmount.toFixed(2)}</td></tr>` : ''}
+      <tr style="border-top:2px solid #111827;"><td style="text-align:right;padding:10px 12px;color:#111827;font-weight:700;font-size:16px;">Total Due:</td><td style="text-align:right;padding:10px 12px;color:#111827;font-weight:700;font-size:16px;">$${(inv.total || 0).toFixed(2)}</td></tr>
+    </table>
+    <div style="background:#f0f9ff;border:1px solid #bae6fd;border-radius:8px;padding:16px;font-size:13px;color:#1e40af;">
+      <strong>Payment Instructions</strong><br>
+      Please send payment via Zelle, Venmo, check, or card on file. Contact us if you have any questions.<br>
+      ${inv.dueDate ? `<strong>Payment is due by ${inv.dueDate}.</strong>` : ''}
+    </div>
+    ${inv.notes ? `<p style="margin-top:16px;font-size:13px;color:#6b7280;"><em>${inv.notes}</em></p>` : ''}
+    <p style="text-align:center;margin-top:24px;font-size:12px;color:#9ca3af;">Thank you for your business!</p>
+  </div>
+</div>`;
+}
+
+async function sendInvoiceEmail(inv) {
+  const client = getClients().find(c => c.id === inv.clientId);
+  const toEmail = client?.email;
+  if (!toEmail) {
+    throw new Error('Client does not have an email address. Please add one in Client details first.');
+  }
+
+  const html = buildInvoiceEmailHtml(inv);
+  const res = await fetch('/api/gmail', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      action: 'send',
+      to: toEmail,
+      subject: `Invoice ${inv.invoiceNumber} from Maine Cleaning Co - $${inv.total.toFixed(2)}`,
+      body: html,
+      isHtml: true,
+    }),
+  });
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || 'Failed to send email');
+  }
+  return res.json();
+}
 
 const STATUS_COLORS = {
   draft: 'bg-gray-800 text-gray-400',
@@ -16,6 +98,8 @@ export default function Invoices() {
   const [showForm, setShowForm] = useState(false)
   const [activeInvoice, setActiveInvoice] = useState(null)
   const [filterStatus, setFilterStatus] = useState('all')
+  const [sendingId, setSendingId] = useState(null)
+  const [emailStatus, setEmailStatus] = useState({})
 
   useEffect(() => { reload() }, [])
 
@@ -123,7 +207,39 @@ export default function Invoices() {
                       <button onClick={() => { saveInvoice({ ...inv, status: 'paid', paidAt: new Date().toISOString() }); reload() }}
                         className="text-xs text-gray-500 hover:text-green-400">Mark Paid</button>
                     )}
+                    {(inv.status === 'sent' || inv.status === 'overdue') && (
+                      <>
+                        <button
+                          disabled={sendingId === inv.id}
+                          onClick={async () => {
+                            setSendingId(inv.id)
+                            setEmailStatus(prev => ({ ...prev, [inv.id]: null }))
+                            try {
+                              await sendInvoiceEmail(inv)
+                              setEmailStatus(prev => ({ ...prev, [inv.id]: 'sent' }))
+                            } catch (err) {
+                              setEmailStatus(prev => ({ ...prev, [inv.id]: err.message }))
+                            } finally {
+                              setSendingId(null)
+                            }
+                          }}
+                          className="text-xs text-gray-500 hover:text-purple-400 disabled:opacity-50"
+                        >
+                          {sendingId === inv.id ? 'Sending...' : emailStatus[inv.id] === 'sent' ? 'Emailed' : 'Email Invoice'}
+                        </button>
+                        <button
+                          disabled
+                          className="text-xs text-gray-500/50 cursor-not-allowed"
+                          title="Coming soon"
+                        >
+                          Send via Square
+                        </button>
+                      </>
+                    )}
                   </div>
+                  {emailStatus[inv.id] && emailStatus[inv.id] !== 'sent' && (
+                    <p className="text-xs text-red-400 mt-1 text-right">{emailStatus[inv.id]}</p>
+                  )}
                 </td>
               </tr>
             ))}

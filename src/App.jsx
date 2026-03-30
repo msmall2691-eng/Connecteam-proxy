@@ -26,11 +26,39 @@ const navItems = [
 
 export default function App() {
   const [chatOpen, setChatOpen] = useState(false)
+  const [sidebarOpen, setSidebarOpen] = useState(false)
 
   return (
     <div className="flex h-screen bg-gray-950 text-gray-100">
+      {/* Mobile hamburger button */}
+      <button
+        onClick={() => setSidebarOpen(!sidebarOpen)}
+        className="fixed top-3 left-3 z-50 p-2 bg-gray-900 border border-gray-700 rounded-lg text-gray-300 hover:text-white md:hidden"
+        aria-label="Toggle menu"
+      >
+        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+          {sidebarOpen
+            ? <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+            : <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" />
+          }
+        </svg>
+      </button>
+
+      {/* Mobile overlay */}
+      {sidebarOpen && (
+        <div
+          className="fixed inset-0 bg-black/50 z-30 md:hidden"
+          onClick={() => setSidebarOpen(false)}
+        />
+      )}
+
       {/* Sidebar */}
-      <aside className="w-56 bg-gray-900 border-r border-gray-800 flex flex-col shrink-0">
+      <aside className={`
+        fixed inset-y-0 left-0 z-40 w-56 bg-gray-900 border-r border-gray-800 flex flex-col shrink-0
+        transform transition-transform duration-200 ease-in-out
+        md:relative md:translate-x-0
+        ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}
+      `}>
         <div className="p-4 border-b border-gray-800">
           <h1 className="text-lg font-bold text-white tracking-tight">Workflow HQ</h1>
           <p className="text-xs text-gray-500 mt-0.5">CRM & Operations</p>
@@ -38,6 +66,7 @@ export default function App() {
         <nav className="flex-1 p-3 space-y-1 overflow-y-auto">
           {navItems.map(item => (
             <NavLink key={item.to} to={item.to} end={item.to === '/'}
+              onClick={() => setSidebarOpen(false)}
               className={({ isActive }) =>
                 `flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors ${
                   isActive ? 'bg-blue-600/20 text-blue-400' : 'text-gray-400 hover:bg-gray-800 hover:text-gray-200'
@@ -90,7 +119,7 @@ export default function App() {
       </aside>
 
       {/* Main content */}
-      <main className="flex-1 overflow-auto min-w-0">
+      <main className="flex-1 overflow-auto min-w-0 pt-14 md:pt-0">
         <Routes>
           <Route path="/" element={<Dashboard />} />
           <Route path="/pipeline" element={<Pipeline />} />

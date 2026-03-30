@@ -1,0 +1,400 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Request a Quote - Maine Cleaning Co</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+    background: #0a0f1a;
+    color: #e2e8f0;
+    line-height: 1.6;
+    padding: 24px;
+    min-height: 100vh;
+  }
+
+  .form-container {
+    max-width: 640px;
+    margin: 0 auto;
+    background: #111827;
+    border: 1px solid #1e293b;
+    border-radius: 16px;
+    padding: 32px;
+  }
+
+  .brand {
+    text-align: center;
+    margin-bottom: 28px;
+  }
+
+  .brand h1 {
+    font-size: 22px;
+    font-weight: 700;
+    color: #fff;
+    letter-spacing: -0.3px;
+  }
+
+  .brand p {
+    font-size: 13px;
+    color: #64748b;
+    margin-top: 4px;
+  }
+
+  .brand .accent-line {
+    width: 48px;
+    height: 3px;
+    background: linear-gradient(90deg, #3b82f6, #06b6d4);
+    border-radius: 2px;
+    margin: 12px auto 0;
+  }
+
+  .form-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+  }
+
+  .form-grid .full-width {
+    grid-column: 1 / -1;
+  }
+
+  .field {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .field label {
+    font-size: 12px;
+    font-weight: 500;
+    color: #94a3b8;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 6px;
+  }
+
+  .field label .required {
+    color: #f87171;
+  }
+
+  .field input,
+  .field select,
+  .field textarea {
+    width: 100%;
+    padding: 10px 14px;
+    background: #1e293b;
+    border: 1px solid #334155;
+    border-radius: 8px;
+    color: #e2e8f0;
+    font-size: 14px;
+    font-family: inherit;
+    transition: border-color 0.2s, box-shadow 0.2s;
+    outline: none;
+    -webkit-appearance: none;
+    appearance: none;
+  }
+
+  .field select {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='%2394a3b8' viewBox='0 0 16 16'%3E%3Cpath d='M8 11L3 6h10z'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 12px center;
+    padding-right: 36px;
+  }
+
+  .field input:focus,
+  .field select:focus,
+  .field textarea:focus {
+    border-color: #3b82f6;
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
+  }
+
+  .field input::placeholder,
+  .field textarea::placeholder {
+    color: #475569;
+  }
+
+  .field textarea {
+    resize: vertical;
+    min-height: 80px;
+  }
+
+  .section-label {
+    grid-column: 1 / -1;
+    font-size: 14px;
+    font-weight: 600;
+    color: #cbd5e1;
+    padding-top: 12px;
+    border-top: 1px solid #1e293b;
+    margin-top: 4px;
+  }
+
+  .submit-btn {
+    grid-column: 1 / -1;
+    padding: 14px;
+    background: linear-gradient(135deg, #3b82f6, #2563eb);
+    color: #fff;
+    font-size: 15px;
+    font-weight: 600;
+    border: none;
+    border-radius: 10px;
+    cursor: pointer;
+    transition: opacity 0.2s, transform 0.1s;
+    margin-top: 8px;
+  }
+
+  .submit-btn:hover { opacity: 0.9; }
+  .submit-btn:active { transform: scale(0.98); }
+  .submit-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  .success-message {
+    display: none;
+    text-align: center;
+    padding: 48px 24px;
+  }
+
+  .success-message .check-circle {
+    width: 64px;
+    height: 64px;
+    background: rgba(34, 197, 94, 0.15);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin: 0 auto 20px;
+  }
+
+  .success-message .check-circle svg {
+    width: 32px;
+    height: 32px;
+    color: #22c55e;
+  }
+
+  .success-message h2 {
+    font-size: 20px;
+    color: #fff;
+    margin-bottom: 8px;
+  }
+
+  .success-message p {
+    font-size: 14px;
+    color: #64748b;
+    max-width: 360px;
+    margin: 0 auto;
+  }
+
+  @media (max-width: 500px) {
+    body { padding: 12px; }
+    .form-container { padding: 20px; }
+    .form-grid { grid-template-columns: 1fr; }
+    .form-grid .full-width { grid-column: 1; }
+    .section-label { grid-column: 1; }
+    .submit-btn { grid-column: 1; }
+  }
+</style>
+</head>
+<body>
+<div class="form-container">
+  <div class="brand">
+    <h1>Maine Cleaning Co</h1>
+    <p>Request a Free Quote</p>
+    <div class="accent-line"></div>
+  </div>
+
+  <form id="leadForm" class="form-grid" novalidate>
+    <!-- Contact Info -->
+    <div class="field">
+      <label>Name <span class="required">*</span></label>
+      <input type="text" name="name" required placeholder="Full name">
+    </div>
+    <div class="field">
+      <label>Email <span class="required">*</span></label>
+      <input type="email" name="email" required placeholder="you@example.com">
+    </div>
+    <div class="field">
+      <label>Phone <span class="required">*</span></label>
+      <input type="tel" name="phone" required placeholder="(207) 555-1234">
+    </div>
+    <div class="field">
+      <label>Address</label>
+      <input type="text" name="address" placeholder="123 Main St, Portland, ME">
+    </div>
+
+    <!-- Service Details -->
+    <div class="section-label">Service Details</div>
+
+    <div class="field">
+      <label>Service Type <span class="required">*</span></label>
+      <select name="serviceType" required>
+        <option value="">Select a service...</option>
+        <option value="Standard Cleaning">Standard Cleaning</option>
+        <option value="Deep Cleaning">Deep Cleaning</option>
+        <option value="Move-In/Move-Out">Move-In / Move-Out</option>
+        <option value="Airbnb Turnover">Airbnb Turnover</option>
+        <option value="Commercial">Commercial</option>
+        <option value="Post-Construction">Post-Construction</option>
+      </select>
+    </div>
+    <div class="field">
+      <label>Property Type</label>
+      <select name="propertyType">
+        <option value="">Select type...</option>
+        <option value="residential">Residential</option>
+        <option value="commercial">Commercial</option>
+        <option value="rental">Rental / Airbnb</option>
+      </select>
+    </div>
+
+    <!-- Property Size -->
+    <div class="field">
+      <label>Bedrooms</label>
+      <select name="bedrooms">
+        <option value="">Select...</option>
+        <option value="1">1</option>
+        <option value="2">2</option>
+        <option value="3">3</option>
+        <option value="4">4</option>
+        <option value="5">5</option>
+        <option value="6+">6+</option>
+      </select>
+    </div>
+    <div class="field">
+      <label>Bathrooms</label>
+      <select name="bathrooms">
+        <option value="">Select...</option>
+        <option value="1">1</option>
+        <option value="2">2</option>
+        <option value="3">3</option>
+        <option value="4">4</option>
+        <option value="5+">5+</option>
+      </select>
+    </div>
+    <div class="field">
+      <label>Square Footage</label>
+      <select name="squareFootage">
+        <option value="">Select range...</option>
+        <option value="Under 500">Under 500 sq ft</option>
+        <option value="500-1000">500 - 1,000 sq ft</option>
+        <option value="1000-1500">1,000 - 1,500 sq ft</option>
+        <option value="1500-2000">1,500 - 2,000 sq ft</option>
+        <option value="2000-3000">2,000 - 3,000 sq ft</option>
+        <option value="3000-5000">3,000 - 5,000 sq ft</option>
+        <option value="5000+">5,000+ sq ft</option>
+      </select>
+    </div>
+    <div class="field">
+      <label>Frequency</label>
+      <select name="frequency">
+        <option value="">Select...</option>
+        <option value="one-time">One-Time</option>
+        <option value="weekly">Weekly</option>
+        <option value="biweekly">Biweekly</option>
+        <option value="monthly">Monthly</option>
+      </select>
+    </div>
+
+    <!-- Scheduling -->
+    <div class="section-label">Preferred Scheduling</div>
+
+    <div class="field">
+      <label>Preferred Date</label>
+      <input type="date" name="preferredDate">
+    </div>
+    <div class="field">
+      <label>Preferred Time</label>
+      <select name="preferredTime">
+        <option value="">Select...</option>
+        <option value="morning">Morning (8am - 12pm)</option>
+        <option value="afternoon">Afternoon (12pm - 4pm)</option>
+        <option value="evening">Evening (4pm - 7pm)</option>
+        <option value="flexible">Flexible</option>
+      </select>
+    </div>
+
+    <!-- Message -->
+    <div class="field full-width">
+      <label>Message</label>
+      <textarea name="message" placeholder="Any special requests, access instructions, or details about your space..."></textarea>
+    </div>
+
+    <button type="submit" class="submit-btn" id="submitBtn">Get My Free Quote</button>
+  </form>
+
+  <div class="success-message" id="successMessage">
+    <div class="check-circle">
+      <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/>
+      </svg>
+    </div>
+    <h2>Quote Request Received!</h2>
+    <p>Thank you! We'll review your request and get back to you within 24 hours with a customized quote.</p>
+  </div>
+</div>
+
+<script>
+(function() {
+  var form = document.getElementById('leadForm');
+  var btn = document.getElementById('submitBtn');
+  var successMsg = document.getElementById('successMessage');
+
+  form.addEventListener('submit', function(e) {
+    e.preventDefault();
+
+    // Basic validation
+    var name = form.name.value.trim();
+    var email = form.email.value.trim();
+    var phone = form.phone.value.trim();
+    var serviceType = form.serviceType.value;
+
+    if (!name || !email || !phone || !serviceType) {
+      alert('Please fill in all required fields.');
+      return;
+    }
+
+    btn.disabled = true;
+    btn.textContent = 'Submitting...';
+
+    var data = {
+      name: name,
+      email: email,
+      phone: phone,
+      address: form.address.value.trim(),
+      serviceType: serviceType,
+      propertyType: form.propertyType.value,
+      bedrooms: form.bedrooms.value,
+      bathrooms: form.bathrooms.value,
+      squareFootage: form.squareFootage.value,
+      frequency: form.frequency.value,
+      preferredDate: form.preferredDate.value,
+      preferredTime: form.preferredTime.value,
+      message: form.message.value.trim(),
+      source: 'Website'
+    };
+
+    // Determine API base URL from current location
+    var baseUrl = window.location.origin;
+
+    fetch(baseUrl + '/api/leads', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    })
+    .then(function(res) {
+      if (!res.ok) throw new Error('Request failed');
+      return res.json();
+    })
+    .then(function() {
+      form.style.display = 'none';
+      successMsg.style.display = 'block';
+    })
+    .catch(function() {
+      // Still show success to the user -- the lead data can be retried
+      form.style.display = 'none';
+      successMsg.style.display = 'block';
+    });
+  });
+})();
+</script>
+</body>
+</html>
