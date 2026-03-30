@@ -432,6 +432,45 @@ export function generateInvoiceNumber() {
 
 // ══════════════════════════════════════════
 // ══════════════════════════════════════════
+// RECURRING INVOICE AUTO-GENERATION
+// ══════════════════════════════════════════
+export function generateRecurringInvoices() {
+  const jobs = getJobs()
+  const invoices = getInvoices()
+  const generated = []
+
+  // Find completed recurring jobs that don't have an invoice yet
+  const completedJobs = jobs.filter(j => j.status === 'completed' && j.price)
+
+  for (const job of completedJobs) {
+    // Check if this specific job (by id) already has an invoice
+    const hasInvoice = invoices.some(inv =>
+      inv.items?.some(item => item.jobId === job.id)
+    )
+    if (hasInvoice) continue
+
+    // Auto-create invoice
+    const inv = saveInvoice({
+      invoiceNumber: generateInvoiceNumber(),
+      clientId: job.clientId,
+      clientName: job.clientName,
+      propertyId: job.propertyId,
+      status: 'draft',
+      issueDate: new Date().toISOString().split('T')[0],
+      dueDate: new Date(Date.now() + 30 * 86400000).toISOString().split('T')[0],
+      subtotal: job.price,
+      taxRate: 0,
+      taxAmount: 0,
+      total: job.price,
+      items: [{ jobId: job.id, description: `${job.title} (${job.date})`, quantity: 1, unitPrice: job.price, total: job.price }],
+    })
+    generated.push(inv)
+  }
+
+  return generated
+}
+
+// ══════════════════════════════════════════
 // PROPERTIES
 // ══════════════════════════════════════════
 export async function getPropertiesAsync(clientId = null) {

@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>My Cleaning Schedule — The Maine Cleaning Co.</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f8fafc; color: #1e293b; line-height: 1.6; }
+  .container { max-width: 640px; margin: 0 auto; padding: 24px 16px; }
+  .header { text-align: center; padding: 32px 0; }
+  .header h1 { font-size: 20px; color: #1e40af; }
+  .header p { font-size: 14px; color: #64748b; margin-top: 4px; }
+  .card { background: white; border: 1px solid #e2e8f0; border-radius: 12px; padding: 20px; margin-bottom: 16px; }
+  .card h2 { font-size: 14px; color: #64748b; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 12px; }
+  .job { display: flex; justify-content: space-between; align-items: center; padding: 12px 0; border-bottom: 1px solid #f1f5f9; }
+  .job:last-child { border: none; }
+  .job-title { font-weight: 600; color: #0f172a; }
+  .job-date { font-size: 13px; color: #64748b; }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 6px; font-size: 11px; font-weight: 600; }
+  .badge-scheduled { background: #dbeafe; color: #1d4ed8; }
+  .badge-paid { background: #dcfce7; color: #16a34a; }
+  .badge-sent { background: #fef3c7; color: #d97706; }
+  .badge-overdue { background: #fee2e2; color: #dc2626; }
+  .badge-draft { background: #f1f5f9; color: #64748b; }
+  .invoice { display: flex; justify-content: space-between; align-items: center; padding: 12px 0; border-bottom: 1px solid #f1f5f9; }
+  .invoice:last-child { border: none; }
+  .amount { font-weight: 700; font-size: 16px; }
+  .pay-btn { display: inline-block; padding: 8px 16px; background: #1e40af; color: white; border-radius: 8px; text-decoration: none; font-size: 13px; font-weight: 600; }
+  .pay-btn:hover { background: #1d4ed8; }
+  .empty { text-align: center; padding: 24px; color: #94a3b8; font-size: 14px; }
+  .footer { text-align: center; padding: 24px 0; font-size: 12px; color: #94a3b8; }
+  .loading { text-align: center; padding: 60px; color: #94a3b8; }
+</style>
+</head>
+<body>
+<div class="container">
+  <div class="header">
+    <h1>The Maine Cleaning Co.</h1>
+    <p id="clientName">Loading...</p>
+  </div>
+
+  <div id="content" style="display:none">
+    <div class="card">
+      <h2>Upcoming Cleanings</h2>
+      <div id="jobs"></div>
+    </div>
+
+    <div class="card">
+      <h2>Invoices</h2>
+      <div id="invoices"></div>
+    </div>
+  </div>
+
+  <div id="loading" class="loading">Loading your information...</div>
+  <div id="error" style="display:none" class="empty"></div>
+
+  <div class="footer">
+    The Maine Cleaning & Property Management Co.<br>
+    (207) 572-0502 · info@maine-clean.co
+  </div>
+</div>
+
+<script>
+(function() {
+  const params = new URLSearchParams(window.location.search)
+  const clientId = params.get('id')
+
+  if (!clientId) {
+    document.getElementById('loading').style.display = 'none'
+    document.getElementById('error').style.display = 'block'
+    document.getElementById('error').textContent = 'Invalid link. Please contact us for your portal URL.'
+    return
+  }
+
+  fetch('/api/portal?clientId=' + clientId)
+    .then(r => r.json())
+    .then(data => {
+      document.getElementById('loading').style.display = 'none'
+
+      if (data.error) {
+        document.getElementById('error').style.display = 'block'
+        document.getElementById('error').textContent = 'Could not load your information. Please contact us.'
+        return
+      }
+
+      document.getElementById('content').style.display = 'block'
+      document.getElementById('clientName').textContent = 'Welcome, ' + data.client.name
+
+      // Render jobs
+      const jobsDiv = document.getElementById('jobs')
+      if (data.upcomingJobs.length === 0) {
+        jobsDiv.innerHTML = '<p class="empty">No upcoming cleanings scheduled.</p>'
+      } else {
+        data.upcomingJobs.forEach(j => {
+          const date = new Date(j.date + 'T12:00:00')
+          jobsDiv.innerHTML += '<div class="job"><div><div class="job-title">' + j.title + '</div><div class="job-date">' + date.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' }) + (j.startTime ? ' at ' + j.startTime : '') + '</div></div><span class="badge badge-scheduled">' + j.status + '</span></div>'
+        })
+      }
+
+      // Render invoices
+      const invDiv = document.getElementById('invoices')
+      if (data.invoices.length === 0) {
+        invDiv.innerHTML = '<p class="empty">No invoices.</p>'
+      } else {
+        data.invoices.forEach(i => {
+          let actions = '<span class="badge badge-' + i.status + '">' + i.status + '</span>'
+          if (i.paymentUrl && (i.status === 'sent' || i.status === 'overdue')) {
+            actions = '<a href="' + i.paymentUrl + '" class="pay-btn" target="_blank">Pay $' + i.total.toFixed(2) + '</a>'
+          }
+          invDiv.innerHTML += '<div class="invoice"><div><div class="job-title">' + i.invoiceNumber + '</div><div class="job-date">' + i.issueDate + (i.dueDate ? ' · Due ' + i.dueDate : '') + '</div></div><div style="text-align:right"><div class="amount">$' + i.total.toFixed(2) + '</div>' + actions + '</div></div>'
+        })
+      }
+    })
+    .catch(() => {
+      document.getElementById('loading').style.display = 'none'
+      document.getElementById('error').style.display = 'block'
+      document.getElementById('error').textContent = 'Something went wrong. Please try again.'
+    })
+})()
+</script>
+</body>
+</html>
