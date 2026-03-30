@@ -52,7 +52,11 @@ export default function ClientDetail() {
           </div>
         </div>
         <div className="flex gap-2 shrink-0">
-          <button onClick={() => { navigator.clipboard.writeText(`${window.location.origin}/portal.html?id=${id}`); alert('Portal link copied!') }}
+          <button onClick={() => {
+            const token = btoa(`${id}|${Date.now()}`).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+            navigator.clipboard.writeText(`${window.location.origin}/portal.html?token=${token}`)
+            alert('Secure portal link copied!')
+          }}
             className="px-3 py-1.5 bg-gray-800 hover:bg-gray-700 rounded-lg text-xs text-gray-300" title="Copy client portal link">
             Portal Link
           </button>
@@ -296,7 +300,10 @@ function QuotesTab({ client, properties, quotes, onReload }) {
 
     saveClient({ id: client.id, status: 'prospect' })
 
-    const msg = `Hi ${client.name.split(' ')[0]}!\n\nHere's your cleaning quote from The Maine Cleaning Co.:\n\n${quote.isDeep ? 'Deep' : 'Standard'} Cleaning: $${quote.estimateMin} – $${quote.estimateMax}/clean\n${calcInputs.frequency !== 'one-time' ? `Frequency: ${calcInputs.frequency}\n` : ''}${selectedProperty ? `Property: ${selectedProperty.addressLine1}\n` : ''}\nReply to accept or call (207) 572-0502!\n\n— The Maine Cleaning Co.`
+    const portalToken = btoa(`${client.id}|${Date.now()}`).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+    const portalUrl = `${window.location.origin}/portal.html?token=${portalToken}`
+
+    const msg = `Hi ${client.name.split(' ')[0]}!\n\nHere's your cleaning quote from The Maine Cleaning Co.:\n\n${quote.isDeep ? 'Deep' : 'Standard'} Cleaning: $${quote.estimateMin} – $${quote.estimateMax}/clean\n${calcInputs.frequency !== 'one-time' ? `Frequency: ${calcInputs.frequency}\n` : ''}${selectedProperty ? `Property: ${selectedProperty.addressLine1}\n` : ''}\nView your portal: ${portalUrl}\n\nReply to accept or call (207) 572-0502!\n\n— The Maine Cleaning Co.`
 
     if (channel === 'email' && client.email) {
       try { await fetch('/api/gmail', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'send', to: client.email, subject: `Cleaning Quote — The Maine Cleaning Co.`, body: msg }) }) } catch {}

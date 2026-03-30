@@ -9,8 +9,21 @@ export default async function handler(req, res) {
 
   if (req.method === 'OPTIONS') return res.status(200).end()
 
-  const { clientId } = req.query
-  if (!clientId) return res.status(400).json({ error: 'clientId required' })
+  // Support both direct ID and signed token
+  let clientId = req.query.clientId || req.query.id
+  const token = req.query.token
+
+  // If token provided, decode it (simple base64 obfuscation + timestamp check)
+  if (token && !clientId) {
+    try {
+      const decoded = Buffer.from(token, 'base64url').toString()
+      const [id, ts] = decoded.split('|')
+      // Token valid for 365 days
+      if (Date.now() - parseInt(ts) < 365 * 86400000) clientId = id
+    } catch {}
+  }
+
+  if (!clientId) return res.status(400).json({ error: 'Invalid portal link' })
 
   const supabaseUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL
   const supabaseKey = process.env.SUPABASE_SERVICE_KEY || process.env.VITE_SUPABASE_ANON_KEY

@@ -52,7 +52,10 @@ function buildInvoiceEmailHtml(inv) {
       ${inv.dueDate ? `<strong>Payment is due by ${inv.dueDate}.</strong>` : ''}
     </div>
     ${inv.notes ? `<p style="margin-top:16px;font-size:13px;color:#6b7280;"><em>${inv.notes}</em></p>` : ''}
-    <p style="text-align:center;margin-top:24px;font-size:12px;color:#9ca3af;">Thank you for your business!</p>
+    <div style="text-align:center;margin-top:24px;">
+      <a href="${window.location.origin}/portal.html?token=${btoa(inv.clientId + '|' + Date.now()).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')}" style="display:inline-block;padding:10px 24px;background:#1e40af;color:white;border-radius:8px;text-decoration:none;font-size:14px;font-weight:600;">View Your Portal</a>
+    </div>
+    <p style="text-align:center;margin-top:12px;font-size:12px;color:#9ca3af;">Thank you for your business!</p>
   </div>
 </div>`;
 }

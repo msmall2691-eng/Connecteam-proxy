@@ -65,15 +65,17 @@
 (function() {
   const params = new URLSearchParams(window.location.search)
   const clientId = params.get('id')
+  const token = params.get('token')
 
-  if (!clientId) {
+  if (!clientId && !token) {
     document.getElementById('loading').style.display = 'none'
     document.getElementById('error').style.display = 'block'
     document.getElementById('error').textContent = 'Invalid link. Please contact us for your portal URL.'
     return
   }
 
-  fetch('/api/portal?clientId=' + clientId)
+  var portalUrl = token ? '/api/portal?token=' + token : '/api/portal?clientId=' + clientId
+  fetch(portalUrl)
     .then(r => r.json())
     .then(data => {
       document.getElementById('loading').style.display = 'none'
