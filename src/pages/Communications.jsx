@@ -11,10 +11,11 @@ export default function Communications() {
   const [filterChannel, setFilterChannel] = useState('all')
   const [showNew, setShowNew] = useState(false)
   const [newConvo, setNewConvo] = useState({ clientId: '', subject: '', channel: 'email' })
-  const [gmailMessages, setGmailMessages] = useState([])
+  const [gmailEmails, setGmailEmails] = useState([])
   const [gmailLoading, setGmailLoading] = useState(false)
   const [sending, setSending] = useState(false)
   const [sendError, setSendError] = useState(null)
+  const [viewMode, setViewMode] = useState('conversations') // 'conversations' | 'inbox'
   const bottomRef = useRef(null)
 
   useEffect(() => { reload() }, [])
@@ -32,71 +33,43 @@ export default function Communications() {
     }
   }
 
-  async function fetchGmail() {
+  // Fetch Gmail inbox
+  async function fetchGmail(query = '') {
     setGmailLoading(true)
     try {
-      const res = await fetch('/api/gmail?action=list&maxResults=20')
+      const q = query || ''
+      const res = await fetch(`/api/gmail?action=list&maxResults=30${q ? `&q=${encodeURIComponent(q)}` : ''}`)
       if (res.ok) {
         const data = await res.json()
-        setGmailMessages(data.messages || [])
+        // Match emails to known clients
+        const enriched = (data.messages || []).map(m => {
+          const fromEmail = m.from.match(/<(.+)>/)?.[1] || m.from
+          const clientMatch = Object.values(clients).find(c => c.email && fromEmail.toLowerCase().includes(c.email.toLowerCase()))
+          return { ...m, clientMatch, fromEmail, fromName: m.from.split('<')[0].trim() }
+        })
+        setGmailEmails(enriched)
       }
     } catch {}
     setGmailLoading(false)
   }
 
-  async function importGmailThread(gmail) {
-    // Find or create client by email
-    const fromEmail = gmail.from.match(/<(.+)>/)?.[1] || gmail.from
-    const clientList = Object.values(clients)
-    let client = clientList.find(c => c.email && fromEmail.includes(c.email))
-
-    if (!client) {
-      // Create conversation without client match
-      const convo = saveConversation({
-        clientId: '',
-        subject: gmail.subject,
-        channel: 'email',
-        gmailThreadId: gmail.threadId,
-        messages: [],
-      })
-
-      // Fetch thread content
-      try {
-        const res = await fetch(`/api/gmail?action=thread&threadId=${gmail.threadId}`)
-        if (res.ok) {
-          const data = await res.json()
-          for (const msg of data.messages || []) {
-            const isInbound = !msg.from.includes(Object.values(clients)[0]?.email || '')
-            addMessage(convo.id, {
-              content: msg.body || msg.snippet,
-              direction: isInbound ? 'inbound' : 'outbound',
-              sender: msg.from.split('<')[0].trim(),
-              channel: 'email',
-              gmailMessageId: msg.id,
-            })
-          }
-        }
-      } catch {}
-
-      reload()
-      return
-    }
-
-    // Create conversation for matched client
+  // Import a Gmail thread into a client conversation
+  async function importThread(email) {
+    const client = email.clientMatch
     const convo = saveConversation({
-      clientId: client.id,
-      subject: gmail.subject,
+      clientId: client?.id || '',
+      subject: email.subject,
       channel: 'email',
-      gmailThreadId: gmail.threadId,
+      gmailThreadId: email.threadId,
       messages: [],
     })
 
     try {
-      const res = await fetch(`/api/gmail?action=thread&threadId=${gmail.threadId}`)
+      const res = await fetch(`/api/gmail?action=thread&threadId=${email.threadId}`)
       if (res.ok) {
         const data = await res.json()
         for (const msg of data.messages || []) {
-          const isInbound = msg.from.includes(fromEmail)
+          const isInbound = !msg.from.includes('maine-clean') && !msg.from.includes('info@')
           addMessage(convo.id, {
             content: msg.body || msg.snippet,
             direction: isInbound ? 'inbound' : 'outbound',
@@ -109,6 +82,8 @@ export default function Communications() {
     } catch {}
 
     reload()
+    setActive(getConversations().find(c => c.id === convo.id))
+    setViewMode('conversations')
   }
 
   async function sendMessage(e) {
@@ -119,95 +94,52 @@ export default function Communications() {
 
     const client = clients[active.clientId]
 
-    // If email channel and Gmail configured, try sending via Gmail
+    // Email via Gmail
     if (active.channel === 'email' && client?.email) {
       try {
         const res = await fetch('/api/gmail', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            action: 'send',
-            to: client.email,
-            subject: active.subject,
-            body: newMsg.trim(),
-            threadId: active.gmailThreadId || undefined,
-          }),
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'send', to: client.email, subject: active.subject, body: newMsg.trim(), threadId: active.gmailThreadId || undefined }),
         })
         if (res.ok) {
           const data = await res.json()
-          addMessage(active.id, {
-            content: newMsg.trim(),
-            direction: 'outbound',
-            sender: 'You',
-            channel: 'email',
-            gmailMessageId: data.messageId,
-          })
-          setNewMsg('')
-          reload()
-          setSending(false)
-          return
-        } else {
-          const err = await res.json().catch(() => ({}))
-          setSendError(err.error || 'Failed to send email')
-        }
-      } catch (err) {
-        setSendError(err.message || 'Failed to send email')
-      }
+          addMessage(active.id, { content: newMsg.trim(), direction: 'outbound', sender: 'You', channel: 'email', gmailMessageId: data.messageId })
+          setNewMsg(''); reload(); setSending(false); return
+        } else { const err = await res.json().catch(() => ({})); setSendError(err.error || 'Email failed') }
+      } catch (err) { setSendError(err.message || 'Email failed') }
     }
 
-    // If text channel and Twilio configured, try sending via Twilio
+    // SMS via Twilio
     if (active.channel === 'text' && client?.phone) {
       try {
         const res = await fetch('/api/sms', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            action: 'send',
-            to: client.phone,
-            body: newMsg.trim(),
-          }),
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'send', to: client.phone, body: newMsg.trim() }),
         })
         if (res.ok) {
           const data = await res.json()
-          addMessage(active.id, {
-            content: newMsg.trim(),
-            direction: 'outbound',
-            sender: 'You',
-            channel: 'text',
-            twilioSid: data.sid,
-          })
-          setNewMsg('')
-          reload()
-          setSending(false)
-          return
-        } else {
-          const err = await res.json().catch(() => ({}))
-          setSendError(err.error || 'Failed to send SMS')
-        }
-      } catch (err) {
-        setSendError(err.message || 'Failed to send SMS')
-      }
+          addMessage(active.id, { content: newMsg.trim(), direction: 'outbound', sender: 'You', channel: 'text', twilioSid: data.sid })
+          setNewMsg(''); reload(); setSending(false); return
+        } else { const err = await res.json().catch(() => ({})); setSendError(err.error || 'SMS failed') }
+      } catch (err) { setSendError(err.message || 'SMS failed') }
     }
 
-    // Fallback: just log locally
+    // Fallback: local
     addMessage(active.id, { content: newMsg.trim(), direction: 'outbound', sender: 'You' })
-    setNewMsg('')
-    reload()
-    setSending(false)
+    setNewMsg(''); reload(); setSending(false)
   }
 
   function logInbound() {
     if (!active) return
-    const content = prompt('Paste or type the message received:')
+    const content = prompt('Paste the message received:')
     if (!content) return
-    const sender = clients[active.clientId]?.name || 'Client'
-    addMessage(active.id, { content, direction: 'inbound', sender })
+    addMessage(active.id, { content, direction: 'inbound', sender: clients[active.clientId]?.name || 'Client' })
     reload()
   }
 
   function createConvo(e) {
     e.preventDefault()
-    if (!newConvo.clientId) return
+    if (!newConvo.clientId || !newConvo.subject.trim()) return
     saveConversation({ ...newConvo, messages: [] })
     setShowNew(false)
     setNewConvo({ clientId: '', subject: '', channel: 'email' })
@@ -218,57 +150,62 @@ export default function Communications() {
     if (filterChannel !== 'all' && c.channel !== filterChannel) return false
     if (search) {
       const s = search.toLowerCase()
-      const clientName = clients[c.clientId]?.name || ''
-      return clientName.toLowerCase().includes(s) || c.subject?.toLowerCase().includes(s) || c.lastMessage?.toLowerCase().includes(s)
+      const name = clients[c.clientId]?.name || ''
+      return name.toLowerCase().includes(s) || c.subject?.toLowerCase().includes(s) || c.lastMessage?.toLowerCase().includes(s)
     }
     return true
   })
 
   const clientList = Object.values(clients)
+  const CHANNEL_COLORS = { email: 'bg-blue-900/30 text-blue-400', text: 'bg-green-900/30 text-green-400', phone: 'bg-yellow-900/30 text-yellow-400', 'in-person': 'bg-gray-800 text-gray-400' }
 
   return (
     <div className="flex h-full">
-      {/* Sidebar */}
-      <div className="w-72 border-r border-gray-800 flex flex-col bg-gray-900/50">
+      {/* Left panel */}
+      <div className="w-80 border-r border-gray-800 flex flex-col bg-gray-900/50">
+        {/* Header */}
         <div className="p-3 space-y-2 border-b border-gray-800">
           <div className="flex items-center justify-between">
-            <h2 className="text-sm font-semibold text-white">Messages</h2>
-            <div className="flex gap-1">
-              <button onClick={fetchGmail} disabled={gmailLoading}
-                className="text-xs text-blue-400 hover:text-blue-300 disabled:opacity-50">
-                {gmailLoading ? 'Syncing...' : 'Sync Gmail'}
-              </button>
-              <span className="text-gray-700">|</span>
-              <button onClick={() => setShowNew(true)} className="text-xs text-blue-400 hover:text-blue-300">+ New</button>
-            </div>
+            <h2 className="text-sm font-semibold text-white">Communications</h2>
+            <button onClick={() => setShowNew(true)} className="text-xs text-blue-400 hover:text-blue-300">+ New</button>
           </div>
-          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search conversations..."
+
+          {/* View toggle */}
+          <div className="flex gap-0.5 bg-gray-800 rounded-lg p-0.5">
+            <button onClick={() => setViewMode('conversations')} className={`flex-1 px-2 py-1 rounded text-xs ${viewMode === 'conversations' ? 'bg-gray-700 text-white' : 'text-gray-500'}`}>Threads</button>
+            <button onClick={() => { setViewMode('inbox'); if (gmailEmails.length === 0) fetchGmail() }} className={`flex-1 px-2 py-1 rounded text-xs ${viewMode === 'inbox' ? 'bg-gray-700 text-white' : 'text-gray-500'}`}>Gmail</button>
+          </div>
+
+          <input value={search} onChange={e => setSearch(e.target.value)}
+            placeholder={viewMode === 'inbox' ? 'Search Gmail...' : 'Search threads...'}
+            onKeyDown={e => { if (e.key === 'Enter' && viewMode === 'inbox') fetchGmail(search) }}
             className="w-full px-2.5 py-1.5 bg-gray-800 border border-gray-700 rounded-lg text-xs text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500" />
-          <div className="flex gap-1">
-            {['all', 'email', 'text', 'phone'].map(ch => (
-              <button key={ch} onClick={() => setFilterChannel(ch)}
-                className={`px-2 py-1 rounded text-xs transition-colors ${filterChannel === ch ? 'bg-blue-600/20 text-blue-400' : 'text-gray-500 hover:text-gray-300'}`}>
-                {ch === 'all' ? 'All' : ch.charAt(0).toUpperCase() + ch.slice(1)}
-              </button>
-            ))}
-          </div>
+
+          {viewMode === 'conversations' && (
+            <div className="flex gap-1">
+              {['all', 'email', 'text', 'phone'].map(ch => (
+                <button key={ch} onClick={() => setFilterChannel(ch)}
+                  className={`px-2 py-1 rounded text-xs ${filterChannel === ch ? 'bg-blue-600/20 text-blue-400' : 'text-gray-500 hover:text-gray-300'}`}>
+                  {ch === 'all' ? 'All' : ch.charAt(0).toUpperCase() + ch.slice(1)}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
 
+        {/* New conversation form */}
         {showNew && (
           <form onSubmit={createConvo} className="p-3 border-b border-gray-800 space-y-2 bg-gray-900">
             <select required value={newConvo.clientId} onChange={e => setNewConvo({ ...newConvo, clientId: e.target.value })}
-              className="w-full px-2.5 py-1.5 bg-gray-800 border border-gray-700 rounded-lg text-xs text-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+              className="w-full px-2.5 py-1.5 bg-gray-800 border border-gray-700 rounded-lg text-xs text-white">
               <option value="">Select client...</option>
               {clientList.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
             <input required value={newConvo.subject} onChange={e => setNewConvo({ ...newConvo, subject: e.target.value })}
               placeholder="Subject" className="w-full px-2.5 py-1.5 bg-gray-800 border border-gray-700 rounded-lg text-xs text-white focus:outline-none focus:ring-2 focus:ring-blue-500" />
             <select value={newConvo.channel} onChange={e => setNewConvo({ ...newConvo, channel: e.target.value })}
-              className="w-full px-2.5 py-1.5 bg-gray-800 border border-gray-700 rounded-lg text-xs text-white focus:outline-none focus:ring-2 focus:ring-blue-500">
-              <option value="email">Email</option>
-              <option value="text">Text/SMS</option>
-              <option value="phone">Phone</option>
-              <option value="in-person">In-Person</option>
+              className="w-full px-2.5 py-1.5 bg-gray-800 border border-gray-700 rounded-lg text-xs text-white">
+              <option value="email">Email</option><option value="text">Text/SMS</option><option value="phone">Phone</option>
             </select>
             <div className="flex gap-2">
               <button type="submit" className="px-2.5 py-1 bg-blue-600 rounded text-xs text-white">Create</button>
@@ -277,125 +214,116 @@ export default function Communications() {
           </form>
         )}
 
-        {/* Gmail imports */}
-        {gmailMessages.length > 0 && (
-          <div className="border-b border-gray-800">
-            <div className="px-3 py-2 text-xs text-gray-500 uppercase tracking-wider bg-gray-900">Gmail Inbox</div>
-            <div className="max-h-48 overflow-y-auto">
-              {gmailMessages.map(m => (
-                <button key={m.id} onClick={() => importGmailThread(m)}
-                  className="w-full text-left px-3 py-2 border-b border-gray-800/30 hover:bg-gray-800/50 text-xs">
-                  <div className="flex justify-between">
-                    <span className="text-gray-300 truncate">{m.from.split('<')[0].trim()}</span>
-                    <span className="text-gray-600 shrink-0 ml-2">{new Date(m.date).toLocaleDateString()}</span>
+        {/* List */}
+        <div className="flex-1 overflow-y-auto">
+          {viewMode === 'conversations' && (
+            <>
+              {filtered.length === 0 && <p className="p-4 text-sm text-gray-500 text-center">No conversations</p>}
+              {filtered.map(c => {
+                const client = clients[c.clientId]
+                return (
+                  <button key={c.id} onClick={() => setActive(c)}
+                    className={`w-full text-left px-3 py-3 border-b border-gray-800/50 transition-colors ${active?.id === c.id ? 'bg-blue-600/10' : 'hover:bg-gray-800/50'}`}>
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm font-medium text-white truncate">{client?.name || 'Unknown'}</span>
+                      <span className={`shrink-0 px-1.5 py-0.5 rounded text-xs ${CHANNEL_COLORS[c.channel] || 'bg-gray-800 text-gray-400'}`}>{c.channel}</span>
+                    </div>
+                    <p className="text-xs text-gray-400 mt-0.5 truncate">{c.subject}</p>
+                    <p className="text-xs text-gray-600 mt-0.5 truncate">{c.lastMessage || 'No messages'}</p>
+                  </button>
+                )
+              })}
+            </>
+          )}
+
+          {viewMode === 'inbox' && (
+            <>
+              {gmailLoading && <p className="p-4 text-xs text-gray-500 text-center">Loading Gmail...</p>}
+              {!gmailLoading && gmailEmails.length === 0 && <p className="p-4 text-xs text-gray-500 text-center">Click to load Gmail or search above</p>}
+              {gmailEmails.map(em => (
+                <button key={em.id} onClick={() => importThread(em)}
+                  className="w-full text-left px-3 py-3 border-b border-gray-800/50 hover:bg-gray-800/50">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-white truncate">{em.fromName}</span>
+                    <div className="flex items-center gap-1 shrink-0">
+                      {em.clientMatch && <span className="px-1 py-0.5 rounded text-xs bg-green-900/30 text-green-400">Client</span>}
+                      <span className="text-xs text-gray-600">{em.date ? new Date(em.date).toLocaleDateString() : ''}</span>
+                    </div>
                   </div>
-                  <p className="text-gray-400 truncate">{m.subject}</p>
-                  <p className="text-gray-600 truncate">{m.snippet}</p>
+                  <p className="text-xs text-gray-300 mt-0.5 truncate">{em.subject}</p>
+                  <p className="text-xs text-gray-600 mt-0.5 truncate">{em.snippet}</p>
+                  {em.clientMatch && <p className="text-xs text-green-500 mt-0.5">→ {em.clientMatch.name}</p>}
                 </button>
               ))}
-            </div>
-          </div>
-        )}
-
-        {/* Conversation list */}
-        <div className="flex-1 overflow-y-auto">
-          {filtered.length === 0 && (
-            <p className="p-4 text-sm text-gray-500 text-center">
-              {convos.length === 0 ? 'No conversations yet.' : 'No results.'}
-            </p>
+            </>
           )}
-          {filtered.map(c => {
-            const client = clients[c.clientId]
-            return (
-              <button key={c.id} onClick={() => setActive(c)}
-                className={`w-full text-left px-3 py-3 border-b border-gray-800/50 transition-colors ${active?.id === c.id ? 'bg-blue-600/10' : 'hover:bg-gray-800/50'}`}>
-                <div className="flex items-center justify-between">
-                  <span className="text-sm font-medium text-white truncate">{client?.name || 'Unknown'}</span>
-                  <span className={`shrink-0 px-1.5 py-0.5 rounded text-xs ${
-                    c.channel === 'email' ? 'bg-blue-900/30 text-blue-400' :
-                    c.channel === 'text' ? 'bg-green-900/30 text-green-400' :
-                    'bg-gray-800 text-gray-400'
-                  }`}>{c.channel}</span>
-                </div>
-                <p className="text-xs text-gray-400 mt-0.5 truncate">{c.subject}</p>
-                <p className="text-xs text-gray-600 mt-0.5 truncate">{c.lastMessage || 'No messages'}</p>
-              </button>
-            )
-          })}
         </div>
       </div>
 
-      {/* Main conversation area */}
+      {/* Right panel - conversation detail */}
       <div className="flex-1 flex flex-col">
         {active ? (
           <>
-            <div className="px-5 py-3 border-b border-gray-800 flex items-center justify-between bg-gray-900/50">
+            {/* Header */}
+            <div className="px-5 py-3 border-b border-gray-800 flex items-center justify-between bg-gray-900/50 shrink-0">
               <div>
                 <div className="flex items-center gap-2">
                   <h3 className="text-base font-semibold text-white">{clients[active.clientId]?.name || 'Unknown'}</h3>
-                  <span className={`px-1.5 py-0.5 rounded text-xs ${
-                    active.channel === 'email' ? 'bg-blue-900/30 text-blue-400' :
-                    active.channel === 'text' ? 'bg-green-900/30 text-green-400' :
-                    'bg-gray-800 text-gray-400'
-                  }`}>{active.channel}</span>
-                  {active.gmailThreadId && <span className="px-1.5 py-0.5 rounded text-xs bg-purple-900/30 text-purple-400">Gmail synced</span>}
+                  <span className={`px-1.5 py-0.5 rounded text-xs ${CHANNEL_COLORS[active.channel] || 'bg-gray-800 text-gray-400'}`}>{active.channel}</span>
+                  {active.gmailThreadId && <span className="px-1.5 py-0.5 rounded text-xs bg-purple-900/30 text-purple-400">Gmail</span>}
                 </div>
                 <p className="text-xs text-gray-500">{active.subject}</p>
               </div>
               <div className="flex items-center gap-2">
-                <button onClick={logInbound}
-                  className="px-3 py-1.5 bg-gray-800 hover:bg-gray-700 rounded-lg text-xs text-gray-300 transition-colors">Log Received</button>
-                {active.clientId && (
-                  <Link to={`/clients/${active.clientId}`}
-                    className="px-3 py-1.5 bg-gray-800 hover:bg-gray-700 rounded-lg text-xs text-gray-300 transition-colors">View Client</Link>
-                )}
+                <button onClick={logInbound} className="px-3 py-1.5 bg-gray-800 hover:bg-gray-700 rounded-lg text-xs text-gray-300">Log Received</button>
+                {active.clientId && <Link to={`/clients/${active.clientId}`} className="px-3 py-1.5 bg-gray-800 hover:bg-gray-700 rounded-lg text-xs text-gray-300">Client</Link>}
               </div>
             </div>
 
+            {/* Messages */}
             <div className="flex-1 overflow-y-auto p-5 space-y-3">
               {(active.messages || []).map(msg => (
                 <div key={msg.id} className={`flex ${msg.direction === 'outbound' ? 'justify-end' : 'justify-start'}`}>
-                  <div className={`max-w-[65%] rounded-xl px-4 py-2.5 text-sm ${
+                  <div className={`max-w-[70%] rounded-xl px-4 py-2.5 text-sm ${
                     msg.direction === 'outbound' ? 'bg-blue-600 text-white' : 'bg-gray-800 text-gray-300'
                   }`}>
                     <p className="whitespace-pre-wrap">{msg.content}</p>
-                    <p className={`text-xs mt-1.5 flex items-center gap-1 ${msg.direction === 'outbound' ? 'text-blue-200' : 'text-gray-500'}`}>
-                      {msg.sender} &middot; {new Date(msg.timestamp).toLocaleString()}
-                      {msg.gmailMessageId && <span className="text-purple-400">(email)</span>}
-                      {msg.twilioSid && <span className="text-green-400">(sms)</span>}
+                    <p className={`text-xs mt-1.5 ${msg.direction === 'outbound' ? 'text-blue-200' : 'text-gray-500'}`}>
+                      {msg.sender} · {msg.timestamp ? new Date(msg.timestamp).toLocaleString() : ''}
+                      {msg.channel === 'email' && <span className="ml-1 text-blue-300/60">(email)</span>}
+                      {msg.channel === 'text' && <span className="ml-1 text-green-300/60">(sms)</span>}
                     </p>
                   </div>
                 </div>
               ))}
               {(!active.messages || active.messages.length === 0) && (
-                <div className="flex items-center justify-center h-full"><p className="text-sm text-gray-500">No messages yet.</p></div>
+                <div className="flex items-center justify-center h-full"><p className="text-sm text-gray-500">No messages yet</p></div>
               )}
               <div ref={bottomRef} />
             </div>
 
-            <form onSubmit={sendMessage} className="p-4 border-t border-gray-800 bg-gray-900/50">
+            {/* Compose */}
+            <form onSubmit={sendMessage} className="p-4 border-t border-gray-800 bg-gray-900/50 shrink-0">
               <div className="flex gap-2">
                 <textarea value={newMsg} onChange={e => setNewMsg(e.target.value)}
                   onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(e) } }}
-                  placeholder={`Compose ${active.channel} message...${active.channel === 'email' ? ' (sends via Gmail)' : active.channel === 'text' ? ' (sends via Twilio)' : ''}`}
+                  placeholder={`${active.channel === 'email' ? 'Reply via email' : active.channel === 'text' ? 'Send text' : 'Type message'}...`}
                   rows={2}
                   className="flex-1 px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none" />
                 <button type="submit" disabled={!newMsg.trim() || sending}
-                  className="self-end px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 rounded-lg text-sm font-medium text-white transition-colors">
+                  className="self-end px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 rounded-lg text-sm font-medium text-white">
                   {sending ? '...' : 'Send'}
                 </button>
               </div>
-              <div className="flex items-center gap-2 mt-1">
-                <p className="text-xs text-gray-600">Enter to send, Shift+Enter for new line</p>
-                {sendError && <p className="text-xs text-red-400">{sendError}</p>}
-              </div>
+              {sendError && <p className="text-xs text-red-400 mt-1">{sendError}</p>}
+              <p className="text-xs text-gray-600 mt-1">Enter to send · Shift+Enter for new line</p>
             </form>
           </>
         ) : (
           <div className="flex items-center justify-center h-full">
-            <div className="text-center">
-              <p className="text-gray-500 text-sm">Select a conversation</p>
-              <p className="text-gray-600 text-xs mt-1">or sync Gmail / create a new one</p>
+            <div className="text-center space-y-2">
+              <p className="text-gray-500">Select a conversation</p>
+              <p className="text-xs text-gray-600">or switch to Gmail tab to import threads</p>
             </div>
           </div>
         )}
