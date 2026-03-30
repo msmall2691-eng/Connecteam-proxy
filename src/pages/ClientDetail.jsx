@@ -5,7 +5,7 @@ import { calculateQuote } from '../lib/quoteEngine'
 import PropertyForm from '../components/PropertyForm'
 import CustomFields from '../components/CustomFields'
 
-const TABS = ['overview', 'properties', 'quotes', 'conversations', 'jobs', 'invoices', 'notes']
+const TABS = ['overview', 'properties', 'quotes', 'conversations', 'jobs', 'invoices', 'documents', 'notes']
 
 export default function ClientDetail() {
   const { id } = useParams()
@@ -68,6 +68,7 @@ export default function ClientDetail() {
       {tab === 'conversations' && <ConversationsTab clientId={id} convos={convos} onReload={reload} />}
       {tab === 'jobs' && <JobsTab clientId={id} clientName={client.name} clientAddress={client.address} jobs={jobs} properties={properties} onReload={reload} />}
       {tab === 'invoices' && <InvoicesTab clientId={id} clientName={client.name} jobs={jobs} invoices={invoices} onReload={reload} />}
+      {tab === 'documents' && <DocumentsTab clientName={client.name} />}
       {tab === 'notes' && <NotesTab client={client} onSave={reload} />}
     </div>
   )
@@ -1100,6 +1101,136 @@ function InvoicesTab({ clientId, clientName, jobs, invoices, onReload }) {
           </tbody>
         </table>
       </div>
+    </div>
+  )
+}
+
+// ── DOCUMENTS TAB ──
+function DocumentsTab({ clientName }) {
+  const [files, setFiles] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [uploading, setUploading] = useState(false)
+  const [error, setError] = useState(null)
+
+  useEffect(() => { loadFiles() }, [clientName])
+
+  async function loadFiles() {
+    setLoading(true)
+    try {
+      const res = await fetch(`/api/drive?action=list&clientName=${encodeURIComponent(clientName)}`)
+      if (res.ok) {
+        const data = await res.json()
+        setFiles(data.files || [])
+      } else {
+        setError('Google Drive not connected. Add Drive scope to your Google OAuth.')
+      }
+    } catch { setError('Could not load files') }
+    setLoading(false)
+  }
+
+  async function handleUpload(e) {
+    const file = e.target.files[0]
+    if (!file) return
+    setUploading(true)
+    try {
+      const reader = new FileReader()
+      reader.onload = async (ev) => {
+        const content = ev.target.result
+        await fetch('/api/drive', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'upload', clientName, fileName: file.name, content, mimeType: file.type || 'application/octet-stream' }),
+        })
+        setUploading(false)
+        loadFiles()
+      }
+      reader.readAsText(file)
+    } catch { setUploading(false) }
+  }
+
+  async function saveNote(title, content) {
+    await fetch('/api/drive', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'save-report', clientName, title, content }),
+    })
+    loadFiles()
+  }
+
+  async function deleteFile(fileId) {
+    if (!confirm('Delete this file from Google Drive?')) return
+    await fetch('/api/drive', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'delete', fileId }),
+    })
+    loadFiles()
+  }
+
+  const FILE_ICONS = {
+    'application/vnd.google-apps.document': '📄',
+    'application/vnd.google-apps.spreadsheet': '📊',
+    'application/pdf': '📕',
+    'image/': '🖼️',
+    'text/': '📝',
+  }
+
+  function getIcon(mimeType) {
+    for (const [key, icon] of Object.entries(FILE_ICONS)) {
+      if (mimeType?.includes(key)) return icon
+    }
+    return '📎'
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <p className="text-sm text-gray-400">{files.length} file{files.length !== 1 ? 's' : ''} in Google Drive</p>
+        <div className="flex gap-2">
+          <label className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 rounded-lg text-xs font-medium text-white cursor-pointer">
+            {uploading ? 'Uploading...' : 'Upload File'}
+            <input type="file" onChange={handleUpload} className="hidden" disabled={uploading} />
+          </label>
+          <button onClick={() => {
+            const title = prompt('Document title:')
+            if (!title) return
+            const content = prompt('Content (or paste text):')
+            if (content) saveNote(title, content)
+          }} className="px-3 py-1.5 bg-gray-800 hover:bg-gray-700 rounded-lg text-xs text-gray-300">
+            + New Doc
+          </button>
+        </div>
+      </div>
+
+      {error && <p className="text-sm text-yellow-400">{error}</p>}
+      {loading && <p className="text-sm text-gray-500">Loading files...</p>}
+
+      {!loading && files.length > 0 && (
+        <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
+          {files.map(f => (
+            <div key={f.id} className="flex items-center justify-between px-4 py-3 border-b border-gray-800/50 last:border-0 hover:bg-gray-800/30">
+              <div className="flex items-center gap-3 min-w-0">
+                <span className="text-lg shrink-0">{getIcon(f.mimeType)}</span>
+                <div className="min-w-0">
+                  <a href={f.url} target="_blank" rel="noopener noreferrer" className="text-sm text-white hover:text-blue-400 truncate block">{f.name}</a>
+                  <p className="text-xs text-gray-600">{f.modifiedTime ? new Date(f.modifiedTime).toLocaleDateString() : ''} {f.size ? `· ${(f.size / 1024).toFixed(0)}KB` : ''}</p>
+                </div>
+              </div>
+              <div className="flex gap-2 shrink-0">
+                <a href={f.url} target="_blank" rel="noopener noreferrer" className="text-xs text-gray-500 hover:text-blue-400">Open</a>
+                <button onClick={() => deleteFile(f.id)} className="text-xs text-gray-500 hover:text-red-400">Delete</button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {!loading && files.length === 0 && !error && (
+        <div className="bg-gray-900 border border-gray-800 rounded-xl p-8 text-center">
+          <p className="text-gray-500 text-sm">No documents yet. Upload files or create a new doc.</p>
+          <p className="text-xs text-gray-600 mt-1">Files are stored in Google Drive → Workflow HQ → {clientName}</p>
+        </div>
+      )}
     </div>
   )
 }
