@@ -242,6 +242,8 @@ function QuotesTab({ client, properties, quotes, onReload }) {
   const [selectedProperty, setSelectedProperty] = useState(null)
   const [calcInputs, setCalcInputs] = useState({ sqft: '1500', serviceType: 'standard', frequency: 'biweekly', bathrooms: '2', petHair: 'none', condition: 'maintenance' })
   const [sending, setSending] = useState(false)
+  const [previewQuote, setPreviewQuote] = useState(null) // for viewing/editing existing quotes
+  const [editingPrice, setEditingPrice] = useState('')
 
   // Pre-fill from selected property
   function selectProperty(propId) {
@@ -444,6 +446,83 @@ function QuotesTab({ client, properties, quotes, onReload }) {
         </div>
       )}
 
+      {/* Quote preview/edit panel */}
+      {previewQuote && (
+        <div className="bg-gray-900 border border-gray-800 rounded-xl p-5 space-y-4">
+          <div className="flex justify-between items-center">
+            <h3 className="text-sm font-semibold text-white">Quote {previewQuote.quoteNumber}</h3>
+            <button onClick={() => setPreviewQuote(null)} className="text-xs text-gray-500 hover:text-gray-300">Close</button>
+          </div>
+
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+            <div><span className="text-gray-500 text-xs block">Service</span><span className="text-white capitalize">{previewQuote.serviceType}</span></div>
+            <div><span className="text-gray-500 text-xs block">Frequency</span><span className="text-white capitalize">{previewQuote.frequency}</span></div>
+            <div><span className="text-gray-500 text-xs block">Estimate</span><span className="text-white">${previewQuote.estimateMin} – ${previewQuote.estimateMax}</span></div>
+            <div><span className="text-gray-500 text-xs block">Status</span>
+              <span className={`px-2 py-0.5 rounded text-xs font-medium ${QUOTE_STATUS_COLORS[previewQuote.status]}`}>{previewQuote.status}</span>
+            </div>
+          </div>
+
+          {/* Editable final price */}
+          <div className="flex items-center gap-3">
+            <label className="text-xs text-gray-500">Final Price:</label>
+            <div className="flex items-center gap-2">
+              <span className="text-gray-500">$</span>
+              <input type="number" step="5" value={editingPrice}
+                onChange={e => setEditingPrice(e.target.value)}
+                className="w-24 px-2 py-1 bg-gray-800 border border-gray-700 rounded text-sm text-white text-right" />
+              <button onClick={() => {
+                saveQuote({ ...previewQuote, finalPrice: parseFloat(editingPrice) || previewQuote.finalPrice })
+                onReload()
+                setPreviewQuote({ ...previewQuote, finalPrice: parseFloat(editingPrice) || previewQuote.finalPrice })
+              }} className="px-2 py-1 bg-blue-600 hover:bg-blue-500 rounded text-xs text-white">Update</button>
+            </div>
+          </div>
+
+          {/* Line items */}
+          {previewQuote.items?.length > 0 && (
+            <div className="border border-gray-800 rounded-lg overflow-hidden">
+              <table className="w-full text-sm">
+                <thead><tr className="text-xs text-gray-500 bg-gray-800/50"><th className="px-3 py-2 text-left">Item</th><th className="px-3 py-2 text-right">Qty</th><th className="px-3 py-2 text-right">Price</th><th className="px-3 py-2 text-right">Total</th></tr></thead>
+                <tbody>
+                  {previewQuote.items.map((item, i) => (
+                    <tr key={i} className="border-t border-gray-800/50 text-gray-300">
+                      <td className="px-3 py-2">{item.description}</td>
+                      <td className="px-3 py-2 text-right">{item.quantity}</td>
+                      <td className="px-3 py-2 text-right font-mono">${item.unitPrice}</td>
+                      <td className="px-3 py-2 text-right font-mono">${item.total}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {previewQuote.notes && <p className="text-xs text-gray-500">Notes: {previewQuote.notes}</p>}
+          {previewQuote.sentAt && <p className="text-xs text-gray-600">Sent: {new Date(previewQuote.sentAt).toLocaleString()}</p>}
+
+          {/* Action buttons */}
+          <div className="flex gap-2 pt-2 border-t border-gray-800">
+            {previewQuote.status === 'draft' && (
+              <>
+                {client.email && <button onClick={() => { handleSendQuote('email'); setPreviewQuote(null) }} className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 rounded-lg text-xs text-white">Email Quote</button>}
+                {client.phone && <button onClick={() => { handleSendQuote('text'); setPreviewQuote(null) }} className="px-3 py-1.5 bg-green-600 hover:bg-green-500 rounded-lg text-xs text-white">Text Quote</button>}
+                <button onClick={() => { saveQuote({ ...previewQuote, status: 'sent', sentAt: new Date().toISOString() }); setPreviewQuote(null); onReload() }}
+                  className="px-3 py-1.5 bg-gray-700 rounded-lg text-xs text-gray-300">Mark Sent</button>
+              </>
+            )}
+            {previewQuote.status === 'sent' && (
+              <button onClick={() => { handleAcceptQuote(previewQuote); setPreviewQuote(null) }}
+                className="px-3 py-1.5 bg-green-600 hover:bg-green-500 rounded-lg text-xs text-white font-medium">Accept → Create Job</button>
+            )}
+            {(previewQuote.status === 'sent' || previewQuote.status === 'draft') && (
+              <button onClick={() => { saveQuote({ ...previewQuote, status: 'declined', declinedAt: new Date().toISOString() }); setPreviewQuote(null); onReload() }}
+                className="px-3 py-1.5 bg-gray-800 rounded-lg text-xs text-red-400">Decline</button>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Existing quotes list */}
       {quotes.length > 0 && (
         <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
@@ -469,14 +548,18 @@ function QuotesTab({ client, properties, quotes, onReload }) {
                     <span className={`px-2 py-0.5 rounded text-xs font-medium ${QUOTE_STATUS_COLORS[q.status] || 'bg-gray-800 text-gray-400'}`}>{q.status}</span>
                   </td>
                   <td className="px-5 py-2.5 text-right">
-                    {q.status === 'sent' && (
-                      <button onClick={() => handleAcceptQuote(q)}
-                        className="text-xs text-green-400 hover:text-green-300">Accept → Schedule</button>
-                    )}
-                    {q.status === 'draft' && (
-                      <button onClick={() => { saveQuote({ ...q, status: 'sent', sentAt: new Date().toISOString() }); onReload() }}
-                        className="text-xs text-blue-400 hover:text-blue-300">Mark Sent</button>
-                    )}
+                    <div className="flex gap-2 justify-end">
+                      <button onClick={() => { setPreviewQuote(q); setEditingPrice(String(q.finalPrice || q.estimateMax || 0)) }}
+                        className="text-xs text-gray-400 hover:text-blue-400">View</button>
+                      {q.status === 'sent' && (
+                        <button onClick={() => handleAcceptQuote(q)}
+                          className="text-xs text-green-400 hover:text-green-300">Accept</button>
+                      )}
+                      {q.status === 'draft' && (
+                        <button onClick={() => { saveQuote({ ...q, status: 'sent', sentAt: new Date().toISOString() }); onReload() }}
+                          className="text-xs text-blue-400 hover:text-blue-300">Send</button>
+                      )}
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -586,13 +669,46 @@ function ConversationsTab({ clientId, convos, onReload }) {
   )
 }
 
-function JobsTab({ clientId, clientName, jobs, onReload }) {
+function JobsTab({ clientId, clientName, clientAddress, jobs, properties, onReload }) {
   const [showNew, setShowNew] = useState(false)
+  const [pushingId, setPushingId] = useState(null)
   const [form, setForm] = useState({
     title: '', date: '', status: 'scheduled', notes: '', assignee: '',
     isRecurring: false, recurrenceRule: 'weekly', recurrenceDay: 1,
-    price: '', priceType: 'flat', startTime: '', endTime: '',
+    price: '', priceType: 'flat', startTime: '', endTime: '', propertyId: '',
   })
+
+  async function pushToCalendar(job) {
+    setPushingId(job.id)
+    try {
+      const prop = (properties || []).find(p => p.id === job.propertyId)
+      const address = prop?.addressLine1 || job.address || clientAddress || ''
+      const startTime = job.startTime || '09:00'
+      const endTime = job.endTime || '12:00'
+
+      const res = await fetch('/api/calendar', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'create',
+          summary: `${job.title} — ${clientName}`,
+          description: `Client: ${clientName}\nAddress: ${address}\nPrice: ${job.price ? '$' + job.price : 'TBD'}\n${job.notes || ''}`,
+          startDateTime: `${job.date}T${startTime}:00`,
+          endDateTime: `${job.date}T${endTime}:00`,
+          location: address,
+        }),
+      })
+      if (res.ok) {
+        const data = await res.json()
+        saveJob({ ...job, googleEventId: data.id })
+        onReload()
+      }
+    } catch (err) {
+      console.error('Calendar push failed:', err)
+    } finally {
+      setPushingId(null)
+    }
+  }
 
   function handleSubmit(e) {
     e.preventDefault()
@@ -706,6 +822,7 @@ function JobsTab({ clientId, clientName, jobs, onReload }) {
               <th className="px-3 py-2.5 text-left">Assignee</th>
               <th className="px-3 py-2.5 text-right">Price</th>
               <th className="px-3 py-2.5 text-center">Status</th>
+              <th className="px-3 py-2.5 text-center">Calendar</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-800/50">
@@ -742,9 +859,19 @@ function JobsTab({ clientId, clientName, jobs, onReload }) {
                     <option value="completed">Completed</option><option value="cancelled">Cancelled</option>
                   </select>
                 </td>
+                <td className="px-3 py-2.5 text-center">
+                  {j.googleEventId ? (
+                    <span className="text-xs text-green-400" title="On Google Calendar">synced</span>
+                  ) : (
+                    <button onClick={() => pushToCalendar(j)} disabled={pushingId === j.id || !j.date}
+                      className="px-2 py-0.5 bg-cyan-600 hover:bg-cyan-500 disabled:opacity-50 rounded text-xs text-white">
+                      {pushingId === j.id ? '...' : 'Push'}
+                    </button>
+                  )}
+                </td>
               </tr>
             ))}
-            {jobs.length === 0 && <tr><td colSpan={6} className="px-5 py-8 text-center text-gray-500">No jobs yet.</td></tr>}
+            {jobs.length === 0 && <tr><td colSpan={7} className="px-5 py-8 text-center text-gray-500">No jobs yet.</td></tr>}
           </tbody>
         </table>
       </div>
