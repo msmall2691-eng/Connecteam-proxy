@@ -22,6 +22,9 @@ export default async function handler(req, res) {
       name, email, phone, address, message, service,
       source, propertyType, frequency, bedrooms, bathrooms,
       squareFeet, preferredDate, preferredTime, budget,
+      petHair, condition,
+      // Website quote fields (pre-calculated)
+      estimateMin, estimateMax,
       // Facebook Lead Ads fields
       fb_lead_id, fb_form_id, fb_page_id,
       // Generic fields
@@ -198,12 +201,15 @@ function mapPropertyType(type) {
 
 function buildLeadNotes(lead) {
   const lines = []
+  if (lead.estimateMin && lead.estimateMax) lines.push(`💰 INSTANT QUOTE: $${lead.estimateMin} – $${lead.estimateMax}`)
   if (lead.message) lines.push(`Message: ${lead.message}`)
-  if (lead.service) lines.push(`Service requested: ${lead.service}`)
+  if (lead.service) lines.push(`Service: ${lead.service}`)
   if (lead.frequency) lines.push(`Frequency: ${lead.frequency}`)
+  if (lead.squareFeet) lines.push(`Sq ft: ${lead.squareFeet}`)
   if (lead.bedrooms) lines.push(`Bedrooms: ${lead.bedrooms}`)
   if (lead.bathrooms) lines.push(`Bathrooms: ${lead.bathrooms}`)
-  if (lead.squareFeet) lines.push(`Sq ft: ${lead.squareFeet}`)
+  if (lead.petHair) lines.push(`Pet hair: ${lead.petHair}`)
+  if (lead.condition) lines.push(`Condition: ${lead.condition}`)
   if (lead.preferredDate) lines.push(`Preferred date: ${lead.preferredDate}`)
   if (lead.preferredTime) lines.push(`Preferred time: ${lead.preferredTime}`)
   if (lead.budget) lines.push(`Budget: ${lead.budget}`)

@@ -328,7 +328,8 @@
       </svg>
     </div>
     <h2>Quote Request Received!</h2>
-    <p>Thank you! We'll review your request and get back to you within 24 hours with a customized quote.</p>
+    <p id="quoteRange"></p>
+    <p>We'll review your details and send a final quote within 24 hours.</p>
   </div>
 </div>
 
@@ -355,20 +356,40 @@
     btn.disabled = true;
     btn.textContent = 'Submitting...';
 
+    // Calculate instant quote using same formula as website
+    var sqft = parseInt(form.squareFootage.value) || 1500;
+    var baths = parseInt(form.bathrooms.value) || 2;
+    var freq = form.frequency.value || 'one-time';
+    var svcType = serviceType;
+
+    // SqFt to labor units (3-tier)
+    var sqftUnits = sqft <= 1500 ? sqft / 680 : sqft <= 3000 ? 1500/680 + (sqft-1500)/1050 : 1500/680 + 1500/1050 + (sqft-3000)/1400;
+    var labor = sqftUnits + Math.max(0, (baths - 1) * 0.40);
+    var isDeep = svcType === 'Deep Cleaning' || svcType === 'Move-In/Move-Out';
+    if (isDeep) labor *= (sqft <= 1200 ? 1.60 : sqft <= 2000 ? 1.65 : sqft <= 3000 ? 1.75 : 1.80);
+    var freqMult = freq === 'weekly' ? 0.85 : freq === 'biweekly' ? 1.0 : freq === 'monthly' ? 1.15 : 1.50;
+    var raw = labor * freqMult * 60;
+    var minJob = isDeep ? 225 : 130;
+    var rounded = Math.max(minJob, Math.round(raw / 5) * 5);
+    var estimateMin = Math.round(rounded * 0.96 / 5) * 5;
+    var estimateMax = Math.round(rounded * 1.04 / 5) * 5;
+
     var data = {
       name: name,
       email: email,
       phone: phone,
       address: form.address.value.trim(),
-      serviceType: serviceType,
+      service: serviceType,
       propertyType: form.propertyType.value,
       bedrooms: form.bedrooms.value,
       bathrooms: form.bathrooms.value,
-      squareFootage: form.squareFootage.value,
-      frequency: form.frequency.value,
+      squareFeet: form.squareFootage.value,
+      frequency: freq,
       preferredDate: form.preferredDate.value,
       preferredTime: form.preferredTime.value,
       message: form.message.value.trim(),
+      estimateMin: estimateMin,
+      estimateMax: estimateMax,
       source: 'Website'
     };
 
@@ -385,6 +406,7 @@
       return res.json();
     })
     .then(function() {
+      document.getElementById('quoteRange').textContent = 'Your estimated range: $' + estimateMin + ' – $' + estimateMax + ' per clean';
       form.style.display = 'none';
       successMsg.style.display = 'block';
     })
