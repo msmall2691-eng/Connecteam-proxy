@@ -21,7 +21,12 @@ export default function Dashboard() {
   const bottomRef = useRef(null)
   const apiKey = getApiKey()
 
-  useEffect(() => { loadDashboard() }, [])
+  useEffect(() => {
+    loadDashboard()
+    // Pre-warm Gmail and Calendar in background (no UI blocking)
+    fetch('/api/gmail?action=profile').catch(() => {})
+    fetch('/api/calendar?action=calendars').catch(() => {})
+  }, [])
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages])
 
   function loadDashboard() {
@@ -149,6 +154,77 @@ export default function Dashboard() {
     a.download = `report-${new Date().toISOString().split('T')[0]}.md`; a.click()
   }
 
+  function downloadFile(content, filename) {
+    const blob = new Blob([content], { type: 'text/markdown' })
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob)
+    a.download = filename; a.click(); URL.revokeObjectURL(a.href)
+  }
+
+  function exportMonthlyReport(period) {
+    const now = new Date()
+    const year = period === 'last' ? (now.getMonth() === 0 ? now.getFullYear() - 1 : now.getFullYear()) : now.getFullYear()
+    const month = period === 'last' ? (now.getMonth() === 0 ? 11 : now.getMonth() - 1) : now.getMonth()
+    const monthName = new Date(year, month).toLocaleString('default', { month: 'long', year: 'numeric' })
+
+    const clients = getClients()
+    const jobs = getJobs()
+    const invoices = getInvoices()
+    const quotes = getQuotes()
+
+    const monthJobs = jobs.filter(j => { const d = new Date(j.date); return d.getMonth() === month && d.getFullYear() === year })
+    const monthInvoices = invoices.filter(i => { const d = new Date(i.issueDate); return d.getMonth() === month && d.getFullYear() === year })
+    const revenue = monthInvoices.filter(i => i.status === 'paid').reduce((s, i) => s + (i.total || 0), 0)
+    const outstanding = monthInvoices.filter(i => i.status === 'sent' || i.status === 'overdue').reduce((s, i) => s + (i.total || 0), 0)
+    const newClients = clients.filter(c => { const d = new Date(c.createdAt); return d.getMonth() === month && d.getFullYear() === year })
+
+    let report = `# Monthly Report — ${monthName}\n\n`
+    report += `## Summary\n`
+    report += `- **Jobs completed:** ${monthJobs.filter(j => j.status === 'completed').length}\n`
+    report += `- **Jobs scheduled:** ${monthJobs.filter(j => j.status === 'scheduled').length}\n`
+    report += `- **Revenue collected:** $${revenue.toFixed(2)}\n`
+    report += `- **Outstanding:** $${outstanding.toFixed(2)}\n`
+    report += `- **Invoices sent:** ${monthInvoices.length}\n`
+    report += `- **New clients:** ${newClients.length}\n`
+    report += `- **Quotes sent:** ${quotes.filter(q => { const d = new Date(q.createdAt); return d.getMonth() === month && d.getFullYear() === year }).length}\n\n`
+
+    if (monthJobs.length > 0) {
+      report += `## Jobs\n| Date | Job | Client | Status | Price |\n|------|-----|--------|--------|-------|\n`
+      monthJobs.forEach(j => { report += `| ${j.date} | ${j.title} | ${j.clientName || '-'} | ${j.status} | ${j.price ? '$' + j.price : '-'} |\n` })
+      report += '\n'
+    }
+
+    if (monthInvoices.length > 0) {
+      report += `## Invoices\n| Invoice | Client | Amount | Status |\n|---------|--------|--------|--------|\n`
+      monthInvoices.forEach(i => { report += `| ${i.invoiceNumber} | ${i.clientName || '-'} | $${(i.total || 0).toFixed(2)} | ${i.status} |\n` })
+      report += '\n'
+    }
+
+    report += `\n---\nGenerated ${new Date().toLocaleString()}\n`
+    downloadFile(report, `monthly-report-${year}-${String(month + 1).padStart(2, '0')}.md`)
+  }
+
+  function exportClientList() {
+    const clients = getClients()
+    let csv = 'Name,Email,Phone,Address,Status,Type,Source,Created\n'
+    clients.forEach(c => {
+      csv += `"${c.name}","${c.email || ''}","${c.phone || ''}","${c.address || ''}","${c.status}","${c.type}","${c.source || ''}","${c.createdAt || ''}"\n`
+    })
+    const blob = new Blob([csv], { type: 'text/csv' })
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob)
+    a.download = `clients-${new Date().toISOString().split('T')[0]}.csv`; a.click()
+  }
+
+  function exportInvoiceSummary() {
+    const invoices = getInvoices()
+    let csv = 'Invoice,Client,Date,Due,Amount,Status,Paid\n'
+    invoices.forEach(i => {
+      csv += `"${i.invoiceNumber}","${i.clientName || ''}","${i.issueDate}","${i.dueDate || ''}","${(i.total || 0).toFixed(2)}","${i.status}","${i.paidAt || ''}"\n`
+    })
+    const blob = new Blob([csv], { type: 'text/csv' })
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob)
+    a.download = `invoices-${new Date().toISOString().split('T')[0]}.csv`; a.click()
+  }
+
   return (
     <div className="p-6 max-w-7xl mx-auto space-y-6">
       {/* Header */}
@@ -221,6 +297,32 @@ export default function Dashboard() {
               </div>
             ))}
           </ActionPanel>
+
+          {/* Quick exports */}
+          <div className="bg-gray-900 border border-gray-800 rounded-xl p-4">
+            <div className="flex items-center gap-2 mb-3">
+              <span className="text-sm">📊</span>
+              <span className="text-sm font-medium text-white">Quick Exports</span>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <button onClick={() => exportMonthlyReport('current')}
+                className="px-3 py-2 bg-gray-800 hover:bg-gray-700 rounded-lg text-xs text-gray-300 text-left">
+                This Month
+              </button>
+              <button onClick={() => exportMonthlyReport('last')}
+                className="px-3 py-2 bg-gray-800 hover:bg-gray-700 rounded-lg text-xs text-gray-300 text-left">
+                Last Month
+              </button>
+              <button onClick={exportClientList}
+                className="px-3 py-2 bg-gray-800 hover:bg-gray-700 rounded-lg text-xs text-gray-300 text-left">
+                Client List
+              </button>
+              <button onClick={exportInvoiceSummary}
+                className="px-3 py-2 bg-gray-800 hover:bg-gray-700 rounded-lg text-xs text-gray-300 text-left">
+                Invoice Summary
+              </button>
+            </div>
+          </div>
         </div>
 
         {/* Right: AI chat (3 cols) */}
