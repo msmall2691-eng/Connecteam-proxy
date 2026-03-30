@@ -51,7 +51,10 @@ export default function ClientDetail() {
             }`}>{client.status}</span>
           </div>
         </div>
-        <div className="flex gap-2 shrink-0">
+        <div className="flex flex-wrap gap-2 shrink-0">
+          <button onClick={() => setTab('quotes')} className="px-3 py-1.5 bg-purple-600 hover:bg-purple-500 rounded-lg text-xs font-medium text-white">+ Quote</button>
+          <button onClick={() => setTab('jobs')} className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 rounded-lg text-xs font-medium text-white">+ Job</button>
+          <button onClick={() => setTab('invoices')} className="px-3 py-1.5 bg-green-600 hover:bg-green-500 rounded-lg text-xs font-medium text-white">+ Invoice</button>
           <button onClick={() => {
             const token = btoa(`${id}|${Date.now()}`).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
             navigator.clipboard.writeText(`${window.location.origin}/portal.html?token=${token}`)
@@ -688,6 +691,43 @@ function JobsTab({ clientId, clientName, clientAddress, jobs, properties, onRelo
   const [showNew, setShowNew] = useState(false)
   const [pushingId, setPushingId] = useState(null)
   const [expandedJob, setExpandedJob] = useState(null)
+  const [pushingCtId, setPushingCtId] = useState(null)
+
+  async function pushToConnecteam(job) {
+    setPushingCtId(job.id)
+    try {
+      const prop = (properties || []).find(p => p.id === job.propertyId)
+      const address = prop?.addressLine1 || job.address || clientAddress || ''
+      const apiKey = localStorage.getItem('connecteam_api_key')
+      if (!apiKey) { alert('Set your Connecteam API key in Settings first.'); setPushingCtId(null); return }
+
+      const res = await fetch('/api/connecteam-shift', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-API-KEY': apiKey },
+        body: JSON.stringify({
+          title: `${job.title} — ${clientName}`,
+          date: job.date,
+          startTime: job.startTime || '09:00',
+          endTime: job.endTime || '12:00',
+          notes: job.notes || '',
+          address,
+        }),
+      })
+      if (res.ok) {
+        const data = await res.json()
+        saveJob({ ...job, connecteamShiftId: data.shift?.id || 'synced' })
+        onReload()
+      } else {
+        const err = await res.json().catch(() => ({}))
+        alert(err.error || 'Failed to push to Connecteam')
+      }
+    } catch (err) {
+      alert('Error: ' + err.message)
+    } finally {
+      setPushingCtId(null)
+    }
+  }
+
   const [form, setForm] = useState({
     title: '', date: '', status: 'scheduled', notes: '', assignee: '',
     isRecurring: false, recurrenceRule: 'weekly', recurrenceDay: 1,
@@ -874,6 +914,7 @@ function JobsTab({ clientId, clientName, clientAddress, jobs, properties, onRelo
               <th className="px-3 py-2.5 text-right">Price</th>
               <th className="px-3 py-2.5 text-center">Status</th>
               <th className="px-3 py-2.5 text-center">Calendar</th>
+              <th className="px-3 py-2.5 text-center">Connecteam</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-800/50">
@@ -923,10 +964,20 @@ function JobsTab({ clientId, clientName, clientAddress, jobs, properties, onRelo
                     </button>
                   )}
                 </td>
+                <td className="px-3 py-2.5 text-center" onClick={e => e.stopPropagation()}>
+                  {j.connecteamShiftId ? (
+                    <span className="text-xs text-green-400">synced</span>
+                  ) : (
+                    <button onClick={() => pushToConnecteam(j)} disabled={pushingCtId === j.id || !j.date}
+                      className="px-2 py-0.5 bg-orange-600 hover:bg-orange-500 disabled:opacity-50 rounded text-xs text-white">
+                      {pushingCtId === j.id ? '...' : 'Push'}
+                    </button>
+                  )}
+                </td>
               </tr>
               {/* Expanded job details */}
               {expandedJob === j.id && (
-                <tr><td colSpan={7} className="px-5 py-3 bg-gray-800/30 border-b border-gray-800">
+                <tr><td colSpan={8} className="px-5 py-3 bg-gray-800/30 border-b border-gray-800">
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
                     {jobProp && (
                       <>
@@ -943,7 +994,7 @@ function JobsTab({ clientId, clientName, clientAddress, jobs, properties, onRelo
               )}
             </>)
             })}
-            {jobs.length === 0 && <tr><td colSpan={7} className="px-5 py-8 text-center text-gray-500">No jobs yet.</td></tr>}
+            {jobs.length === 0 && <tr><td colSpan={8} className="px-5 py-8 text-center text-gray-500">No jobs yet.</td></tr>}
           </tbody>
         </table>
       </div>
