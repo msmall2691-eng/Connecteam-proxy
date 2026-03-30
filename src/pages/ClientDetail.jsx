@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react'
 import { useParams, Link, useNavigate, useSearchParams } from 'react-router-dom'
-import { getClient, saveClient, getConversations, saveConversation, addMessage, getJobs, saveJob, getInvoices, saveInvoice, generateInvoiceNumber } from '../lib/store'
-import QuoteBuilder from '../components/QuoteBuilder'
+import { getClient, saveClient, getConversations, saveConversation, addMessage, getJobs, saveJob, getInvoices, saveInvoice, generateInvoiceNumber, getProperties, saveProperty, deleteProperty, getQuotes, saveQuote, generateQuoteNumber } from '../lib/store'
+import { calculateQuote } from '../lib/quoteEngine'
+import PropertyForm from '../components/PropertyForm'
 
-const TABS = ['overview', 'quotes', 'conversations', 'jobs', 'invoices', 'notes']
+const TABS = ['overview', 'properties', 'quotes', 'conversations', 'jobs', 'invoices', 'notes']
 
 export default function ClientDetail() {
   const { id } = useParams()
@@ -14,6 +15,8 @@ export default function ClientDetail() {
   const [convos, setConvos] = useState([])
   const [jobs, setJobs] = useState([])
   const [invoices, setInvoices] = useState([])
+  const [properties, setProperties] = useState([])
+  const [quotes, setQuotes] = useState([])
 
   useEffect(() => { reload() }, [id])
   useEffect(() => { const t = searchParams.get('tab'); if (t) setTab(t) }, [searchParams])
@@ -25,6 +28,8 @@ export default function ClientDetail() {
     setConvos(getConversations(id))
     setJobs(getJobs(id))
     setInvoices(getInvoices(id))
+    setProperties(getProperties(id))
+    setQuotes(getQuotes(id))
   }
 
   if (!client) return null
@@ -56,22 +61,18 @@ export default function ClientDetail() {
         ))}
       </div>
 
-      {tab === 'overview' && <OverviewTab client={client} convos={convos} jobs={jobs} invoices={invoices} />}
-      {tab === 'quotes' && (
-        <div className="bg-gray-900 border border-gray-800 rounded-xl p-6">
-          <h3 className="text-base font-semibold text-white mb-4">Send Quote</h3>
-          <QuoteBuilder client={client} onSave={reload} />
-        </div>
-      )}
+      {tab === 'overview' && <OverviewTab client={client} convos={convos} jobs={jobs} invoices={invoices} properties={properties} quotes={quotes} />}
+      {tab === 'properties' && <PropertiesTab clientId={id} properties={properties} onReload={reload} />}
+      {tab === 'quotes' && <QuotesTab client={client} properties={properties} quotes={quotes} onReload={reload} />}
       {tab === 'conversations' && <ConversationsTab clientId={id} convos={convos} onReload={reload} />}
-      {tab === 'jobs' && <JobsTab clientId={id} clientName={client.name} jobs={jobs} onReload={reload} />}
+      {tab === 'jobs' && <JobsTab clientId={id} clientName={client.name} clientAddress={client.address} jobs={jobs} properties={properties} onReload={reload} />}
       {tab === 'invoices' && <InvoicesTab clientId={id} clientName={client.name} jobs={jobs} invoices={invoices} onReload={reload} />}
       {tab === 'notes' && <NotesTab client={client} onSave={reload} />}
     </div>
   )
 }
 
-function OverviewTab({ client, convos, jobs, invoices }) {
+function OverviewTab({ client, convos, jobs, invoices, properties, quotes }) {
   const completedJobs = jobs.filter(j => j.status === 'completed').length
   const totalRevenue = invoices.filter(i => i.status === 'paid').reduce((s, i) => s + (i.total || 0), 0)
   const outstanding = invoices.filter(i => i.status === 'sent' || i.status === 'overdue').reduce((s, i) => s + (i.total || 0), 0)
@@ -157,6 +158,340 @@ function OverviewTab({ client, convos, jobs, invoices }) {
 function InfoRow({ label, value }) {
   if (!value) return null
   return <div><span className="text-gray-500">{label}: </span><span className="text-gray-300 capitalize">{value}</span></div>
+}
+
+// ── PROPERTIES TAB ──
+function PropertiesTab({ clientId, properties, onReload }) {
+  const [showForm, setShowForm] = useState(false)
+  const [editing, setEditing] = useState(null)
+
+  function handleSave(prop) {
+    saveProperty({ ...prop, clientId })
+    setShowForm(false)
+    setEditing(null)
+    onReload()
+  }
+
+  const TYPE_COLORS = {
+    residential: 'bg-blue-900/30 text-blue-400',
+    commercial: 'bg-purple-900/30 text-purple-400',
+    rental: 'bg-orange-900/30 text-orange-400',
+    marina: 'bg-cyan-900/30 text-cyan-400',
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex justify-between items-center">
+        <p className="text-sm text-gray-400">{properties.length} propert{properties.length === 1 ? 'y' : 'ies'}</p>
+        <button onClick={() => { setEditing(null); setShowForm(true) }}
+          className="px-4 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg text-sm font-medium text-white">+ Add Property</button>
+      </div>
+
+      {(showForm || editing) && (
+        <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
+          <h3 className="text-sm font-semibold text-white mb-4">{editing ? 'Edit Property' : 'New Property'}</h3>
+          <PropertyForm property={editing} onSave={handleSave} onCancel={() => { setShowForm(false); setEditing(null) }} />
+        </div>
+      )}
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {properties.map(prop => (
+          <div key={prop.id} className="bg-gray-900 border border-gray-800 rounded-xl p-5">
+            <div className="flex items-start justify-between mb-2">
+              <div>
+                <h3 className="text-sm font-semibold text-white">{prop.name || prop.addressLine1}</h3>
+                {prop.name && <p className="text-xs text-gray-500">{prop.addressLine1}</p>}
+                {prop.city && <p className="text-xs text-gray-500">{prop.city}, {prop.state} {prop.zip}</p>}
+              </div>
+              <div className="flex items-center gap-2">
+                {prop.isPrimary && <span className="px-1.5 py-0.5 rounded text-xs bg-green-900/30 text-green-400">Primary</span>}
+                <span className={`px-1.5 py-0.5 rounded text-xs ${TYPE_COLORS[prop.type] || 'bg-gray-800 text-gray-400'}`}>{prop.type}</span>
+              </div>
+            </div>
+            <div className="flex gap-4 text-xs text-gray-500 mb-3">
+              {prop.sqft && <span>{prop.sqft} sqft</span>}
+              {prop.bedrooms && <span>{prop.bedrooms} bed</span>}
+              {prop.bathrooms && <span>{prop.bathrooms} bath</span>}
+              {prop.petHair && prop.petHair !== 'none' && <span>Pet hair: {prop.petHair}</span>}
+            </div>
+            {prop.type === 'rental' && prop.icalUrl && (
+              <p className="text-xs text-orange-400 mb-2">iCal linked ({prop.rentalPlatform || 'rental'})</p>
+            )}
+            {prop.accessNotes && <p className="text-xs text-gray-600 mb-2">Access: {prop.accessNotes}</p>}
+            <div className="flex gap-2 mt-2">
+              <button onClick={() => { setEditing(prop); setShowForm(true) }} className="text-xs text-gray-500 hover:text-blue-400">Edit</button>
+              <button onClick={() => { if (confirm('Delete this property?')) { deleteProperty(prop.id); onReload() } }}
+                className="text-xs text-gray-500 hover:text-red-400">Delete</button>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {properties.length === 0 && !showForm && (
+        <div className="bg-gray-900 border border-gray-800 rounded-xl p-8 text-center">
+          <p className="text-gray-500 text-sm">No properties yet. Add a property to start quoting and scheduling jobs.</p>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── QUOTES TAB ──
+function QuotesTab({ client, properties, quotes, onReload }) {
+  const [showCalculator, setShowCalculator] = useState(false)
+  const [selectedProperty, setSelectedProperty] = useState(null)
+  const [calcInputs, setCalcInputs] = useState({ sqft: '1500', serviceType: 'standard', frequency: 'biweekly', bathrooms: '2', petHair: 'none', condition: 'maintenance' })
+  const [sending, setSending] = useState(false)
+
+  // Pre-fill from selected property
+  function selectProperty(propId) {
+    const prop = properties.find(p => p.id === propId)
+    if (prop) {
+      setSelectedProperty(prop)
+      setCalcInputs({
+        sqft: String(prop.sqft || 1500),
+        serviceType: prop.type === 'rental' ? 'airbnb-turnover' : 'standard',
+        frequency: prop.type === 'rental' ? 'one-time' : 'biweekly',
+        bathrooms: String(prop.bathrooms || 2),
+        petHair: prop.petHair || 'none',
+        condition: prop.condition || 'maintenance',
+      })
+    }
+    setShowCalculator(true)
+  }
+
+  const quote = calculateQuote(calcInputs)
+
+  async function handleSendQuote(channel) {
+    setSending(true)
+    const q = saveQuote({
+      quoteNumber: generateQuoteNumber(),
+      clientId: client.id,
+      propertyId: selectedProperty?.id || null,
+      serviceType: calcInputs.serviceType,
+      frequency: calcInputs.frequency,
+      estimateMin: quote.estimateMin,
+      estimateMax: quote.estimateMax,
+      finalPrice: quote.perClean,
+      calcInputs,
+      calcBreakdown: quote.breakdown,
+      status: 'sent',
+      sentVia: channel,
+      sentAt: new Date().toISOString(),
+      expiresAt: new Date(Date.now() + 30 * 86400000).toISOString(),
+      items: [{ description: `${quote.isDeep ? 'Deep' : 'Standard'} Cleaning — ${calcInputs.sqft} sqft`, quantity: 1, unitPrice: quote.perClean, total: quote.perClean }],
+      notes: '',
+      preferredDay: 1,
+    })
+
+    saveClient({ id: client.id, status: 'prospect' })
+
+    const msg = `Hi ${client.name.split(' ')[0]}!\n\nHere's your cleaning quote from The Maine Cleaning Co.:\n\n${quote.isDeep ? 'Deep' : 'Standard'} Cleaning: $${quote.estimateMin} – $${quote.estimateMax}/clean\n${calcInputs.frequency !== 'one-time' ? `Frequency: ${calcInputs.frequency}\n` : ''}${selectedProperty ? `Property: ${selectedProperty.addressLine1}\n` : ''}\nReply to accept or call (207) 572-0502!\n\n— The Maine Cleaning Co.`
+
+    if (channel === 'email' && client.email) {
+      try { await fetch('/api/gmail', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'send', to: client.email, subject: `Cleaning Quote — The Maine Cleaning Co.`, body: msg }) }) } catch {}
+    }
+    if (channel === 'text' && client.phone) {
+      try { await fetch('/api/sms', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'send', to: client.phone, body: msg }) }) } catch {}
+    }
+
+    setSending(false)
+    setShowCalculator(false)
+    onReload()
+  }
+
+  async function handleAcceptQuote(q) {
+    saveQuote({ ...q, status: 'accepted', acceptedAt: new Date().toISOString() })
+    saveClient({ id: client.id, status: 'active' })
+
+    // Create job
+    const prop = properties.find(p => p.id === q.propertyId)
+    const job = saveJob({
+      clientId: client.id, clientName: client.name,
+      propertyId: q.propertyId, quoteId: q.id,
+      title: (q.items?.[0]?.description) || 'Cleaning',
+      date: new Date().toISOString().split('T')[0],
+      status: 'scheduled',
+      price: q.finalPrice, priceType: 'flat',
+      serviceType: q.serviceType,
+      address: prop?.addressLine1 || client.address,
+      isRecurring: q.frequency !== 'one-time',
+      recurrenceRule: q.frequency === 'one-time' ? null : q.frequency,
+      recurrenceDay: q.preferredDay || 1,
+    })
+
+    // Create Google Calendar event
+    try {
+      await fetch('/api/calendar', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'create',
+          summary: `${q.serviceType === 'standard' ? 'Cleaning' : 'Deep Clean'} — ${client.name}`,
+          description: `Client: ${client.name}\nPhone: ${client.phone || ''}\nAddress: ${prop?.addressLine1 || ''}\nPrice: $${q.finalPrice}\nQuote: ${q.quoteNumber}`,
+          startDateTime: `${new Date().toISOString().split('T')[0]}T09:00:00`,
+          endDateTime: `${new Date().toISOString().split('T')[0]}T12:00:00`,
+          location: prop?.addressLine1 || client.address || '',
+        }),
+      })
+    } catch {}
+
+    onReload()
+  }
+
+  const QUOTE_STATUS_COLORS = {
+    draft: 'bg-gray-800 text-gray-400', sent: 'bg-blue-900/40 text-blue-400',
+    accepted: 'bg-green-900/40 text-green-400', declined: 'bg-red-900/40 text-red-400',
+    expired: 'bg-gray-800 text-gray-500',
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex justify-between items-center">
+        <p className="text-sm text-gray-400">{quotes.length} quote{quotes.length !== 1 ? 's' : ''}</p>
+        {properties.length > 0 ? (
+          <div className="flex gap-2">
+            {properties.map(p => (
+              <button key={p.id} onClick={() => selectProperty(p.id)}
+                className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 rounded-lg text-xs font-medium text-white">
+                Quote: {p.name || p.addressLine1?.split(',')[0]}
+              </button>
+            ))}
+          </div>
+        ) : (
+          <p className="text-xs text-gray-500">Add a property first to create quotes</p>
+        )}
+      </div>
+
+      {/* Quote Calculator */}
+      {showCalculator && (
+        <div className="bg-gray-900 border border-blue-800/30 rounded-xl p-5 space-y-4">
+          <div className="flex justify-between items-center">
+            <h3 className="text-sm font-semibold text-white">
+              New Quote {selectedProperty ? `— ${selectedProperty.name || selectedProperty.addressLine1}` : ''}
+            </h3>
+            <button onClick={() => setShowCalculator(false)} className="text-xs text-gray-500 hover:text-gray-300">Close</button>
+          </div>
+
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Sq Ft</label>
+              <input type="number" value={calcInputs.sqft} onChange={e => setCalcInputs({ ...calcInputs, sqft: e.target.value })}
+                className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-sm text-white" />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Service</label>
+              <select value={calcInputs.serviceType} onChange={e => setCalcInputs({ ...calcInputs, serviceType: e.target.value })}
+                className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-sm text-white">
+                <option value="standard">Standard</option><option value="deep">Deep Clean</option>
+                <option value="move-in-out">Move-In/Out</option><option value="airbnb-turnover">Turnover</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Bathrooms</label>
+              <select value={calcInputs.bathrooms} onChange={e => setCalcInputs({ ...calcInputs, bathrooms: e.target.value })}
+                className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-sm text-white">
+                {[1,2,3,4,5,6].map(n => <option key={n} value={n}>{n}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Frequency</label>
+              <select value={calcInputs.frequency} onChange={e => setCalcInputs({ ...calcInputs, frequency: e.target.value })}
+                className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-sm text-white">
+                <option value="weekly">Weekly</option><option value="biweekly">Bi-weekly</option>
+                <option value="monthly">Monthly</option><option value="one-time">One-time</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Pet Hair</label>
+              <select value={calcInputs.petHair} onChange={e => setCalcInputs({ ...calcInputs, petHair: e.target.value })}
+                className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-sm text-white">
+                <option value="none">None</option><option value="some">Some</option><option value="heavy">Heavy</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Condition</label>
+              <select value={calcInputs.condition} onChange={e => setCalcInputs({ ...calcInputs, condition: e.target.value })}
+                className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-sm text-white">
+                <option value="maintenance">Well-maintained</option><option value="moderate">Moderate</option><option value="heavy">Needs work</option>
+              </select>
+            </div>
+          </div>
+
+          {/* Price display */}
+          <div className="bg-blue-900/20 border border-blue-800/50 rounded-lg p-4 flex items-center justify-between">
+            <div>
+              <span className="text-2xl font-bold text-blue-400">${quote.estimateMin} – ${quote.estimateMax}</span>
+              <span className="text-sm text-gray-500 ml-2">per clean</span>
+            </div>
+            <div className="flex gap-2">
+              {client.email && (
+                <button onClick={() => handleSendQuote('email')} disabled={sending}
+                  className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 rounded-lg text-xs text-white font-medium">
+                  {sending ? '...' : 'Email Quote'}
+                </button>
+              )}
+              {client.phone && (
+                <button onClick={() => handleSendQuote('text')} disabled={sending}
+                  className="px-3 py-1.5 bg-green-600 hover:bg-green-500 disabled:opacity-50 rounded-lg text-xs text-white font-medium">
+                  {sending ? '...' : 'Text Quote'}
+                </button>
+              )}
+              <button onClick={() => handleSendQuote('none')} disabled={sending}
+                className="px-3 py-1.5 bg-gray-700 hover:bg-gray-600 rounded-lg text-xs text-gray-300">Save</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Existing quotes list */}
+      {quotes.length > 0 && (
+        <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-xs text-gray-500 uppercase tracking-wider border-b border-gray-800">
+                <th className="px-5 py-2.5 text-left">Quote</th>
+                <th className="px-3 py-2.5 text-left">Service</th>
+                <th className="px-3 py-2.5 text-left">Frequency</th>
+                <th className="px-3 py-2.5 text-right">Price</th>
+                <th className="px-3 py-2.5 text-center">Status</th>
+                <th className="px-5 py-2.5 text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-800/50">
+              {quotes.map(q => (
+                <tr key={q.id} className="text-gray-300 hover:bg-gray-800/30">
+                  <td className="px-5 py-2.5 font-mono text-xs text-white">{q.quoteNumber}</td>
+                  <td className="px-3 py-2.5 text-xs capitalize">{q.serviceType}</td>
+                  <td className="px-3 py-2.5 text-xs capitalize">{q.frequency}</td>
+                  <td className="px-3 py-2.5 text-right font-mono">${q.finalPrice || q.estimateMax || 0}</td>
+                  <td className="px-3 py-2.5 text-center">
+                    <span className={`px-2 py-0.5 rounded text-xs font-medium ${QUOTE_STATUS_COLORS[q.status] || 'bg-gray-800 text-gray-400'}`}>{q.status}</span>
+                  </td>
+                  <td className="px-5 py-2.5 text-right">
+                    {q.status === 'sent' && (
+                      <button onClick={() => handleAcceptQuote(q)}
+                        className="text-xs text-green-400 hover:text-green-300">Accept → Schedule</button>
+                    )}
+                    {q.status === 'draft' && (
+                      <button onClick={() => { saveQuote({ ...q, status: 'sent', sentAt: new Date().toISOString() }); onReload() }}
+                        className="text-xs text-blue-400 hover:text-blue-300">Mark Sent</button>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {quotes.length === 0 && !showCalculator && (
+        <div className="bg-gray-900 border border-gray-800 rounded-xl p-8 text-center">
+          <p className="text-gray-500 text-sm">{properties.length > 0 ? 'No quotes yet. Select a property above to create one.' : 'Add a property first, then create a quote.'}</p>
+        </div>
+      )}
+    </div>
+  )
 }
 
 function ConversationsTab({ clientId, convos, onReload }) {
