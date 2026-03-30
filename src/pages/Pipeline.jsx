@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
-import { getClients, saveClient, getJobs, getInvoices } from '../lib/store'
+import { getClients, saveClient, getJobs, getInvoices, getProperties, getQuotes } from '../lib/store'
 
 const STAGES = [
   { id: 'lead', label: 'Leads', color: 'blue', desc: 'New inquiries' },
@@ -18,7 +18,9 @@ export default function Pipeline() {
   const [clients, setClients] = useState([])
   const [jobs, setJobs] = useState([])
   const [invoices, setInvoices] = useState([])
-  const [view, setView] = useState('kanban') // 'kanban' or 'list'
+  const [allProperties, setAllProperties] = useState([])
+  const [allQuotes, setAllQuotes] = useState([])
+  const [view, setView] = useState('kanban')
 
   useEffect(() => { reload() }, [])
 
@@ -26,6 +28,16 @@ export default function Pipeline() {
     setClients(getClients())
     setJobs(getJobs())
     setInvoices(getInvoices())
+    setAllProperties(getProperties())
+    setAllQuotes(getQuotes())
+  }
+
+  function getClientProperties(clientId) {
+    return allProperties.filter(p => p.clientId === clientId)
+  }
+
+  function getClientQuotes(clientId) {
+    return allQuotes.filter(q => q.clientId === clientId)
   }
 
   function moveClient(clientId, newStatus) {
@@ -132,6 +144,22 @@ export default function Pipeline() {
                             ))}
                           </div>
                         )}
+                        {/* Properties & quotes info */}
+                        {(() => {
+                          const props = getClientProperties(client.id)
+                          const quots = getClientQuotes(client.id)
+                          const latestQuote = quots[0]
+                          return (
+                            <>
+                              {props.length > 0 && (
+                                <p className="text-xs text-gray-600 mt-1">{props.length} propert{props.length === 1 ? 'y' : 'ies'}: {props.map(p => p.name || p.addressLine1?.split(',')[0]).join(', ')}</p>
+                              )}
+                              {latestQuote && (
+                                <p className="text-xs text-blue-400 mt-0.5">${latestQuote.estimateMin}–${latestQuote.estimateMax} ({latestQuote.status})</p>
+                              )}
+                            </>
+                          )
+                        })()}
                         {cStats.revenue > 0 && (
                           <p className="text-xs text-green-500 mt-1">${cStats.revenue.toFixed(0)} earned</p>
                         )}
