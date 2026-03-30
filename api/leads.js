@@ -98,7 +98,59 @@ export default async function handler(req, res) {
         })
         if (sbRes.ok) {
           const created = await sbRes.json()
-          return res.status(200).json({ success: true, leadId: created[0]?.id, lead })
+          const clientId = created[0]?.id
+
+          // Create property for this lead
+          let propertyId = null
+          if (clientId && lead.address) {
+            try {
+              const propRes = await fetch(`${supabaseUrl}/rest/v1/properties`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'apikey': supabaseKey, 'Authorization': `Bearer ${supabaseKey}`, 'Prefer': 'return=representation' },
+                body: JSON.stringify({
+                  client_id: clientId,
+                  name: lead.address.split(',')[0] || 'Primary',
+                  address_line1: lead.address,
+                  type: lead.type || 'residential',
+                  sqft: lead.squareFeet ? parseInt(lead.squareFeet) : null,
+                  bedrooms: lead.bedrooms ? parseInt(lead.bedrooms) : null,
+                  bathrooms: lead.bathrooms ? parseInt(lead.bathrooms) : null,
+                  pet_hair: lead.petHair || 'none',
+                  condition: lead.condition || 'maintenance',
+                  is_primary: true,
+                }),
+              })
+              if (propRes.ok) {
+                const propData = await propRes.json()
+                propertyId = propData[0]?.id
+              }
+            } catch (e) { console.error('Property creation failed:', e) }
+          }
+
+          // Create draft quote
+          if (clientId && lead.estimateMin) {
+            try {
+              const qNum = `QTE-${new Date().getFullYear()}${String(new Date().getMonth()+1).padStart(2,'0')}-${String(Math.floor(Math.random()*9999)).padStart(4,'0')}`
+              await fetch(`${supabaseUrl}/rest/v1/quotes`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'apikey': supabaseKey, 'Authorization': `Bearer ${supabaseKey}` },
+                body: JSON.stringify({
+                  quote_number: qNum,
+                  client_id: clientId,
+                  property_id: propertyId,
+                  service_type: lead.service || 'standard',
+                  frequency: lead.frequency || 'one-time',
+                  estimate_min: lead.estimateMin,
+                  estimate_max: lead.estimateMax,
+                  status: 'draft',
+                  calc_inputs: { sqft: lead.squareFeet, bathrooms: lead.bathrooms, petHair: lead.petHair, condition: lead.condition },
+                  notes: lead.message || '',
+                }),
+              })
+            } catch (e) { console.error('Quote creation failed:', e) }
+          }
+
+          return res.status(200).json({ success: true, leadId: clientId, propertyId, lead })
         }
       } catch (err) {
         console.error('Supabase write failed:', err)

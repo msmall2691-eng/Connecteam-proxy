@@ -16,7 +16,7 @@ function saveLocal(data) {
 }
 
 function defaultData() {
-  return { clients: [], conversations: [], jobs: [], invoices: [] }
+  return { clients: [], conversations: [], jobs: [], invoices: [], properties: [], quotes: [] }
 }
 
 function genId() {
@@ -431,6 +431,137 @@ export function generateInvoiceNumber() {
 }
 
 // ══════════════════════════════════════════
+// ══════════════════════════════════════════
+// PROPERTIES
+// ══════════════════════════════════════════
+export async function getPropertiesAsync(clientId = null) {
+  const sb = getSupabase()
+  if (sb) {
+    let q = sb.from('properties').select('*').order('created_at', { ascending: false })
+    if (clientId) q = q.eq('client_id', clientId)
+    const { data } = await q
+    return (data || []).map(normalizeProperty)
+  }
+  return getProperties(clientId)
+}
+
+export function getProperties(clientId = null) {
+  const data = loadLocal()
+  let props = data.properties || []
+  if (clientId) props = props.filter(p => p.clientId === clientId)
+  return props
+}
+
+export function getProperty(id) {
+  return (loadLocal().properties || []).find(p => p.id === id) || null
+}
+
+export async function savePropertyAsync(property) {
+  const sb = getSupabase()
+  if (sb) {
+    const row = propertyToSnake(property)
+    if (property.id) {
+      const { data } = await sb.from('properties').update(row).eq('id', property.id).select().single()
+      return normalizeProperty(data)
+    } else {
+      delete row.id
+      const { data } = await sb.from('properties').insert(row).select().single()
+      return normalizeProperty(data)
+    }
+  }
+  return saveProperty(property)
+}
+
+export function saveProperty(property) {
+  const data = loadLocal()
+  if (!data.properties) data.properties = []
+  const now = new Date().toISOString()
+  if (property.id) {
+    const idx = data.properties.findIndex(p => p.id === property.id)
+    if (idx >= 0) data.properties[idx] = { ...data.properties[idx], ...property, updatedAt: now }
+  } else {
+    property.id = genId()
+    property.createdAt = now
+    property.updatedAt = now
+    data.properties.unshift(property)
+  }
+  saveLocal(data)
+  return property
+}
+
+export function deleteProperty(id) {
+  const data = loadLocal()
+  data.properties = (data.properties || []).filter(p => p.id !== id)
+  saveLocal(data)
+}
+
+// ══════════════════════════════════════════
+// QUOTES
+// ══════════════════════════════════════════
+export async function getQuotesAsync(clientId = null, propertyId = null) {
+  const sb = getSupabase()
+  if (sb) {
+    let q = sb.from('quotes').select('*').order('created_at', { ascending: false })
+    if (clientId) q = q.eq('client_id', clientId)
+    if (propertyId) q = q.eq('property_id', propertyId)
+    const { data } = await q
+    return (data || []).map(normalizeQuote)
+  }
+  return getQuotes(clientId)
+}
+
+export function getQuotes(clientId = null) {
+  const data = loadLocal()
+  let quotes = data.quotes || []
+  if (clientId) quotes = quotes.filter(q => q.clientId === clientId)
+  return quotes.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
+}
+
+export function getQuote(id) {
+  return (loadLocal().quotes || []).find(q => q.id === id) || null
+}
+
+export async function saveQuoteAsync(quote) {
+  const sb = getSupabase()
+  if (sb) {
+    const row = quoteToSnake(quote)
+    if (quote.id) {
+      const { data } = await sb.from('quotes').update(row).eq('id', quote.id).select().single()
+      return normalizeQuote(data)
+    } else {
+      delete row.id
+      const { data } = await sb.from('quotes').insert(row).select().single()
+      return normalizeQuote(data)
+    }
+  }
+  return saveQuote(quote)
+}
+
+export function saveQuote(quote) {
+  const data = loadLocal()
+  if (!data.quotes) data.quotes = []
+  const now = new Date().toISOString()
+  if (quote.id) {
+    const idx = data.quotes.findIndex(q => q.id === quote.id)
+    if (idx >= 0) data.quotes[idx] = { ...data.quotes[idx], ...quote, updatedAt: now }
+  } else {
+    quote.id = genId()
+    quote.createdAt = now
+    quote.updatedAt = now
+    data.quotes.unshift(quote)
+  }
+  saveLocal(data)
+  return quote
+}
+
+export function generateQuoteNumber() {
+  const now = new Date()
+  const y = now.getFullYear()
+  const m = String(now.getMonth() + 1).padStart(2, '0')
+  const seq = String(Math.floor(Math.random() * 9999)).padStart(4, '0')
+  return `QTE-${y}${m}-${seq}`
+}
+
 // IMPORT / EXPORT
 // ══════════════════════════════════════════
 export function exportData() { return loadLocal() }
@@ -588,5 +719,72 @@ function invoiceToSnake(inv) {
     notes: inv.notes,
     payment_method: inv.paymentMethod,
     paid_at: inv.paidAt,
+  }
+}
+
+function normalizeProperty(row) {
+  if (!row) return null
+  return {
+    id: row.id, clientId: row.client_id, name: row.name,
+    addressLine1: row.address_line1, addressLine2: row.address_line2,
+    city: row.city, state: row.state, zip: row.zip,
+    type: row.type, sqft: row.sqft, bedrooms: row.bedrooms, bathrooms: row.bathrooms,
+    petHair: row.pet_hair, condition: row.condition, accessNotes: row.access_notes,
+    isPrimary: row.is_primary,
+    icalUrl: row.ical_url, checkoutTime: row.checkout_time, cleaningTime: row.cleaning_time,
+    rentalPlatform: row.rental_platform,
+    createdAt: row.created_at, updatedAt: row.updated_at,
+  }
+}
+
+function propertyToSnake(p) {
+  return {
+    id: p.id, client_id: p.clientId, name: p.name,
+    address_line1: p.addressLine1, address_line2: p.addressLine2,
+    city: p.city, state: p.state, zip: p.zip,
+    type: p.type, sqft: p.sqft ? parseInt(p.sqft) : null,
+    bedrooms: p.bedrooms ? parseInt(p.bedrooms) : null,
+    bathrooms: p.bathrooms ? parseInt(p.bathrooms) : null,
+    pet_hair: p.petHair || 'none', condition: p.condition || 'maintenance',
+    access_notes: p.accessNotes, is_primary: p.isPrimary || false,
+    ical_url: p.icalUrl, checkout_time: p.checkoutTime, cleaning_time: p.cleaningTime,
+    rental_platform: p.rentalPlatform,
+  }
+}
+
+function normalizeQuote(row) {
+  if (!row) return null
+  return {
+    id: row.id, quoteNumber: row.quote_number,
+    clientId: row.client_id, propertyId: row.property_id,
+    serviceType: row.service_type, frequency: row.frequency,
+    estimateMin: parseFloat(row.estimate_min) || 0,
+    estimateMax: parseFloat(row.estimate_max) || 0,
+    finalPrice: parseFloat(row.final_price) || 0,
+    calcInputs: row.calc_inputs || {}, calcBreakdown: row.calc_breakdown || {},
+    status: row.status, sentVia: row.sent_via,
+    sentAt: row.sent_at, viewedAt: row.viewed_at,
+    acceptedAt: row.accepted_at, declinedAt: row.declined_at, expiresAt: row.expires_at,
+    signatureData: row.signature_data,
+    items: row.items || [], notes: row.notes,
+    preferredDay: row.preferred_day, preferredTime: row.preferred_time,
+    createdAt: row.created_at, updatedAt: row.updated_at,
+  }
+}
+
+function quoteToSnake(q) {
+  return {
+    id: q.id, quote_number: q.quoteNumber,
+    client_id: q.clientId, property_id: q.propertyId,
+    service_type: q.serviceType, frequency: q.frequency,
+    estimate_min: q.estimateMin, estimate_max: q.estimateMax,
+    final_price: q.finalPrice,
+    calc_inputs: q.calcInputs || {}, calc_breakdown: q.calcBreakdown || {},
+    status: q.status, sent_via: q.sentVia,
+    sent_at: q.sentAt, viewed_at: q.viewedAt,
+    accepted_at: q.acceptedAt, declined_at: q.declinedAt, expires_at: q.expiresAt,
+    signature_data: q.signatureData,
+    items: q.items || [], notes: q.notes,
+    preferred_day: q.preferredDay, preferred_time: q.preferredTime,
   }
 }
