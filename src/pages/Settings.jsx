@@ -169,6 +169,13 @@ export default function Settings() {
           <StatusBadge status={connecteamKey ? 'connected' : 'not configured'} />
           <TestResult name="connecteam" />
         </div>
+        {connecteamKey && (
+          <div className="mt-3 bg-gray-800/50 rounded-lg p-3 space-y-1">
+            <p className="text-xs text-gray-400 font-medium">Connecteam Webhook URL:</p>
+            <code className="block text-xs text-blue-400 break-all">https://connecteam-proxy.vercel.app/api/connecteam-webhook</code>
+            <p className="text-xs text-gray-600">Add this in Connecteam → Settings → Webhooks to receive real-time clock in/out, shift changes, and form submissions.</p>
+          </div>
+        )}
       </Section>
 
       {/* ── SERVER-SIDE INTEGRATIONS ── */}
