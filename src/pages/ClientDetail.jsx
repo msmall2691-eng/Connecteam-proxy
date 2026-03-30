@@ -3,6 +3,7 @@ import { useParams, Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { getClient, saveClient, getConversations, saveConversation, addMessage, getJobs, saveJob, getInvoices, saveInvoice, generateInvoiceNumber, getProperties, saveProperty, deleteProperty, getQuotes, saveQuote, generateQuoteNumber } from '../lib/store'
 import { calculateQuote } from '../lib/quoteEngine'
 import PropertyForm from '../components/PropertyForm'
+import CustomFields from '../components/CustomFields'
 
 const TABS = ['overview', 'properties', 'quotes', 'conversations', 'jobs', 'invoices', 'notes']
 
@@ -938,36 +939,52 @@ function JobsTab({ clientId, clientName, clientAddress, jobs, properties, onRelo
 
 function InvoicesTab({ clientId, clientName, jobs, invoices, onReload }) {
   const completedJobs = jobs.filter(j => j.status === 'completed')
+  const [previewInv, setPreviewInv] = useState(null)
+  const [editItems, setEditItems] = useState([])
 
   function quickInvoice() {
-    // Create invoice from unbilled completed jobs
     const items = completedJobs.map(j => ({
-      jobId: j.id,
-      description: `${j.title} (${j.date})`,
-      quantity: 1,
-      unitPrice: j.price || 0,
-      total: j.price || 0,
+      jobId: j.id, description: `${j.title} (${j.date})`, quantity: 1,
+      unitPrice: j.price || 0, total: j.price || 0,
     })).filter(i => i.unitPrice > 0)
-
-    if (items.length === 0) {
-      alert('No completed jobs with prices to invoice.')
-      return
-    }
-
+    if (items.length === 0) { alert('No completed jobs with prices.'); return }
     const subtotal = items.reduce((s, i) => s + i.total, 0)
     saveInvoice({
-      invoiceNumber: generateInvoiceNumber(),
-      clientId,
-      clientName,
-      status: 'draft',
-      issueDate: new Date().toISOString().split('T')[0],
+      invoiceNumber: generateInvoiceNumber(), clientId, clientName,
+      status: 'draft', issueDate: new Date().toISOString().split('T')[0],
       dueDate: new Date(Date.now() + 30 * 86400000).toISOString().split('T')[0],
-      subtotal,
-      taxRate: 0,
-      taxAmount: 0,
-      total: subtotal,
-      items,
+      subtotal, taxRate: 0, taxAmount: 0, total: subtotal, items,
     })
+    onReload()
+  }
+
+  function openPreview(inv) {
+    setPreviewInv(inv)
+    setEditItems([...(inv.items || [])])
+  }
+
+  function updateItem(idx, field, value) {
+    const updated = [...editItems]
+    updated[idx] = { ...updated[idx], [field]: value }
+    if (field === 'quantity' || field === 'unitPrice') {
+      updated[idx].total = (parseFloat(updated[idx].quantity) || 0) * (parseFloat(updated[idx].unitPrice) || 0)
+    }
+    setEditItems(updated)
+  }
+
+  function addItem() {
+    setEditItems(prev => [...prev, { description: '', quantity: 1, unitPrice: 0, total: 0 }])
+  }
+
+  function removeItem(idx) {
+    setEditItems(editItems.filter((_, i) => i !== idx))
+  }
+
+  function saveEdits() {
+    const subtotal = editItems.reduce((s, i) => s + (parseFloat(i.total) || 0), 0)
+    const taxAmount = subtotal * (previewInv.taxRate || 0)
+    saveInvoice({ ...previewInv, items: editItems, subtotal, taxAmount, total: subtotal + taxAmount })
+    setPreviewInv(null)
     onReload()
   }
 
@@ -982,13 +999,69 @@ function InvoicesTab({ clientId, clientName, jobs, invoices, onReload }) {
         )}
       </div>
 
+      {/* Invoice preview/edit panel */}
+      {previewInv && (
+        <div className="bg-gray-900 border border-gray-800 rounded-xl p-5 space-y-4">
+          <div className="flex justify-between items-center">
+            <h3 className="text-sm font-semibold text-white">Invoice {previewInv.invoiceNumber}</h3>
+            <button onClick={() => setPreviewInv(null)} className="text-xs text-gray-500 hover:text-gray-300">Close</button>
+          </div>
+
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
+            <div><span className="text-gray-500 text-xs block">Client</span><span className="text-white">{previewInv.clientName}</span></div>
+            <div><span className="text-gray-500 text-xs block">Issue Date</span><span className="text-white">{previewInv.issueDate}</span></div>
+            <div><span className="text-gray-500 text-xs block">Due Date</span><span className="text-white">{previewInv.dueDate || '-'}</span></div>
+            <div><span className="text-gray-500 text-xs block">Status</span>
+              <span className={`px-2 py-0.5 rounded text-xs font-medium ${previewInv.status === 'paid' ? 'bg-green-900/40 text-green-400' : previewInv.status === 'sent' ? 'bg-blue-900/40 text-blue-400' : 'bg-gray-800 text-gray-400'}`}>{previewInv.status}</span>
+            </div>
+          </div>
+
+          {/* Editable line items */}
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-xs text-gray-500 uppercase">Line Items</span>
+              <button onClick={addItem} className="text-xs text-blue-400 hover:text-blue-300">+ Add Line</button>
+            </div>
+            <div className="space-y-2">
+              {editItems.map((item, i) => (
+                <div key={i} className="grid grid-cols-12 gap-2 items-center">
+                  <input value={item.description} onChange={e => updateItem(i, 'description', e.target.value)}
+                    placeholder="Description" className="col-span-5 px-2 py-1.5 bg-gray-800 border border-gray-700 rounded text-sm text-white" />
+                  <input type="number" min="1" step="1" value={item.quantity} onChange={e => updateItem(i, 'quantity', e.target.value)}
+                    className="col-span-2 px-2 py-1.5 bg-gray-800 border border-gray-700 rounded text-sm text-white text-right" />
+                  <input type="number" min="0" step="5" value={item.unitPrice} onChange={e => updateItem(i, 'unitPrice', e.target.value)}
+                    className="col-span-2 px-2 py-1.5 bg-gray-800 border border-gray-700 rounded text-sm text-white text-right" />
+                  <span className="col-span-2 text-sm text-gray-300 text-right font-mono">${(parseFloat(item.total) || 0).toFixed(2)}</span>
+                  <button onClick={() => removeItem(i)} className="text-gray-600 hover:text-red-400">×</button>
+                </div>
+              ))}
+            </div>
+            <div className="flex justify-end mt-3 text-sm">
+              <span className="text-gray-400 mr-3">Total:</span>
+              <span className="font-bold text-white">${editItems.reduce((s, i) => s + (parseFloat(i.total) || 0), 0).toFixed(2)}</span>
+            </div>
+          </div>
+
+          <div className="flex gap-2 pt-2 border-t border-gray-800">
+            <button onClick={saveEdits} className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 rounded-lg text-xs text-white">Save Changes</button>
+            {previewInv.status === 'draft' && (
+              <button onClick={() => { saveInvoice({ ...previewInv, status: 'sent', items: editItems }); setPreviewInv(null); onReload() }}
+                className="px-3 py-1.5 bg-green-600 hover:bg-green-500 rounded-lg text-xs text-white">Mark Sent</button>
+            )}
+            {previewInv.status === 'sent' && (
+              <button onClick={() => { saveInvoice({ ...previewInv, status: 'paid', paidAt: new Date().toISOString() }); setPreviewInv(null); onReload() }}
+                className="px-3 py-1.5 bg-green-600 hover:bg-green-500 rounded-lg text-xs text-white">Mark Paid</button>
+            )}
+          </div>
+        </div>
+      )}
+
       <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
         <table className="w-full text-sm">
           <thead>
             <tr className="text-xs text-gray-500 uppercase tracking-wider border-b border-gray-800">
               <th className="px-5 py-2.5 text-left">Invoice</th>
               <th className="px-3 py-2.5 text-left">Date</th>
-              <th className="px-3 py-2.5 text-left">Due</th>
               <th className="px-3 py-2.5 text-right">Amount</th>
               <th className="px-3 py-2.5 text-center">Status</th>
               <th className="px-5 py-2.5 text-right">Actions</th>
@@ -999,7 +1072,6 @@ function InvoicesTab({ clientId, clientName, jobs, invoices, onReload }) {
               <tr key={inv.id} className="text-gray-300 hover:bg-gray-800/30">
                 <td className="px-5 py-2.5 font-mono text-white text-xs">{inv.invoiceNumber}</td>
                 <td className="px-3 py-2.5">{inv.issueDate}</td>
-                <td className="px-3 py-2.5">{inv.dueDate || '-'}</td>
                 <td className="px-3 py-2.5 text-right font-mono">${(inv.total || 0).toFixed(2)}</td>
                 <td className="px-3 py-2.5 text-center">
                   <span className={`px-2 py-0.5 rounded text-xs font-medium ${
@@ -1010,18 +1082,21 @@ function InvoicesTab({ clientId, clientName, jobs, invoices, onReload }) {
                   }`}>{inv.status}</span>
                 </td>
                 <td className="px-5 py-2.5 text-right">
-                  {inv.status === 'draft' && (
-                    <button onClick={() => { saveInvoice({ ...inv, status: 'sent' }); onReload() }}
-                      className="text-xs text-gray-500 hover:text-green-400">Mark Sent</button>
-                  )}
-                  {inv.status === 'sent' && (
-                    <button onClick={() => { saveInvoice({ ...inv, status: 'paid', paidAt: new Date().toISOString() }); onReload() }}
-                      className="text-xs text-gray-500 hover:text-green-400">Mark Paid</button>
-                  )}
+                  <div className="flex gap-2 justify-end">
+                    <button onClick={() => openPreview(inv)} className="text-xs text-gray-400 hover:text-blue-400">View/Edit</button>
+                    {inv.status === 'draft' && (
+                      <button onClick={() => { saveInvoice({ ...inv, status: 'sent' }); onReload() }}
+                        className="text-xs text-gray-500 hover:text-green-400">Send</button>
+                    )}
+                    {inv.status === 'sent' && (
+                      <button onClick={() => { saveInvoice({ ...inv, status: 'paid', paidAt: new Date().toISOString() }); onReload() }}
+                        className="text-xs text-gray-500 hover:text-green-400">Paid</button>
+                    )}
+                  </div>
                 </td>
               </tr>
             ))}
-            {invoices.length === 0 && <tr><td colSpan={6} className="px-5 py-8 text-center text-gray-500">No invoices yet.</td></tr>}
+            {invoices.length === 0 && <tr><td colSpan={5} className="px-5 py-8 text-center text-gray-500">No invoices yet.</td></tr>}
           </tbody>
         </table>
       </div>
@@ -1041,14 +1116,26 @@ function NotesTab({ client, onSave }) {
   }
 
   return (
-    <div className="bg-gray-900 border border-gray-800 rounded-xl p-5 space-y-4">
+    <div className="space-y-6">
+      {/* Custom fields */}
+      <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
+        <CustomFields
+          label="Custom Client Fields"
+          fields={client.customFields || {}}
+          onSave={(fields) => { saveClient({ id: client.id, customFields: fields }); onSave() }}
+        />
+      </div>
+
+      {/* Notes */}
+      <div className="bg-gray-900 border border-gray-800 rounded-xl p-5 space-y-4">
       <h3 className="text-sm font-semibold text-white">Client Notes</h3>
-      <textarea rows={12} value={notes} onChange={e => setNotes(e.target.value)}
-        placeholder="Add notes... cleaning preferences, access codes, special instructions, etc."
+      <textarea rows={8} value={notes} onChange={e => setNotes(e.target.value)}
+        placeholder="Cleaning preferences, access codes, special instructions..."
         className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500" />
       <div className="flex items-center gap-3">
         <button onClick={handleSave} className="px-4 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg text-sm font-medium text-white">Save Notes</button>
         {saved && <span className="text-sm text-green-400">Saved!</span>}
+      </div>
       </div>
     </div>
   )
