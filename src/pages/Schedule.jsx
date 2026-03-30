@@ -285,7 +285,7 @@ export default function Schedule() {
         <div className="bg-gray-900 border border-gray-800 rounded-xl p-12 text-center space-y-4">
           <p className="text-gray-500">Google Calendar not connected.</p>
           <p className="text-xs text-gray-600">Add Gmail OAuth credentials to Vercel env vars (GMAIL_CLIENT_ID, GMAIL_CLIENT_SECRET, GMAIL_REFRESH_TOKEN) to enable calendar integration.</p>
-          <a href="/#/settings" className="text-sm text-blue-400 hover:text-blue-300">Go to Settings</a>
+          <Link to="/settings" className="text-sm text-blue-400 hover:text-blue-300">Go to Settings</Link>
         </div>
       )}
 

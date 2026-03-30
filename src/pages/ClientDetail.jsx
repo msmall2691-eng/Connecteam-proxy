@@ -167,6 +167,7 @@ function ConversationsTab({ clientId, convos, onReload }) {
 
   function createConvo(e) {
     e.preventDefault()
+    if (!newConvo.subject.trim()) return
     saveConversation({ ...newConvo, clientId, messages: [] })
     setShowNew(false)
     setNewConvo({ subject: '', channel: 'email' })
