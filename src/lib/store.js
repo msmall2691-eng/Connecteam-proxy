@@ -573,33 +573,24 @@ export function importData(data) { saveLocal(data) }
 function normalizeClient(row) {
   if (!row) return null
   return {
-    id: row.id,
-    name: row.name,
-    email: row.email,
-    phone: row.phone,
-    address: row.address,
-    status: row.status,
-    type: row.type,
-    source: row.source,
-    notes: row.notes,
-    tags: row.tags || [],
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
+    id: row.id, name: row.name, email: row.email, phone: row.phone,
+    address: row.address, status: row.status, type: row.type,
+    source: row.source, notes: row.notes, tags: row.tags || [],
+    squareCustomerId: row.square_customer_id,
+    stripeCustomerId: row.stripe_customer_id,
+    preferredContact: row.preferred_contact,
+    createdAt: row.created_at, updatedAt: row.updated_at,
   }
 }
 
 function toSnake(client) {
   return {
-    id: client.id,
-    name: client.name,
-    email: client.email,
-    phone: client.phone,
-    address: client.address,
-    status: client.status,
-    type: client.type,
-    source: client.source,
-    notes: client.notes,
-    tags: client.tags || [],
+    id: client.id, name: client.name, email: client.email, phone: client.phone,
+    address: client.address, status: client.status, type: client.type,
+    source: client.source, notes: client.notes, tags: client.tags || [],
+    square_customer_id: client.squareCustomerId || null,
+    stripe_customer_id: client.stripeCustomerId || null,
+    preferred_contact: client.preferredContact || 'email',
   }
 }
 
@@ -630,47 +621,34 @@ function convoToSnake(convo) {
 
 function normalizeJob(row) {
   return {
-    id: row.id,
-    clientId: row.client_id,
-    clientName: row.client_name,
-    title: row.title,
-    description: row.description,
-    date: row.date,
-    startTime: row.start_time,
-    endTime: row.end_time,
-    status: row.status,
-    assignee: row.assignee,
-    notes: row.notes,
-    isRecurring: row.is_recurring,
-    recurrenceRule: row.recurrence_rule,
-    recurrenceDay: row.recurrence_day,
-    recurrenceParentId: row.recurrence_parent_id,
-    price: row.price,
-    priceType: row.price_type,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
+    id: row.id, clientId: row.client_id, clientName: row.client_name,
+    title: row.title, description: row.description, date: row.date,
+    startTime: row.start_time, endTime: row.end_time, status: row.status,
+    assignee: row.assignee, notes: row.notes,
+    isRecurring: row.is_recurring, recurrenceRule: row.recurrence_rule,
+    recurrenceDay: row.recurrence_day, recurrenceParentId: row.recurrence_parent_id,
+    price: row.price, priceType: row.price_type,
+    // v2 fields
+    propertyId: row.property_id, quoteId: row.quote_id,
+    googleEventId: row.google_event_id, serviceType: row.service_type,
+    address: row.address,
+    createdAt: row.created_at, updatedAt: row.updated_at,
   }
 }
 
 function jobToSnake(job) {
   return {
-    id: job.id,
-    client_id: job.clientId,
-    client_name: job.clientName,
-    title: job.title,
-    description: job.description,
-    date: job.date,
-    start_time: job.startTime,
-    end_time: job.endTime,
-    status: job.status,
-    assignee: job.assignee,
-    notes: job.notes,
-    is_recurring: job.isRecurring || false,
-    recurrence_rule: job.recurrenceRule || null,
-    recurrence_day: job.recurrenceDay || null,
-    recurrence_parent_id: job.recurrenceParentId || null,
-    price: job.price || null,
-    price_type: job.priceType || null,
+    id: job.id, client_id: job.clientId, client_name: job.clientName,
+    title: job.title, description: job.description, date: job.date,
+    start_time: job.startTime, end_time: job.endTime, status: job.status,
+    assignee: job.assignee, notes: job.notes,
+    is_recurring: job.isRecurring || false, recurrence_rule: job.recurrenceRule || null,
+    recurrence_day: job.recurrenceDay || null, recurrence_parent_id: job.recurrenceParentId || null,
+    price: job.price || null, price_type: job.priceType || null,
+    // v2 fields
+    property_id: job.propertyId || null, quote_id: job.quoteId || null,
+    google_event_id: job.googleEventId || null, service_type: job.serviceType || null,
+    address: job.address || null,
   }
 }
 
@@ -687,8 +665,11 @@ function normalizeInvoice(row) {
     taxRate: parseFloat(row.tax_rate) || 0,
     taxAmount: parseFloat(row.tax_amount) || 0,
     total: parseFloat(row.total) || 0,
-    notes: row.notes,
-    paymentMethod: row.payment_method,
+    notes: row.notes, paymentMethod: row.payment_method,
+    // v2 fields
+    propertyId: row.property_id, quoteId: row.quote_id,
+    squareInvoiceId: row.square_invoice_id, squarePublicUrl: row.square_public_url,
+    sentAt: row.sent_at, emailSent: row.email_sent,
     paidAt: row.paid_at,
     items: (row.invoice_items || []).map(i => ({
       id: i.id,
@@ -705,20 +686,17 @@ function normalizeInvoice(row) {
 
 function invoiceToSnake(inv) {
   return {
-    id: inv.id,
-    invoice_number: inv.invoiceNumber,
-    client_id: inv.clientId,
-    client_name: inv.clientName,
-    status: inv.status,
-    issue_date: inv.issueDate,
-    due_date: inv.dueDate,
-    subtotal: inv.subtotal,
-    tax_rate: inv.taxRate,
-    tax_amount: inv.taxAmount,
-    total: inv.total,
-    notes: inv.notes,
-    payment_method: inv.paymentMethod,
-    paid_at: inv.paidAt,
+    id: inv.id, invoice_number: inv.invoiceNumber,
+    client_id: inv.clientId, client_name: inv.clientName,
+    status: inv.status, issue_date: inv.issueDate, due_date: inv.dueDate,
+    subtotal: inv.subtotal, tax_rate: inv.taxRate, tax_amount: inv.taxAmount,
+    total: inv.total, notes: inv.notes,
+    payment_method: inv.paymentMethod, paid_at: inv.paidAt,
+    // v2 fields
+    property_id: inv.propertyId || null, quote_id: inv.quoteId || null,
+    square_invoice_id: inv.squareInvoiceId || null,
+    square_public_url: inv.squarePublicUrl || null,
+    sent_at: inv.sentAt || null, email_sent: inv.emailSent || false,
   }
 }
 

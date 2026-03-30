@@ -112,14 +112,15 @@ export default async function handler(req, res) {
 
     // ── SEND EMAIL ──
     if (action === 'send' && req.method === 'POST') {
-      const { to, subject, body, threadId } = req.body
+      const { to, subject, body, threadId, isHtml } = req.body
       if (!to || !body) return res.status(400).json({ error: 'to and body required' })
 
-      // Build raw email
+      // Build raw email — supports both plain text and HTML
+      const contentType = isHtml ? 'text/html; charset=utf-8' : 'text/plain; charset=utf-8'
       const email = [
         `To: ${to}`,
         `Subject: ${subject || ''}`,
-        'Content-Type: text/plain; charset=utf-8',
+        `Content-Type: ${contentType}`,
         '',
         body,
       ].join('\r\n')
