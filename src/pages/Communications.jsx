@@ -14,6 +14,7 @@ export default function Communications() {
   const [gmailMessages, setGmailMessages] = useState([])
   const [gmailLoading, setGmailLoading] = useState(false)
   const [sending, setSending] = useState(false)
+  const [sendError, setSendError] = useState(null)
   const bottomRef = useRef(null)
 
   useEffect(() => { reload() }, [])
@@ -114,6 +115,7 @@ export default function Communications() {
     e.preventDefault()
     if (!newMsg.trim() || !active) return
     setSending(true)
+    setSendError(null)
 
     const client = clients[active.clientId]
 
@@ -144,8 +146,13 @@ export default function Communications() {
           reload()
           setSending(false)
           return
+        } else {
+          const err = await res.json().catch(() => ({}))
+          setSendError(err.error || 'Failed to send email')
         }
-      } catch {}
+      } catch (err) {
+        setSendError(err.message || 'Failed to send email')
+      }
     }
 
     // If text channel and Twilio configured, try sending via Twilio
@@ -173,8 +180,13 @@ export default function Communications() {
           reload()
           setSending(false)
           return
+        } else {
+          const err = await res.json().catch(() => ({}))
+          setSendError(err.error || 'Failed to send SMS')
         }
-      } catch {}
+      } catch (err) {
+        setSendError(err.message || 'Failed to send SMS')
+      }
     }
 
     // Fallback: just log locally
@@ -217,7 +229,7 @@ export default function Communications() {
   return (
     <div className="flex h-full">
       {/* Sidebar */}
-      <div className="w-80 border-r border-gray-800 flex flex-col bg-gray-900/50">
+      <div className="w-72 border-r border-gray-800 flex flex-col bg-gray-900/50">
         <div className="p-3 space-y-2 border-b border-gray-800">
           <div className="flex items-center justify-between">
             <h2 className="text-sm font-semibold text-white">Messages</h2>
@@ -373,7 +385,10 @@ export default function Communications() {
                   {sending ? '...' : 'Send'}
                 </button>
               </div>
-              <p className="text-xs text-gray-600 mt-1">Enter to send, Shift+Enter for new line</p>
+              <div className="flex items-center gap-2 mt-1">
+                <p className="text-xs text-gray-600">Enter to send, Shift+Enter for new line</p>
+                {sendError && <p className="text-xs text-red-400">{sendError}</p>}
+              </div>
             </form>
           </>
         ) : (

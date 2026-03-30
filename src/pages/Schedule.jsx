@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { Link } from 'react-router-dom'
 import { getClients } from '../lib/store'
 
 // Rental calendar config
@@ -23,6 +24,7 @@ export default function Schedule() {
   const [creatingCleaning, setCreatingCleaning] = useState(null)
   const [error, setError] = useState(null)
   const [calendarConnected, setCalendarConnected] = useState(false)
+  const [showCalendarFilter, setShowCalendarFilter] = useState(false)
 
   useEffect(() => {
     loadCalendars()
@@ -148,26 +150,29 @@ export default function Schedule() {
           </div>
 
           {/* Calendar filter */}
-          <div className="relative group">
-            <button className="px-3 py-1.5 bg-gray-800 border border-gray-700 hover:bg-gray-700 rounded-lg text-xs text-gray-300">
+          <div className="relative">
+            <button onClick={() => setShowCalendarFilter(!showCalendarFilter)}
+              className="px-3 py-1.5 bg-gray-800 border border-gray-700 hover:bg-gray-700 rounded-lg text-xs text-gray-300">
               Calendars ({selectedCals.length})
             </button>
-            <div className="absolute right-0 top-full mt-1 bg-gray-900 border border-gray-800 rounded-lg p-3 hidden group-hover:block z-20 w-72 shadow-xl">
-              <p className="text-xs text-gray-500 uppercase tracking-wider mb-2">Show/Hide Calendars</p>
-              {allCalendars.map(cal => (
-                <label key={cal.id} className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-gray-800 cursor-pointer">
-                  <input type="checkbox" checked={selectedCals.includes(cal.id)}
-                    onChange={e => {
-                      if (e.target.checked) setSelectedCals(prev => [...prev, cal.id])
-                      else setSelectedCals(prev => prev.filter(id => id !== cal.id))
-                    }}
-                    className="rounded border-gray-600" />
-                  <span className="w-2.5 h-2.5 rounded" style={{ backgroundColor: cal.backgroundColor || '#4285f4' }} />
-                  <span className="text-xs text-gray-300 truncate">{cal.summaryOverride || cal.summary}</span>
-                  {cal.primary && <span className="text-xs text-gray-600">(primary)</span>}
-                </label>
-              ))}
-            </div>
+            {showCalendarFilter && (
+              <div className="absolute right-0 top-full mt-1 bg-gray-900 border border-gray-800 rounded-lg p-3 z-20 w-72 shadow-xl">
+                <p className="text-xs text-gray-500 uppercase tracking-wider mb-2">Show/Hide Calendars</p>
+                {allCalendars.map(cal => (
+                  <label key={cal.id} className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-gray-800 cursor-pointer">
+                    <input type="checkbox" checked={selectedCals.includes(cal.id)}
+                      onChange={e => {
+                        if (e.target.checked) setSelectedCals(prev => [...prev, cal.id])
+                        else setSelectedCals(prev => prev.filter(id => id !== cal.id))
+                      }}
+                      className="rounded border-gray-600" />
+                    <span className="w-2.5 h-2.5 rounded" style={{ backgroundColor: cal.backgroundColor || '#4285f4' }} />
+                    <span className="text-xs text-gray-300 truncate">{cal.summaryOverride || cal.summary}</span>
+                    {cal.primary && <span className="text-xs text-gray-600">(primary)</span>}
+                  </label>
+                ))}
+              </div>
+            )}
           </div>
 
           {/* Turnovers toggle */}

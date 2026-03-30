@@ -135,7 +135,7 @@ export default function Invoices() {
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <div className="bg-gray-900 border border-gray-800 rounded-xl p-4">
           <p className="text-xs text-gray-500 uppercase">Outstanding</p>
           <p className="text-xl font-bold text-blue-400">${stats.outstanding.toFixed(2)}</p>
@@ -188,7 +188,7 @@ export default function Invoices() {
             {filtered.map(inv => (
               <tr key={inv.id} className="text-gray-300 hover:bg-gray-800/30 transition-colors">
                 <td className="px-5 py-3 font-mono text-white">{inv.invoiceNumber}</td>
-                <td className="px-3 py-3">{inv.clientName || '-'}</td>
+                <td className="px-3 py-3">{inv.clientId ? <Link to={`/clients/${inv.clientId}`} className="hover:text-blue-400 transition-colors">{inv.clientName || '-'}</Link> : (inv.clientName || '-')}</td>
                 <td className="px-3 py-3">{inv.issueDate}</td>
                 <td className="px-3 py-3">{inv.dueDate || '-'}</td>
                 <td className="px-3 py-3 text-right font-mono">${inv.total.toFixed(2)}</td>

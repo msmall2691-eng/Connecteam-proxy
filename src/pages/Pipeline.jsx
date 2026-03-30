@@ -19,22 +19,13 @@ export default function Pipeline() {
   const [jobs, setJobs] = useState([])
   const [invoices, setInvoices] = useState([])
   const [view, setView] = useState('kanban') // 'kanban' or 'list'
-  const [polling, setPolling] = useState(false)
 
-  useEffect(() => { reload(); pollLeads() }, [])
+  useEffect(() => { reload() }, [])
 
   function reload() {
     setClients(getClients())
     setJobs(getJobs())
     setInvoices(getInvoices())
-  }
-
-  // Poll for new webhook leads
-  async function pollLeads() {
-    try {
-      const res = await fetch('/api/leads?action=poll')
-      // This is a placeholder — in production, Supabase realtime or polling would work
-    } catch {}
   }
 
   function moveClient(clientId, newStatus) {
@@ -100,7 +91,7 @@ export default function Pipeline() {
 
       {view === 'kanban' ? (
         /* ── KANBAN BOARD ── */
-        <div className="grid grid-cols-4 gap-4 min-h-[500px]">
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 min-h-[500px]">
           {STAGES.map(stage => {
             const stageClients = clients.filter(c => c.status === stage.id)
             return (

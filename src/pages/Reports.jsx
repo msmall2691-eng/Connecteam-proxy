@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { Link } from 'react-router-dom'
 import { getApiKey, fetchUsers, fetchTimesheets, fetchTimeActivities, fetchShifts, dateRangeWeeks } from '../lib/api'
 
 const PRESETS = [
@@ -215,7 +216,7 @@ export default function Reports() {
       <div className="flex items-center justify-center h-full">
         <div className="text-center space-y-3">
           <p className="text-gray-500">Set your Connecteam API key on the Dashboard first.</p>
-          <a href="/#/" className="text-sm text-blue-400 hover:text-blue-300">Go to Dashboard</a>
+          <Link to="/" className="text-sm text-blue-400 hover:text-blue-300">Go to Dashboard</Link>
         </div>
       </div>
     )
@@ -243,7 +244,7 @@ export default function Reports() {
       {/* Step 1: Choose report type */}
       {step === 'choose' && (
         <>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             {PRESETS.map(preset => (
               <button key={preset.id} onClick={() => handlePreset(preset)}
                 className="bg-gray-900 border border-gray-800 rounded-xl p-5 text-left hover:border-blue-800/50 transition-colors group">

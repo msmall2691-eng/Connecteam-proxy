@@ -222,29 +222,10 @@ export default function Payroll() {
         </div>
       )}
 
-      {/* Settings */}
-      <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
-        <h2 className="text-sm font-semibold text-white mb-3">Mileage Settings</h2>
-        <div className="flex items-center gap-6">
-          <div className="flex items-center gap-2">
-            <label className="text-xs text-gray-500">IRS Rate ($/mi)</label>
-            <input type="number" step="0.01" value={mileRate} onChange={e => setMileRate(parseFloat(e.target.value) || 0)}
-              className="w-20 px-2 py-1 bg-gray-800 border border-gray-700 rounded text-sm text-white text-right" />
-          </div>
-          <div className="flex items-center gap-2">
-            <label className="text-xs text-gray-500">Threshold (mi)</label>
-            <input type="number" value={threshold} onChange={e => setThreshold(parseInt(e.target.value) || 0)}
-              className="w-20 px-2 py-1 bg-gray-800 border border-gray-700 rounded text-sm text-white text-right" />
-          </div>
-          <button onClick={loadPayroll} className="px-3 py-1 bg-blue-600 hover:bg-blue-500 rounded text-xs text-white">Recalculate</button>
-        </div>
-        <p className="text-xs text-gray-600 mt-2">First job: reimburse miles over {threshold}mi. Between jobs: all miles at ${mileRate}/mi.</p>
-      </div>
-
       {payrollData && (
         <>
           {/* Totals */}
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             <div className="bg-gray-900 border border-gray-800 rounded-xl p-4">
               <p className="text-xs text-gray-500 uppercase">Total Hours</p>
               <p className="text-xl font-bold text-blue-400">{payrollData.totals.hours}</p>
@@ -329,6 +310,25 @@ export default function Payroll() {
                 </tfoot>
               </table>
             </div>
+          </div>
+
+          {/* Settings */}
+          <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
+            <h2 className="text-sm font-semibold text-white mb-3">Mileage Settings</h2>
+            <div className="flex items-center gap-6">
+              <div className="flex items-center gap-2">
+                <label className="text-xs text-gray-500">IRS Rate ($/mi)</label>
+                <input type="number" step="0.01" value={mileRate} onChange={e => setMileRate(parseFloat(e.target.value) || 0)}
+                  className="w-20 px-2 py-1 bg-gray-800 border border-gray-700 rounded text-sm text-white text-right" />
+              </div>
+              <div className="flex items-center gap-2">
+                <label className="text-xs text-gray-500">Threshold (mi)</label>
+                <input type="number" value={threshold} onChange={e => setThreshold(parseInt(e.target.value) || 0)}
+                  className="w-20 px-2 py-1 bg-gray-800 border border-gray-700 rounded text-sm text-white text-right" />
+              </div>
+              <button onClick={loadPayroll} className="px-3 py-1 bg-blue-600 hover:bg-blue-500 rounded text-xs text-white">Recalculate</button>
+            </div>
+            <p className="text-xs text-gray-600 mt-2">First job: reimburse miles over {threshold}mi. Between jobs: all miles at ${mileRate}/mi.</p>
           </div>
 
           {/* Unapproved warning */}
