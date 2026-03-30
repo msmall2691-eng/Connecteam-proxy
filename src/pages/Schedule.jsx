@@ -12,7 +12,7 @@ function saveRentalCalendars(cals) {
 }
 
 export default function Schedule() {
-  const [calView, setCalView] = useState('WEEK') // WEEK, MONTH, AGENDA
+  const [calView, setCalView] = useState('MONTH') // WEEK, MONTH, AGENDA
   const [calendarIds, setCalendarIds] = useState([])
   const [allCalendars, setAllCalendars] = useState([])
   const [selectedCals, setSelectedCals] = useState([])
@@ -25,6 +25,9 @@ export default function Schedule() {
   const [error, setError] = useState(null)
   const [calendarConnected, setCalendarConnected] = useState(false)
   const [showCalendarFilter, setShowCalendarFilter] = useState(false)
+  const [showNewEvent, setShowNewEvent] = useState(false)
+  const [newEvent, setNewEvent] = useState({ title: '', date: '', startTime: '09:00', endTime: '12:00', location: '', description: '', clientEmail: '' })
+  const [creatingEvent, setCreatingEvent] = useState(false)
 
   useEffect(() => {
     loadCalendars()
@@ -108,6 +111,40 @@ export default function Schedule() {
     }
   }
 
+  async function createCalendarEvent(e) {
+    e.preventDefault()
+    if (!newEvent.title || !newEvent.date) return
+    setCreatingEvent(true)
+    try {
+      const res = await fetch('/api/calendar', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'create',
+          summary: newEvent.title,
+          description: newEvent.description + (newEvent.clientEmail ? `\nClient: ${newEvent.clientEmail}` : ''),
+          startDateTime: `${newEvent.date}T${newEvent.startTime}:00`,
+          endDateTime: `${newEvent.date}T${newEvent.endTime}:00`,
+          location: newEvent.location,
+        }),
+      })
+      if (res.ok) {
+        setNewEvent({ title: '', date: '', startTime: '09:00', endTime: '12:00', location: '', description: '', clientEmail: '' })
+        setShowNewEvent(false)
+        // Reload the iframe by toggling a key
+        setCalendarConnected(false)
+        setTimeout(() => setCalendarConnected(true), 100)
+      } else {
+        const err = await res.json().catch(() => ({}))
+        setError(err.error || 'Failed to create event')
+      }
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setCreatingEvent(false)
+    }
+  }
+
   // Build Google Calendar embed URL
   function buildEmbedUrl() {
     const params = new URLSearchParams()
@@ -183,6 +220,14 @@ export default function Schedule() {
             Turnovers {turnovers.length > 0 ? `(${turnovers.length})` : ''}
           </button>
 
+          {/* New event */}
+          <button onClick={() => setShowNewEvent(!showNewEvent)}
+            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+              showNewEvent ? 'bg-green-600 text-white' : 'bg-green-600 hover:bg-green-500 text-white'
+            }`}>
+            + Event
+          </button>
+
           {/* Rental settings */}
           <button onClick={() => { setShowSettings(!showSettings); if (!showSettings) loadCalendars() }}
             className={`px-3 py-1.5 rounded-lg text-xs transition-colors ${
@@ -194,6 +239,63 @@ export default function Schedule() {
       </div>
 
       {error && <div className="p-3 bg-red-900/30 border border-red-800 rounded-lg text-sm text-red-300">{error}</div>}
+
+      {/* New calendar event form */}
+      {showNewEvent && (
+        <form onSubmit={createCalendarEvent} className="bg-gray-900 border border-green-800/30 rounded-xl p-5 space-y-4">
+          <div className="flex justify-between items-center">
+            <h3 className="text-sm font-semibold text-white">New Calendar Event</h3>
+            <button type="button" onClick={() => setShowNewEvent(false)} className="text-xs text-gray-500 hover:text-gray-300">Close</button>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div className="md:col-span-2">
+              <label className="block text-xs text-gray-500 mb-1">Event Title *</label>
+              <input required value={newEvent.title} onChange={e => setNewEvent({ ...newEvent, title: e.target.value })}
+                placeholder="e.g. Weekly Cleaning — John Smith"
+                className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-green-500" />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Date *</label>
+              <input type="date" required value={newEvent.date} onChange={e => setNewEvent({ ...newEvent, date: e.target.value })}
+                className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-sm text-white focus:outline-none focus:ring-2 focus:ring-green-500" />
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">Start</label>
+                <input type="time" value={newEvent.startTime} onChange={e => setNewEvent({ ...newEvent, startTime: e.target.value })}
+                  className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-sm text-white" />
+              </div>
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">End</label>
+                <input type="time" value={newEvent.endTime} onChange={e => setNewEvent({ ...newEvent, endTime: e.target.value })}
+                  className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-sm text-white" />
+              </div>
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Location</label>
+              <input value={newEvent.location} onChange={e => setNewEvent({ ...newEvent, location: e.target.value })}
+                placeholder="Address"
+                className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-sm text-white placeholder-gray-500" />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Client Email (optional)</label>
+              <input type="email" value={newEvent.clientEmail} onChange={e => setNewEvent({ ...newEvent, clientEmail: e.target.value })}
+                placeholder="client@email.com"
+                className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-sm text-white placeholder-gray-500" />
+            </div>
+            <div className="md:col-span-2">
+              <label className="block text-xs text-gray-500 mb-1">Notes</label>
+              <textarea rows={2} value={newEvent.description} onChange={e => setNewEvent({ ...newEvent, description: e.target.value })}
+                placeholder="Details, instructions..."
+                className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-sm text-white placeholder-gray-500 resize-none" />
+            </div>
+          </div>
+          <button type="submit" disabled={creatingEvent}
+            className="px-4 py-2 bg-green-600 hover:bg-green-500 disabled:opacity-50 rounded-lg text-sm font-medium text-white">
+            {creatingEvent ? 'Creating...' : 'Add to Google Calendar'}
+          </button>
+        </form>
+      )}
 
       {/* Rental settings panel */}
       {showSettings && (
