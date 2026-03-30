@@ -150,6 +150,48 @@ export default async function handler(req, res) {
             } catch (e) { console.error('Quote creation failed:', e) }
           }
 
+          // Send email notification to you about the new lead
+          try {
+            const gmailClientId = process.env.GMAIL_CLIENT_ID
+            const gmailClientSecret = process.env.GMAIL_CLIENT_SECRET
+            const gmailRefreshToken = process.env.GMAIL_REFRESH_TOKEN
+            if (gmailClientId && gmailClientSecret && gmailRefreshToken) {
+              const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: new URLSearchParams({ client_id: gmailClientId, client_secret: gmailClientSecret, refresh_token: gmailRefreshToken, grant_type: 'refresh_token' }),
+              })
+              const tokenData = await tokenRes.json()
+              if (tokenData.access_token) {
+                const quoteRange = lead.estimateMin ? `$${lead.estimateMin} – $${lead.estimateMax}` : 'No quote'
+                const emailBody = [
+                  `🔔 New Lead from ${lead.source || 'Website'}!`,
+                  '',
+                  `Name: ${lead.name}`,
+                  `Email: ${lead.email || 'N/A'}`,
+                  `Phone: ${lead.phone || 'N/A'}`,
+                  `Address: ${lead.address || 'N/A'}`,
+                  `Service: ${lead.service || 'N/A'}`,
+                  `Frequency: ${lead.frequency || 'N/A'}`,
+                  `Quote: ${quoteRange}`,
+                  lead.message ? `Message: ${lead.message}` : '',
+                  '',
+                  `View in Workflow HQ: https://connecteam-proxy.vercel.app/#/pipeline`,
+                ].filter(Boolean).join('\n')
+
+                const raw = Buffer.from(
+                  `To: info@maine-clean.co\r\nSubject: 🔔 New Lead: ${lead.name} — ${quoteRange}\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n${emailBody}`
+                ).toString('base64url')
+
+                await fetch('https://gmail.googleapis.com/gmail/v1/users/me/messages/send', {
+                  method: 'POST',
+                  headers: { Authorization: `Bearer ${tokenData.access_token}`, 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ raw }),
+                })
+              }
+            }
+          } catch (e) { console.error('Lead notification email failed:', e) }
+
           return res.status(200).json({ success: true, leadId: clientId, propertyId, lead })
         }
       } catch (err) {

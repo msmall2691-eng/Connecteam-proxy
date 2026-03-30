@@ -18,7 +18,7 @@ export default function Communications() {
   const [viewMode, setViewMode] = useState('conversations') // 'conversations' | 'inbox'
   const bottomRef = useRef(null)
 
-  useEffect(() => { reload() }, [])
+  useEffect(() => { reload(); fetchGmail() }, [])
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [active])
 
   function reload() {

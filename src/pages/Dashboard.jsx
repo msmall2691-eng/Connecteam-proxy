@@ -224,7 +224,7 @@ export default function Dashboard() {
         </div>
 
         {/* Right: AI chat (3 cols) */}
-        <div className="xl:col-span-3 bg-gray-900 border border-gray-800 rounded-xl flex flex-col" style={{ minHeight: '500px', maxHeight: '700px' }}>
+        <div className="xl:col-span-3 bg-gray-900 border border-gray-800 rounded-xl flex flex-col" style={{ minHeight: '400px', maxHeight: '700px' }}>
           <div className="px-4 py-3 border-b border-gray-800 flex items-center justify-between shrink-0">
             <div className="flex items-center gap-2">
               <span className="text-sm font-semibold text-white">AI Reports</span>
