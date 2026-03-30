@@ -190,8 +190,31 @@ export default function Settings() {
           <IntegrationRow name="Square" envVars="SQUARE_ACCESS_TOKEN" status={integrations.square}
             onTest={() => testEndpoint('square', '/api/square-payroll?action=team')} testResult={testResults.square} />
 
-          <IntegrationRow name="Supabase Database" envVars="VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY"
-            status={integrations.supabase ? 'connected' : 'not configured'} />
+          <div className="py-2 border-b border-gray-800/50">
+            <IntegrationRow name="Supabase Database" envVars="VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY"
+              status={integrations.supabase ? 'connected' : 'not configured'} />
+            {!integrations.supabase && (
+              <div className="ml-4 mt-2 space-y-2">
+                <input placeholder="Supabase Project URL" defaultValue={localStorage.getItem('supabase_url') || ''}
+                  onChange={e => localStorage.setItem('supabase_url_draft', e.target.value)}
+                  className="w-full max-w-md px-3 py-1.5 bg-gray-800 border border-gray-700 rounded-lg text-xs text-white placeholder-gray-500" />
+                <input placeholder="Supabase Anon Key" type="password" defaultValue={localStorage.getItem('supabase_anon_key') || ''}
+                  onChange={e => localStorage.setItem('supabase_anon_key_draft', e.target.value)}
+                  className="w-full max-w-md px-3 py-1.5 bg-gray-800 border border-gray-700 rounded-lg text-xs text-white placeholder-gray-500" />
+                <button onClick={() => {
+                  const url = localStorage.getItem('supabase_url_draft') || ''
+                  const key = localStorage.getItem('supabase_anon_key_draft') || ''
+                  if (url && key) {
+                    localStorage.setItem('supabase_url', url)
+                    localStorage.setItem('supabase_anon_key', key)
+                    localStorage.removeItem('supabase_url_draft')
+                    localStorage.removeItem('supabase_anon_key_draft')
+                    window.location.reload()
+                  }
+                }} className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 rounded-lg text-xs text-white">Connect Supabase</button>
+              </div>
+            )}
+          </div>
 
           <IntegrationRow name="Facebook Leads" envVars="FB_PAGE_ACCESS_TOKEN, FB_VERIFY_TOKEN"
             status="not configured" note="Webhook: https://your-domain.vercel.app/api/leads?action=facebook" />
