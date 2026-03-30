@@ -672,11 +672,26 @@ function ConversationsTab({ clientId, convos, onReload }) {
 function JobsTab({ clientId, clientName, clientAddress, jobs, properties, onReload }) {
   const [showNew, setShowNew] = useState(false)
   const [pushingId, setPushingId] = useState(null)
+  const [expandedJob, setExpandedJob] = useState(null)
   const [form, setForm] = useState({
     title: '', date: '', status: 'scheduled', notes: '', assignee: '',
     isRecurring: false, recurrenceRule: 'weekly', recurrenceDay: 1,
-    price: '', priceType: 'flat', startTime: '', endTime: '', propertyId: '',
+    price: '', priceType: 'flat', startTime: '09:00', endTime: '12:00', propertyId: '',
   })
+
+  // When property is selected, pre-fill title
+  function selectProperty(propId) {
+    const prop = (properties || []).find(p => p.id === propId)
+    if (prop) {
+      setForm(prev => ({
+        ...prev,
+        propertyId: propId,
+        title: prev.title || `Cleaning — ${prop.name || prop.addressLine1?.split(',')[0]}`,
+      }))
+    } else {
+      setForm(prev => ({ ...prev, propertyId: propId }))
+    }
+  }
 
   async function pushToCalendar(job) {
     setPushingId(job.id)
@@ -686,13 +701,14 @@ function JobsTab({ clientId, clientName, clientAddress, jobs, properties, onRelo
       const startTime = job.startTime || '09:00'
       const endTime = job.endTime || '12:00'
 
+      // ONLY push safe info to Google Calendar — no door codes, no pricing, no notes
       const res = await fetch('/api/calendar', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           action: 'create',
           summary: `${job.title} — ${clientName}`,
-          description: `Client: ${clientName}\nAddress: ${address}\nPrice: ${job.price ? '$' + job.price : 'TBD'}\n${job.notes || ''}`,
+          description: `${clientName}\n${address}`,
           startDateTime: `${job.date}T${startTime}:00`,
           endDateTime: `${job.date}T${endTime}:00`,
           location: address,
@@ -712,16 +728,23 @@ function JobsTab({ clientId, clientName, clientAddress, jobs, properties, onRelo
 
   function handleSubmit(e) {
     e.preventDefault()
+    const prop = (properties || []).find(p => p.id === form.propertyId)
     saveJob({
       ...form,
       clientId,
       clientName,
+      address: prop?.addressLine1 || clientAddress || '',
       price: form.price ? parseFloat(form.price) : null,
       recurrenceDay: parseInt(form.recurrenceDay),
     })
-    setForm({ title: '', date: '', status: 'scheduled', notes: '', assignee: '', isRecurring: false, recurrenceRule: 'weekly', recurrenceDay: 1, price: '', priceType: 'flat', startTime: '', endTime: '' })
+    setForm({ title: '', date: '', status: 'scheduled', notes: '', assignee: '', isRecurring: false, recurrenceRule: 'weekly', recurrenceDay: 1, price: '', priceType: 'flat', startTime: '09:00', endTime: '12:00', propertyId: '' })
     setShowNew(false)
     onReload()
+  }
+
+  // Get property for a job
+  function getJobProperty(job) {
+    return (properties || []).find(p => p.id === job.propertyId)
   }
 
   return (
@@ -731,6 +754,19 @@ function JobsTab({ clientId, clientName, clientAddress, jobs, properties, onRelo
 
       {showNew && (
         <form onSubmit={handleSubmit} className="bg-gray-900 border border-gray-800 rounded-xl p-5 grid grid-cols-1 md:grid-cols-2 gap-4">
+          {/* Property selector — first field */}
+          {properties.length > 0 && (
+            <div className="md:col-span-2">
+              <label className="block text-xs text-gray-500 mb-1">Property</label>
+              <select value={form.propertyId} onChange={e => selectProperty(e.target.value)}
+                className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+                <option value="">Select property...</option>
+                {properties.map(p => (
+                  <option key={p.id} value={p.id}>{p.name || p.addressLine1} ({p.type})</option>
+                ))}
+              </select>
+            </div>
+          )}
           <div>
             <label className="block text-xs text-gray-500 mb-1">Job Title *</label>
             <input required value={form.title} onChange={e => setForm({ ...form, title: e.target.value })} placeholder="e.g. Weekly Cleaning"
@@ -826,11 +862,14 @@ function JobsTab({ clientId, clientName, clientAddress, jobs, properties, onRelo
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-800/50">
-            {jobs.map(j => (
-              <tr key={j.id} className="text-gray-300 hover:bg-gray-800/30">
+            {jobs.map(j => {
+              const jobProp = getJobProperty(j)
+              return (<>
+              <tr key={j.id} className="text-gray-300 hover:bg-gray-800/30 cursor-pointer" onClick={() => setExpandedJob(expandedJob === j.id ? null : j.id)}>
                 <td className="px-5 py-2.5">
                   <span className="text-white">{j.title}</span>
                   {j.isRecurring && <span className="ml-1 px-1 py-0.5 rounded text-xs bg-purple-900/30 text-purple-400">{j.recurrenceRule}</span>}
+                  {jobProp && <p className="text-xs text-gray-600">{jobProp.name || jobProp.addressLine1?.split(',')[0]}</p>}
                 </td>
                 <td className="px-3 py-2.5">{j.date}</td>
                 <td className="px-3 py-2.5 text-gray-400">{j.startTime && j.endTime ? `${j.startTime}-${j.endTime}` : '-'}</td>
@@ -859,7 +898,7 @@ function JobsTab({ clientId, clientName, clientAddress, jobs, properties, onRelo
                     <option value="completed">Completed</option><option value="cancelled">Cancelled</option>
                   </select>
                 </td>
-                <td className="px-3 py-2.5 text-center">
+                <td className="px-3 py-2.5 text-center" onClick={e => e.stopPropagation()}>
                   {j.googleEventId ? (
                     <span className="text-xs text-green-400" title="On Google Calendar">synced</span>
                   ) : (
@@ -870,7 +909,25 @@ function JobsTab({ clientId, clientName, clientAddress, jobs, properties, onRelo
                   )}
                 </td>
               </tr>
-            ))}
+              {/* Expanded job details */}
+              {expandedJob === j.id && (
+                <tr><td colSpan={7} className="px-5 py-3 bg-gray-800/30 border-b border-gray-800">
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
+                    {jobProp && (
+                      <>
+                        <div><span className="text-gray-500 block">Property</span><span className="text-white">{jobProp.name || jobProp.addressLine1}</span></div>
+                        <div><span className="text-gray-500 block">Address</span><span className="text-gray-300">{jobProp.addressLine1}{jobProp.city ? `, ${jobProp.city}` : ''}</span></div>
+                        {jobProp.accessNotes && <div className="md:col-span-2"><span className="text-gray-500 block">Access Notes</span><span className="text-yellow-400">{jobProp.accessNotes}</span></div>}
+                        {jobProp.sqft && <div><span className="text-gray-500 block">Size</span><span className="text-gray-300">{jobProp.sqft} sqft, {jobProp.bedrooms}bd/{jobProp.bathrooms}ba</span></div>}
+                      </>
+                    )}
+                    {j.notes && <div className="md:col-span-2"><span className="text-gray-500 block">Job Notes</span><span className="text-gray-300">{j.notes}</span></div>}
+                    <div><span className="text-gray-500 block">Calendar</span><span className={j.googleEventId ? 'text-green-400' : 'text-gray-500'}>{j.googleEventId ? 'Synced to Google Calendar' : 'Not on calendar'}</span></div>
+                  </div>
+                </td></tr>
+              )}
+            </>)
+            })}
             {jobs.length === 0 && <tr><td colSpan={7} className="px-5 py-8 text-center text-gray-500">No jobs yet.</td></tr>}
           </tbody>
         </table>
