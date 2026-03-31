@@ -697,6 +697,7 @@ function JobsTab({ clientId, clientName, clientAddress, jobs, properties, onRelo
     setPushingCtId(job.id)
     try {
       const prop = (properties || []).find(p => p.id === job.propertyId)
+      const client = getClient(clientId)
       const address = prop?.addressLine1 || job.address || clientAddress || ''
       const apiKey = localStorage.getItem('connecteam_api_key')
       if (!apiKey) { alert('Set your Connecteam API key in Settings first.'); setPushingCtId(null); return }
@@ -711,6 +712,12 @@ function JobsTab({ clientId, clientName, clientAddress, jobs, properties, onRelo
           endTime: job.endTime || '12:00',
           notes: job.notes || '',
           address,
+          clientName: clientName,
+          clientPhone: client?.phone || '',
+          clientEmail: client?.email || '',
+          price: job.price || '',
+          propertyName: prop?.name || '',
+          assignee: job.assignee || '',
         }),
       })
       if (res.ok) {
