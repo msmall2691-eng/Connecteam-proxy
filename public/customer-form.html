@@ -1,0 +1,491 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Property Info — The Maine Cleaning Co.</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Inter', -apple-system, sans-serif; background: #F8FAFC; color: #0F172A; }
+  .container { max-width: 720px; margin: 0 auto; padding: 0 16px 60px; }
+
+  /* Hero */
+  .hero {
+    background: linear-gradient(135deg, #0F172A 0%, #1E3A5F 55%, #1D4ED8 100%);
+    padding: 36px 32px 28px;
+    border-radius: 0 0 20px 20px;
+    margin-bottom: 28px;
+    position: relative;
+    overflow: hidden;
+  }
+  .hero-glow { position: absolute; top: -60px; right: -60px; width: 240px; height: 240px; border-radius: 50%; background: radial-gradient(circle, rgba(59,130,246,0.18) 0%, transparent 70%); }
+  .hero-tag { display: inline-block; background: rgba(59,130,246,0.2); border: 1px solid rgba(59,130,246,0.4); border-radius: 100px; padding: 4px 14px; font-size: 10px; font-weight: 600; letter-spacing: 2px; text-transform: uppercase; color: #93C5FD; margin-bottom: 14px; }
+  .hero h1 { font-size: 28px; font-weight: 900; color: #FFF; letter-spacing: -0.5px; line-height: 1.1; position: relative; z-index: 1; }
+  .hero p { margin-top: 10px; font-size: 13px; color: #94A3B8; position: relative; z-index: 1; line-height: 1.5; }
+
+  /* Progress bar */
+  .progress-wrap { background: #E2E8F0; border-radius: 100px; height: 6px; margin-bottom: 28px; overflow: hidden; }
+  .progress-bar { height: 100%; background: linear-gradient(90deg, #1D4ED8, #06B6D4); border-radius: 100px; transition: width 0.4s ease; }
+  .progress-label { font-size: 11px; color: #94A3B8; margin-bottom: 6px; font-weight: 600; letter-spacing: 0.5px; }
+
+  /* Section */
+  .section { background: #FFF; border: 1px solid #E2E8F0; border-radius: 16px; padding: 24px; margin-bottom: 20px; }
+  .section.hidden { display: none; }
+  .sec-header { display: flex; align-items: center; gap: 12px; margin-bottom: 20px; }
+  .sec-pill { background: linear-gradient(135deg, #1D4ED8, #0EA5E9); color: #FFF; font-size: 10px; font-weight: 700; letter-spacing: 1.5px; text-transform: uppercase; padding: 5px 14px; border-radius: 100px; white-space: nowrap; }
+  .sec-line { flex: 1; height: 1px; background: #E2E8F0; }
+
+  /* Form fields */
+  .field { margin-bottom: 16px; }
+  .field:last-child { margin-bottom: 0; }
+  .field label { display: block; font-size: 12px; font-weight: 600; color: #64748B; margin-bottom: 5px; text-transform: uppercase; letter-spacing: 0.5px; }
+  .field label .optional { font-weight: 400; color: #94A3B8; text-transform: none; letter-spacing: 0; font-size: 11px; }
+  .field input, .field select, .field textarea {
+    width: 100%; padding: 10px 14px; border: 1.5px solid #E2E8F0; border-radius: 10px;
+    font-size: 14px; font-family: 'Inter', sans-serif; color: #0F172A;
+    background: #F8FAFC; transition: border-color 0.2s, box-shadow 0.2s;
+  }
+  .field input:focus, .field select:focus, .field textarea:focus {
+    outline: none; border-color: #3B82F6; box-shadow: 0 0 0 3px rgba(59,130,246,0.1); background: #FFF;
+  }
+  .field textarea { resize: vertical; min-height: 80px; }
+  .field input::placeholder, .field textarea::placeholder { color: #CBD5E1; }
+
+  .row { display: grid; gap: 12px; }
+  .row-2 { grid-template-columns: 1fr 1fr; }
+  .row-3 { grid-template-columns: 1fr 1fr 1fr; }
+  .row-4 { grid-template-columns: 1fr 1fr 1fr 1fr; }
+  @media (max-width: 600px) { .row-3, .row-4 { grid-template-columns: 1fr 1fr; } }
+
+  /* Linen editor */
+  .linen-row { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; }
+  .linen-row input:first-child { flex: 1; }
+  .linen-row input:last-of-type { flex: 1; }
+  .linen-row .remove-btn { width: 32px; height: 32px; border: none; background: #FEE2E2; color: #DC2626; border-radius: 8px; cursor: pointer; font-size: 18px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+  .linen-row .remove-btn:hover { background: #FECACA; }
+  .add-btn { display: inline-flex; align-items: center; gap: 6px; padding: 8px 16px; border: 1.5px dashed #CBD5E1; border-radius: 10px; background: none; color: #3B82F6; font-size: 13px; font-weight: 600; cursor: pointer; font-family: 'Inter', sans-serif; }
+  .add-btn:hover { border-color: #3B82F6; background: #EFF6FF; }
+
+  /* Scope checkboxes */
+  .scope-group { margin-bottom: 16px; }
+  .scope-group:last-child { margin-bottom: 0; }
+  .scope-title { font-size: 14px; font-weight: 700; color: #1E40AF; margin-bottom: 8px; padding-bottom: 6px; border-bottom: 1px solid #DBEAFE; }
+  .check-item { display: flex; align-items: center; gap: 8px; padding: 5px 0; }
+  .check-item input[type="checkbox"] { width: 16px; height: 16px; accent-color: #3B82F6; }
+  .check-item span { font-size: 13px; color: #475569; }
+
+  /* Nav buttons */
+  .nav-btns { display: flex; gap: 12px; justify-content: space-between; margin-top: 8px; }
+  .btn { padding: 12px 28px; border-radius: 12px; font-size: 14px; font-weight: 700; cursor: pointer; font-family: 'Inter', sans-serif; border: none; transition: all 0.2s; }
+  .btn-primary { background: linear-gradient(135deg, #1D4ED8, #0EA5E9); color: #FFF; }
+  .btn-primary:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(29,78,216,0.3); }
+  .btn-secondary { background: #F1F5F9; color: #475569; }
+  .btn-secondary:hover { background: #E2E8F0; }
+  .btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+
+  /* Success state */
+  .success-wrap { text-align: center; padding: 60px 20px; }
+  .success-icon { width: 80px; height: 80px; border-radius: 50%; background: linear-gradient(135deg, #22C55E, #10B981); display: flex; align-items: center; justify-content: center; margin: 0 auto 20px; font-size: 40px; color: white; }
+  .success-wrap h2 { font-size: 24px; font-weight: 800; color: #0F172A; margin-bottom: 8px; }
+  .success-wrap p { font-size: 14px; color: #64748B; line-height: 1.6; }
+
+  .footer { text-align: center; padding: 24px 0; font-size: 11px; color: #CBD5E1; }
+</style>
+</head>
+<body>
+
+<div class="hero">
+  <div class="hero-glow"></div>
+  <div class="hero-tag">The Maine Cleaning Co. &middot; Property Info</div>
+  <h1>Customer Property<br>Information</h1>
+  <p>Please fill out the details for your property so we can provide the best turnover service. This takes about 5 minutes.</p>
+</div>
+
+<div class="container">
+  <div class="progress-label"><span id="stepLabel">Step 1 of 5</span></div>
+  <div class="progress-wrap"><div class="progress-bar" id="progressBar" style="width:20%"></div></div>
+
+  <!-- STEP 1: Property Basics -->
+  <div class="section" id="step1">
+    <div class="sec-header"><span class="sec-pill">Property Basics</span><div class="sec-line"></div></div>
+    <div class="field">
+      <label>Property Name / Address *</label>
+      <input type="text" id="property_name" placeholder="e.g. 22 Sunrise Avenue" required>
+    </div>
+    <div class="row row-2">
+      <div class="field"><label>City</label><input type="text" id="address_city" placeholder="Saco" value=""></div>
+      <div class="field"><label>State</label><input type="text" id="address_state" value="ME"></div>
+    </div>
+    <div class="row row-2">
+      <div class="field"><label>ZIP Code</label><input type="text" id="address_zip" placeholder="04072"></div>
+      <div class="field">
+        <label>Property Type</label>
+        <select id="property_type">
+          <option value="rental">Short-Term Rental (Airbnb/VRBO)</option>
+          <option value="residential">Residential</option>
+          <option value="commercial">Commercial</option>
+          <option value="marina">Marina</option>
+        </select>
+      </div>
+    </div>
+    <div class="row row-4">
+      <div class="field"><label>Bedrooms</label><input type="number" id="bedrooms" placeholder="3" min="0" max="20"></div>
+      <div class="field"><label>Bathrooms</label><input type="number" id="bathrooms" placeholder="2" min="0" max="20"></div>
+      <div class="field"><label>Sq Ft</label><input type="number" id="sqft" placeholder="2400"></div>
+      <div class="field"><label>Max Guests</label><input type="number" id="max_guests" placeholder="10" min="0"></div>
+    </div>
+    <div class="field">
+      <label>Active Season <span class="optional">(when do you need cleaning?)</span></label>
+      <input type="text" id="active_season" placeholder="e.g. May – October, Year-round, April – May 6th">
+    </div>
+  </div>
+
+  <!-- STEP 2: Access & Details -->
+  <div class="section hidden" id="step2">
+    <div class="sec-header"><span class="sec-pill">Property Access & Details</span><div class="sec-line"></div></div>
+    <div class="row row-2">
+      <div class="field"><label>Door Code / Lockbox</label><input type="text" id="door_code" placeholder="e.g. 1234 or lockbox on porch"></div>
+      <div class="field"><label>Parking</label><input type="text" id="parking" placeholder="e.g. On-site, driveway, street"></div>
+    </div>
+    <div class="row row-2">
+      <div class="field"><label>WiFi Network Name</label><input type="text" id="wifi_name" placeholder="MyWiFi-5G"></div>
+      <div class="field"><label>WiFi Password</label><input type="text" id="wifi_password" placeholder=""></div>
+    </div>
+    <div class="field"><label>Trash Pickup Day & Instructions</label><input type="text" id="trash_pickup" placeholder="e.g. Thursday — bins go to curb by 7am"></div>
+    <div class="field"><label>Bed Configuration</label><textarea id="bed_configuration" placeholder="e.g. Master: King, Bedroom 2: Queen, Bedroom 3: Two twins, Loft: Pull-out couch"></textarea></div>
+    <div class="row row-2">
+      <div class="field">
+        <label>Wash Linens On-Site?</label>
+        <select id="wash_linens_onsite"><option value="">Select...</option><option value="Yes">Yes</option><option value="No - we provide clean linens">No — we provide clean linens</option><option value="Sometimes">Sometimes</option></select>
+      </div>
+      <div class="field"><label>Where Are Supplies Stored?</label><input type="text" id="supplies_stored" placeholder="e.g. Garage, hall closet, under kitchen sink"></div>
+    </div>
+    <div class="field"><label>Linen Closet Location</label><input type="text" id="linen_closet" placeholder="e.g. Upstairs hallway, 1st floor behind bathroom"></div>
+  </div>
+
+  <!-- STEP 3: Linen & Towel Standard -->
+  <div class="section hidden" id="step3">
+    <div class="sec-header"><span class="sec-pill">Linen & Towel Standard</span><div class="sec-line"></div></div>
+    <p style="font-size:13px;color:#64748B;margin-bottom:16px;">Tell us what linens you'd like set out for each turnover. We've pre-filled a standard setup — adjust as needed.</p>
+    <div id="linenRows"></div>
+    <button type="button" class="add-btn" onclick="addLinenRow('', '')">+ Add Item</button>
+  </div>
+
+  <!-- STEP 4: Scope & Supplies -->
+  <div class="section hidden" id="step4">
+    <div class="sec-header"><span class="sec-pill">Turnover Scope of Work</span><div class="sec-line"></div></div>
+    <p style="font-size:13px;color:#64748B;margin-bottom:16px;">Check all tasks that apply to your property. We'll include these in your custom turnover guide.</p>
+
+    <div class="scope-group">
+      <div class="scope-title">Kitchen</div>
+      <label class="check-item"><input type="checkbox" data-scope="kitchen" value="Counters, sink & stovetop wiped" checked><span>Counters, sink & stovetop wiped</span></label>
+      <label class="check-item"><input type="checkbox" data-scope="kitchen" value="Microwave & appliances cleaned" checked><span>Microwave & appliances cleaned</span></label>
+      <label class="check-item"><input type="checkbox" data-scope="kitchen" value="Dishwasher run & emptied if needed" checked><span>Dishwasher run & emptied if needed</span></label>
+      <label class="check-item"><input type="checkbox" data-scope="kitchen" value="Trash emptied, dish soap restocked" checked><span>Trash emptied, dish soap restocked</span></label>
+      <label class="check-item"><input type="checkbox" data-scope="kitchen" value="Floor swept & mopped" checked><span>Floor swept & mopped</span></label>
+    </div>
+
+    <div class="scope-group">
+      <div class="scope-title">Bedrooms</div>
+      <label class="check-item"><input type="checkbox" data-scope="bedrooms" value="All beds stripped & freshly made" checked><span>All beds stripped & freshly made</span></label>
+      <label class="check-item"><input type="checkbox" data-scope="bedrooms" value="Surfaces & ceiling fans dusted" checked><span>Surfaces & ceiling fans dusted</span></label>
+      <label class="check-item"><input type="checkbox" data-scope="bedrooms" value="Floors vacuumed" checked><span>Floors vacuumed</span></label>
+      <label class="check-item"><input type="checkbox" data-scope="bedrooms" value="Under beds & closets checked" checked><span>Under beds & closets checked</span></label>
+    </div>
+
+    <div class="scope-group">
+      <div class="scope-title">Bathrooms</div>
+      <label class="check-item"><input type="checkbox" data-scope="bathrooms" value="Toilet, sink & shower/tub scrubbed" checked><span>Toilet, sink & shower/tub scrubbed</span></label>
+      <label class="check-item"><input type="checkbox" data-scope="bathrooms" value="Mirrors & fixtures polished" checked><span>Mirrors & fixtures polished</span></label>
+      <label class="check-item"><input type="checkbox" data-scope="bathrooms" value="Fresh towel sets placed per standard" checked><span>Fresh towel sets placed per standard</span></label>
+      <label class="check-item"><input type="checkbox" data-scope="bathrooms" value="TP, soap & amenities restocked" checked><span>TP, soap & amenities restocked</span></label>
+      <label class="check-item"><input type="checkbox" data-scope="bathrooms" value="Floor mopped" checked><span>Floor mopped</span></label>
+    </div>
+
+    <div class="scope-group">
+      <div class="scope-title">Common Areas</div>
+      <label class="check-item"><input type="checkbox" data-scope="common" value="All surfaces dusted" checked><span>All surfaces dusted</span></label>
+      <label class="check-item"><input type="checkbox" data-scope="common" value="Floors swept & vacuumed" checked><span>Floors swept & vacuumed</span></label>
+      <label class="check-item"><input type="checkbox" data-scope="common" value="Handles, switches & remotes wiped" checked><span>Handles, switches & remotes wiped</span></label>
+      <label class="check-item"><input type="checkbox" data-scope="common" value="Decor reset, final walkthrough" checked><span>Decor reset, final walkthrough</span></label>
+    </div>
+
+    <div class="scope-group">
+      <div class="scope-title">Outdoor</div>
+      <label class="check-item"><input type="checkbox" data-scope="outdoor" value="Grill wiped down"><span>Grill wiped down</span></label>
+      <label class="check-item"><input type="checkbox" data-scope="outdoor" value="Shed checked & tidied"><span>Shed checked & tidied</span></label>
+      <label class="check-item"><input type="checkbox" data-scope="outdoor" value="Outdoor furniture straightened"><span>Outdoor furniture straightened</span></label>
+      <label class="check-item"><input type="checkbox" data-scope="outdoor" value="Outdoor shower rinsed"><span>Outdoor shower rinsed</span></label>
+    </div>
+
+    <div style="margin-top:20px;">
+      <div class="sec-header"><span class="sec-pill">Supplies We Restock</span><div class="sec-line"></div></div>
+      <p style="font-size:13px;color:#64748B;margin-bottom:12px;">Standard restocking included. Add any specific items below.</p>
+      <div class="field"><textarea id="supplies_extra" placeholder="e.g. Specific brand of soap, coffee pods, welcome basket items..."></textarea></div>
+    </div>
+  </div>
+
+  <!-- STEP 5: Contact & Notes -->
+  <div class="section hidden" id="step5">
+    <div class="sec-header"><span class="sec-pill">Your Contact Info</span><div class="sec-line"></div></div>
+    <div class="row row-2">
+      <div class="field"><label>Your Name *</label><input type="text" id="client_name" placeholder="Lindsay Holden" required></div>
+      <div class="field"><label>Email *</label><input type="email" id="client_email" placeholder="lindsay@example.com" required></div>
+    </div>
+    <div class="row row-2">
+      <div class="field"><label>Phone</label><input type="tel" id="client_phone" placeholder="(207) 555-1234"></div>
+      <div class="field"><label>Alt Phone</label><input type="tel" id="client_alt_phone" placeholder=""></div>
+    </div>
+    <div class="field"><label>Mailing Address <span class="optional">(if different from property)</span></label><input type="text" id="client_address" placeholder=""></div>
+    <div class="field">
+      <label>Best Way to Reach You</label>
+      <select id="preferred_contact"><option value="text">Text</option><option value="email">Email</option><option value="call">Phone Call</option></select>
+    </div>
+
+    <div style="margin-top:20px;">
+      <div class="sec-header"><span class="sec-pill">Notes & Special Instructions</span><div class="sec-line"></div></div>
+      <div class="field">
+        <label>Anything else we should know? <span class="optional">(quirks, guest preferences, seasonal setup, maintenance flags)</span></label>
+        <textarea id="special_notes" rows="4" placeholder="e.g. Hot tub needs cover on after cleaning, guest book goes on kitchen counter, check porch light bulb each visit..."></textarea>
+      </div>
+    </div>
+  </div>
+
+  <!-- Navigation -->
+  <div class="nav-btns" id="navBtns">
+    <button class="btn btn-secondary" id="prevBtn" onclick="prevStep()" style="visibility:hidden">Back</button>
+    <button class="btn btn-primary" id="nextBtn" onclick="nextStep()">Continue</button>
+  </div>
+
+  <!-- Success -->
+  <div class="section hidden" id="successState">
+    <div class="success-wrap">
+      <div class="success-icon">&#10003;</div>
+      <h2>All Set!</h2>
+      <p>Thank you for filling out your property information. We'll use this to create your custom turnover guide.<br><br>If anything changes, you can update this form anytime using the same link.</p>
+    </div>
+  </div>
+</div>
+
+<div class="footer">The Maine Cleaning & Property Management Co.<br>(207) 572-0502</div>
+
+<script>
+(function() {
+  const STEPS = 5
+  let currentStep = 1
+  let formId = null
+
+  // Check for edit mode
+  const params = new URLSearchParams(window.location.search)
+  const editId = params.get('id')
+
+  // Default linens
+  const defaultLinens = [
+    { item: 'Bed Sheets', quantity: '2 full sets per bed' },
+    { item: 'Bath Towels', quantity: '2 per guest' },
+    { item: 'Hand Towels', quantity: '1 per bathroom' },
+    { item: 'Face Cloths', quantity: '1 per guest' },
+    { item: 'Beach Towels', quantity: '1 per guest' },
+  ]
+
+  function initLinens(linens) {
+    var container = document.getElementById('linenRows')
+    container.innerHTML = ''
+    linens.forEach(function(l) { addLinenRow(l.item, l.quantity) })
+  }
+
+  window.addLinenRow = function(item, qty) {
+    var container = document.getElementById('linenRows')
+    var row = document.createElement('div')
+    row.className = 'linen-row'
+    row.innerHTML = '<input type="text" placeholder="Item (e.g. Bath Towels)" value="' + (item || '') + '" class="linen-item">' +
+      '<input type="text" placeholder="Quantity (e.g. 2 per guest)" value="' + (qty || '') + '" class="linen-qty">' +
+      '<button type="button" class="remove-btn" onclick="this.parentElement.remove()">&times;</button>'
+    container.appendChild(row)
+  }
+
+  initLinens(defaultLinens)
+
+  function showStep(step) {
+    for (var i = 1; i <= STEPS; i++) {
+      document.getElementById('step' + i).classList.toggle('hidden', i !== step)
+    }
+    document.getElementById('stepLabel').textContent = 'Step ' + step + ' of ' + STEPS
+    document.getElementById('progressBar').style.width = (step / STEPS * 100) + '%'
+    document.getElementById('prevBtn').style.visibility = step === 1 ? 'hidden' : 'visible'
+    document.getElementById('nextBtn').textContent = step === STEPS ? 'Submit' : 'Continue'
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+
+  window.nextStep = function() {
+    // Validate current step
+    if (currentStep === 1) {
+      var name = document.getElementById('property_name').value.trim()
+      if (!name) { document.getElementById('property_name').focus(); return }
+    }
+    if (currentStep === 5) {
+      var clientName = document.getElementById('client_name').value.trim()
+      var clientEmail = document.getElementById('client_email').value.trim()
+      if (!clientName) { document.getElementById('client_name').focus(); return }
+      if (!clientEmail) { document.getElementById('client_email').focus(); return }
+      submitForm()
+      return
+    }
+    currentStep++
+    showStep(currentStep)
+  }
+
+  window.prevStep = function() {
+    if (currentStep > 1) { currentStep--; showStep(currentStep) }
+  }
+
+  function getFormData() {
+    // Collect linens
+    var linenRows = document.querySelectorAll('.linen-row')
+    var linens = []
+    linenRows.forEach(function(row) {
+      var item = row.querySelector('.linen-item').value.trim()
+      var qty = row.querySelector('.linen-qty').value.trim()
+      if (item) linens.push({ item: item, quantity: qty })
+    })
+
+    // Collect scope
+    var scope = {}
+    document.querySelectorAll('[data-scope]').forEach(function(cb) {
+      var group = cb.getAttribute('data-scope')
+      if (!scope[group]) scope[group] = []
+      if (cb.checked) scope[group].push(cb.value)
+    })
+
+    // Standard supplies + extras
+    var supplies = ['Dish soap, trash bags, paper towels', 'Toilet paper (2+ rolls per bath)', 'Hand soap, cleaning supplies']
+    var extra = document.getElementById('supplies_extra').value.trim()
+    if (extra) supplies.push(extra)
+
+    var data = {
+      property_name: document.getElementById('property_name').value.trim(),
+      address_line1: document.getElementById('property_name').value.trim(),
+      address_city: document.getElementById('address_city').value.trim(),
+      address_state: document.getElementById('address_state').value.trim(),
+      address_zip: document.getElementById('address_zip').value.trim(),
+      property_type: document.getElementById('property_type').value,
+      bedrooms: parseInt(document.getElementById('bedrooms').value) || null,
+      bathrooms: parseInt(document.getElementById('bathrooms').value) || null,
+      sqft: parseInt(document.getElementById('sqft').value) || null,
+      max_guests: parseInt(document.getElementById('max_guests').value) || null,
+      active_season: document.getElementById('active_season').value.trim(),
+      door_code: document.getElementById('door_code').value.trim(),
+      parking: document.getElementById('parking').value.trim(),
+      wifi_name: document.getElementById('wifi_name').value.trim(),
+      wifi_password: document.getElementById('wifi_password').value.trim(),
+      trash_pickup: document.getElementById('trash_pickup').value.trim(),
+      bed_configuration: document.getElementById('bed_configuration').value.trim(),
+      wash_linens_onsite: document.getElementById('wash_linens_onsite').value,
+      supplies_stored: document.getElementById('supplies_stored').value.trim(),
+      linen_closet: document.getElementById('linen_closet').value.trim(),
+      linen_standard: linens,
+      scope_of_work: scope,
+      supplies_list: supplies,
+      client_name: document.getElementById('client_name').value.trim(),
+      client_email: document.getElementById('client_email').value.trim(),
+      client_phone: document.getElementById('client_phone').value.trim(),
+      client_alt_phone: document.getElementById('client_alt_phone').value.trim(),
+      client_address: document.getElementById('client_address').value.trim(),
+      preferred_contact: document.getElementById('preferred_contact').value,
+      special_notes: document.getElementById('special_notes').value.trim(),
+      status: 'active',
+    }
+    if (formId) data.id = formId
+    return data
+  }
+
+  function submitForm() {
+    var btn = document.getElementById('nextBtn')
+    btn.disabled = true
+    btn.textContent = 'Saving...'
+
+    fetch('/api/customer-form', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(getFormData()),
+    })
+    .then(function(r) { return r.json() })
+    .then(function(data) {
+      if (data.error) {
+        alert('Error saving: ' + data.error)
+        btn.disabled = false
+        btn.textContent = 'Submit'
+        return
+      }
+      formId = data.form?.id || formId
+      // Show success
+      document.getElementById('navBtns').style.display = 'none'
+      document.getElementById('step5').classList.add('hidden')
+      document.getElementById('successState').classList.remove('hidden')
+      document.getElementById('progressBar').style.width = '100%'
+      document.getElementById('stepLabel').textContent = 'Complete!'
+      // Update URL with form ID for future edits
+      if (formId && !editId) {
+        window.history.replaceState({}, '', window.location.pathname + '?id=' + formId)
+      }
+    })
+    .catch(function(err) {
+      alert('Error: ' + err.message)
+      btn.disabled = false
+      btn.textContent = 'Submit'
+    })
+  }
+
+  // Load existing form data if editing
+  if (editId) {
+    fetch('/api/customer-form?id=' + editId)
+      .then(function(r) { return r.json() })
+      .then(function(data) {
+        if (!data.form) return
+        var f = data.form
+        formId = f.id
+
+        // Populate fields
+        var fields = ['property_name', 'address_city', 'address_state', 'address_zip', 'property_type',
+          'bedrooms', 'bathrooms', 'sqft', 'max_guests', 'active_season', 'door_code', 'parking',
+          'wifi_name', 'wifi_password', 'trash_pickup', 'bed_configuration', 'wash_linens_onsite',
+          'supplies_stored', 'linen_closet', 'client_name', 'client_email', 'client_phone',
+          'client_alt_phone', 'client_address', 'preferred_contact', 'special_notes']
+
+        fields.forEach(function(key) {
+          var el = document.getElementById(key)
+          if (el && f[key] != null) el.value = f[key]
+        })
+
+        // Linens
+        if (f.linen_standard && Array.isArray(f.linen_standard) && f.linen_standard.length > 0) {
+          initLinens(f.linen_standard)
+        }
+
+        // Scope checkboxes
+        if (f.scope_of_work && typeof f.scope_of_work === 'object') {
+          // First uncheck all
+          document.querySelectorAll('[data-scope]').forEach(function(cb) { cb.checked = false })
+          // Then check saved ones
+          Object.keys(f.scope_of_work).forEach(function(group) {
+            f.scope_of_work[group].forEach(function(val) {
+              var cb = document.querySelector('[data-scope="' + group + '"][value="' + val + '"]')
+              if (cb) cb.checked = true
+            })
+          })
+        }
+
+        // Supplies extra
+        if (f.supplies_list && Array.isArray(f.supplies_list)) {
+          var standard = ['Dish soap, trash bags, paper towels', 'Toilet paper (2+ rolls per bath)', 'Hand soap, cleaning supplies']
+          var extras = f.supplies_list.filter(function(s) { return standard.indexOf(s) === -1 })
+          if (extras.length) document.getElementById('supplies_extra').value = extras.join('\n')
+        }
+      })
+      .catch(function() { /* ignore load errors, just show empty form */ })
+  }
+})()
+</script>
+</body>
+</html>
