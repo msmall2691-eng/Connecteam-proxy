@@ -40,6 +40,18 @@ export default function Settings() {
   const [invoice, setInvoice] = useState(settings.invoice || {
     defaultTaxRate: 0, defaultDueDays: 30, paymentInstructions: '', prefix: 'INV',
   })
+  const [automations, setAutomations] = useState(settings.automations || {
+    autoScanTurnovers: true,
+    turnoverScanDays: 30,
+    turnoverDefaultCleanTime: '11:00',
+    turnoverDefaultCheckoutTime: '10:00',
+    autoSendReminders: true,
+    reminderTime: '14:00',
+    reminderChannel: 'both', // 'email', 'sms', 'both'
+    reminderMessage: 'Hi {firstName}! This is a reminder that your cleaning is scheduled for tomorrow at {time}. Please make sure the space is accessible. — The Maine Cleaning Co.',
+    autoCreateInvoice: true,
+    autoEmailInvoice: false,
+  })
 
   useEffect(() => { checkIntegrations() }, [])
 
@@ -71,7 +83,7 @@ export default function Settings() {
 
   function handleSaveAll() {
     // Save business settings
-    saveSettings({ company, payroll, invoice })
+    saveSettings({ company, payroll, invoice, automations })
     // Save Connecteam key
     setApiKey(connecteamKey)
     setSaved('All settings saved!')
@@ -265,6 +277,104 @@ export default function Settings() {
         </div>
         <div className="mt-3">
           <Field label="Payment Instructions" value={invoice.paymentInstructions} onChange={v => setInvoice({ ...invoice, paymentInstructions: v })} placeholder="e.g. Pay via Venmo @handle" />
+        </div>
+      </Section>
+
+      {/* ── AUTOMATIONS ── */}
+      <Section title="Automations" desc="Configure automated workflows. Changes save when you click Save All Settings.">
+        {/* Turnover scanning */}
+        <div className="space-y-3">
+          <h3 className="text-xs text-gray-500 uppercase tracking-wider">Rental Turnovers</h3>
+          <label className="flex items-center gap-3 cursor-pointer">
+            <input type="checkbox" checked={automations.autoScanTurnovers} onChange={e => setAutomations({ ...automations, autoScanTurnovers: e.target.checked })} className="rounded border-gray-600" />
+            <div><span className="text-sm text-white">Auto-scan iCal feeds daily</span><p className="text-xs text-gray-600">Scans all rental properties at 6 AM and creates cleaning jobs for upcoming checkouts</p></div>
+          </label>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 ml-7">
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Days ahead</label>
+              <input type="number" value={automations.turnoverScanDays} onChange={e => setAutomations({ ...automations, turnoverScanDays: parseInt(e.target.value) || 30 })}
+                className="w-full px-3 py-1.5 bg-gray-800 border border-gray-700 rounded-lg text-sm text-white" />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Default checkout</label>
+              <input type="time" value={automations.turnoverDefaultCheckoutTime} onChange={e => setAutomations({ ...automations, turnoverDefaultCheckoutTime: e.target.value })}
+                className="w-full px-3 py-1.5 bg-gray-800 border border-gray-700 rounded-lg text-sm text-white" />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Default clean time</label>
+              <input type="time" value={automations.turnoverDefaultCleanTime} onChange={e => setAutomations({ ...automations, turnoverDefaultCleanTime: e.target.value })}
+                className="w-full px-3 py-1.5 bg-gray-800 border border-gray-700 rounded-lg text-sm text-white" />
+            </div>
+          </div>
+          <div className="ml-7 flex gap-2">
+            <button onClick={async () => {
+              try {
+                const res = await fetch(`/api/auto-turnovers?action=preview&days=${automations.turnoverScanDays}`)
+                if (res.ok) { const d = await res.json(); alert(`Preview: ${d.properties} properties, ${d.newTurnovers} new turnovers to create (${d.alreadyScheduled} already scheduled)`) }
+              } catch { alert('Failed to scan') }
+            }} className="px-3 py-1.5 bg-gray-800 hover:bg-gray-700 rounded-lg text-xs text-gray-300">Preview Scan</button>
+            <button onClick={async () => {
+              try {
+                const res = await fetch(`/api/auto-turnovers?action=scan&days=${automations.turnoverScanDays}`)
+                if (res.ok) { const d = await res.json(); alert(`Done! Created ${d.created} new turnover cleanings from ${d.properties} properties.`) }
+              } catch { alert('Failed to scan') }
+            }} className="px-3 py-1.5 bg-orange-600 hover:bg-orange-500 rounded-lg text-xs text-white">Run Scan Now</button>
+          </div>
+        </div>
+
+        <hr className="border-gray-800" />
+
+        {/* Reminders */}
+        <div className="space-y-3">
+          <h3 className="text-xs text-gray-500 uppercase tracking-wider">Client Reminders</h3>
+          <label className="flex items-center gap-3 cursor-pointer">
+            <input type="checkbox" checked={automations.autoSendReminders} onChange={e => setAutomations({ ...automations, autoSendReminders: e.target.checked })} className="rounded border-gray-600" />
+            <div><span className="text-sm text-white">Auto-send reminders day before</span><p className="text-xs text-gray-600">Texts/emails clients at 2 PM the day before their scheduled cleaning</p></div>
+          </label>
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-3 ml-7">
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Send via</label>
+              <select value={automations.reminderChannel} onChange={e => setAutomations({ ...automations, reminderChannel: e.target.value })}
+                className="w-full px-3 py-1.5 bg-gray-800 border border-gray-700 rounded-lg text-sm text-white">
+                <option value="email">Email only</option><option value="sms">SMS only</option><option value="both">Email + SMS</option>
+              </select>
+            </div>
+          </div>
+          <div className="ml-7">
+            <label className="block text-xs text-gray-500 mb-1">Reminder message template</label>
+            <textarea rows={3} value={automations.reminderMessage} onChange={e => setAutomations({ ...automations, reminderMessage: e.target.value })}
+              className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-xs text-white placeholder-gray-500" />
+            <p className="text-xs text-gray-600 mt-1">Variables: {'{firstName}'}, {'{time}'}, {'{date}'}, {'{address}'}</p>
+          </div>
+          <div className="ml-7 flex gap-2">
+            <button onClick={async () => {
+              try {
+                const res = await fetch('/api/reminders?action=preview')
+                if (res.ok) { const d = await res.json(); alert(`Preview: ${d.count} reminders would be sent for ${d.date}\n\n${d.reminders.map(r => `${r.clientName}: ${r.jobTitle} @ ${r.startTime}`).join('\n') || 'No jobs tomorrow'}`) }
+              } catch { alert('Failed to check') }
+            }} className="px-3 py-1.5 bg-gray-800 hover:bg-gray-700 rounded-lg text-xs text-gray-300">Preview Reminders</button>
+            <button onClick={async () => {
+              try {
+                const res = await fetch('/api/reminders?action=send')
+                if (res.ok) { const d = await res.json(); alert(`Sent ${d.sent} reminders for ${d.date}. ${d.failed} failed.`) }
+              } catch { alert('Failed to send') }
+            }} className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 rounded-lg text-xs text-white">Send Now</button>
+          </div>
+        </div>
+
+        <hr className="border-gray-800" />
+
+        {/* Invoice automation */}
+        <div className="space-y-3">
+          <h3 className="text-xs text-gray-500 uppercase tracking-wider">Invoicing</h3>
+          <label className="flex items-center gap-3 cursor-pointer">
+            <input type="checkbox" checked={automations.autoCreateInvoice} onChange={e => setAutomations({ ...automations, autoCreateInvoice: e.target.checked })} className="rounded border-gray-600" />
+            <div><span className="text-sm text-white">Auto-create invoice when job completed</span><p className="text-xs text-gray-600">Draft invoice created automatically when you mark a job as completed</p></div>
+          </label>
+          <label className="flex items-center gap-3 cursor-pointer">
+            <input type="checkbox" checked={automations.autoEmailInvoice} onChange={e => setAutomations({ ...automations, autoEmailInvoice: e.target.checked })} className="rounded border-gray-600" />
+            <div><span className="text-sm text-white">Auto-email invoices to clients</span><p className="text-xs text-gray-600">Automatically sends the invoice email when it's created (otherwise stays as draft)</p></div>
+          </label>
         </div>
       </Section>
 
