@@ -235,6 +235,9 @@ export default function Settings() {
             )}
           </div>
 
+          <IntegrationRow name="ManyChat" envVars="No env vars needed"
+            status="ready" note="Webhook: https://connecteam-proxy.vercel.app/api/manychat" />
+
           <IntegrationRow name="Facebook Leads" envVars="FB_PAGE_ACCESS_TOKEN, FB_VERIFY_TOKEN"
             status="not configured" note="Webhook: https://your-domain.vercel.app/api/leads?action=facebook" />
         </div>
