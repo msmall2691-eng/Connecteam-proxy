@@ -349,9 +349,24 @@ export default function Schedule() {
       )}
 
       {/* Turnovers alert */}
-      {showTurnovers && turnovers.length > 0 && (
+      {showTurnovers && (
         <div className="bg-orange-900/10 border border-orange-800/50 rounded-xl p-4">
-          <h3 className="text-sm font-semibold text-orange-400 mb-3">Upcoming Turnovers</h3>
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-sm font-semibold text-orange-400">Upcoming Turnovers</h3>
+            <button onClick={async () => {
+              try {
+                const res = await fetch('/api/auto-turnovers?action=scan&days=30')
+                if (res.ok) {
+                  const data = await res.json()
+                  alert(`Scanned ${data.properties} properties. Created ${data.created} new turnover cleanings.`)
+                  loadTurnovers()
+                }
+              } catch {}
+            }} className="px-3 py-1 bg-orange-600 hover:bg-orange-500 rounded text-xs text-white">
+              Auto-Scan All Properties
+            </button>
+          </div>
+          {turnovers.length === 0 && <p className="text-xs text-gray-500">No upcoming turnovers detected. Add rental properties with iCal URLs in Settings or client Properties tab.</p>}
           <div className="space-y-2">
             {turnovers.map(t => (
               <div key={`${t.eventId}-${t.checkOut}`} className="flex items-center justify-between bg-gray-900/50 rounded-lg px-3 py-2">
