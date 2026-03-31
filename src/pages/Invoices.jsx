@@ -126,7 +126,7 @@ export default function Invoices() {
 
   return (
     <div className="p-6 max-w-7xl mx-auto space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold text-white">Invoices</h1>
           <p className="text-sm text-gray-500 mt-1">{invoices.length} total invoices</p>
@@ -154,7 +154,7 @@ export default function Invoices() {
       </div>
 
       {/* Filter */}
-      <div className="flex gap-1">
+      <div className="flex flex-wrap gap-1">
         {['all', 'draft', 'sent', 'paid', 'overdue', 'cancelled'].map(s => (
           <button key={s} onClick={() => setFilterStatus(s)}
             className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
@@ -391,15 +391,15 @@ function InvoiceForm({ invoice, clients, onSave, onCancel }) {
 
           <div className="space-y-2">
             {form.items.map((item, i) => (
-              <div key={i} className="grid grid-cols-12 gap-2 items-center">
+              <div key={i} className="grid grid-cols-1 sm:grid-cols-12 gap-2 items-center">
                 <input value={item.description} onChange={e => updateItem(i, 'description', e.target.value)}
-                  placeholder="Description" className="col-span-5 px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                  placeholder="Description" className="sm:col-span-5 px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500" />
                 <input type="number" min="0" step="0.5" value={item.quantity} onChange={e => updateItem(i, 'quantity', e.target.value)}
-                  placeholder="Qty" className="col-span-2 px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-sm text-white text-right focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                  placeholder="Qty" className="sm:col-span-2 px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-sm text-white text-right focus:outline-none focus:ring-2 focus:ring-blue-500" />
                 <input type="number" min="0" step="0.01" value={item.unitPrice} onChange={e => updateItem(i, 'unitPrice', e.target.value)}
-                  placeholder="Price" className="col-span-2 px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-sm text-white text-right focus:outline-none focus:ring-2 focus:ring-blue-500" />
-                <span className="col-span-2 text-sm text-gray-300 text-right font-mono">${(parseFloat(item.total) || 0).toFixed(2)}</span>
-                <button type="button" onClick={() => removeItem(i)} className="col-span-1 text-gray-600 hover:text-red-400 text-center">&times;</button>
+                  placeholder="Price" className="sm:col-span-2 px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-sm text-white text-right focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                <span className="sm:col-span-2 text-sm text-gray-300 text-right font-mono">${(parseFloat(item.total) || 0).toFixed(2)}</span>
+                <button type="button" onClick={() => removeItem(i)} className="sm:col-span-1 text-gray-600 hover:text-red-400 text-center">&times;</button>
               </div>
             ))}
           </div>
