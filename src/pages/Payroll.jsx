@@ -186,7 +186,7 @@ export default function Payroll() {
 
   return (
     <div className="p-6 max-w-7xl mx-auto space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold text-white">Payroll</h1>
           {payrollData && (
@@ -246,7 +246,7 @@ export default function Payroll() {
 
           {/* Payroll table */}
           <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
-            <div className="px-5 py-3 border-b border-gray-800 flex items-center justify-between">
+            <div className="px-5 py-3 border-b border-gray-800 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
               <h2 className="text-sm font-semibold text-white">Employee Payroll</h2>
               <div className="flex gap-2">
                 <button onClick={checkSquareTeam}
@@ -315,7 +315,7 @@ export default function Payroll() {
           {/* Settings */}
           <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
             <h2 className="text-sm font-semibold text-white mb-3">Mileage Settings</h2>
-            <div className="flex items-center gap-6">
+            <div className="flex flex-wrap items-center gap-4 sm:gap-6">
               <div className="flex items-center gap-2">
                 <label className="text-xs text-gray-500">IRS Rate ($/mi)</label>
                 <input type="number" step="0.01" value={mileRate} onChange={e => setMileRate(parseFloat(e.target.value) || 0)}
