@@ -66,10 +66,10 @@ export default function ClientDetail() {
         </div>
       </div>
 
-      <div className="flex gap-1 border-b border-gray-800 overflow-x-auto">
+      <div className="flex gap-1 border-b border-gray-800 overflow-x-auto whitespace-nowrap">
         {TABS.map(t => (
           <button key={t} onClick={() => setTab(t)}
-            className={`px-4 py-2 text-sm font-medium transition-colors border-b-2 -mb-px ${
+            className={`px-4 py-2 text-sm font-medium transition-colors border-b-2 -mb-px shrink-0 ${
               tab === t ? 'border-blue-500 text-blue-400' : 'border-transparent text-gray-500 hover:text-gray-300'
             }`}>{t.charAt(0).toUpperCase() + t.slice(1)}</button>
         ))}
@@ -911,6 +911,7 @@ function JobsTab({ clientId, clientName, clientAddress, jobs, properties, onRelo
       )}
 
       <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
+        <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
             <tr className="text-xs text-gray-500 uppercase tracking-wider border-b border-gray-800">
@@ -1004,6 +1005,7 @@ function JobsTab({ clientId, clientName, clientAddress, jobs, properties, onRelo
             {jobs.length === 0 && <tr><td colSpan={8} className="px-5 py-8 text-center text-gray-500">No jobs yet.</td></tr>}
           </tbody>
         </table>
+        </div>
       </div>
     </div>
   )

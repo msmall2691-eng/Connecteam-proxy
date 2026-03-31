@@ -175,6 +175,7 @@ export default function Invoices() {
 
       {/* Invoice List */}
       <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
+        <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
             <tr className="text-xs text-gray-500 uppercase tracking-wider border-b border-gray-800">
@@ -251,6 +252,7 @@ export default function Invoices() {
             )}
           </tbody>
         </table>
+        </div>
       </div>
     </div>
   )
@@ -339,7 +341,7 @@ function InvoiceForm({ invoice, clients, onSave, onCancel }) {
       <h2 className="text-base font-semibold text-white">{invoice ? 'Edit Invoice' : 'New Invoice'}</h2>
 
       <form onSubmit={handleSubmit} className="space-y-4">
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
           <div>
             <label className="block text-xs text-gray-500 mb-1">Invoice #</label>
             <input value={form.invoiceNumber} readOnly

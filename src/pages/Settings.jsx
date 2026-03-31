@@ -579,8 +579,8 @@ function IntegrationRow({ name, envVars, status, onTest, testResult, note }) {
             {status || 'checking...'}
           </span>
         </div>
-        <p className="text-xs text-gray-600 mt-0.5 ml-4">Env: <code className="text-gray-500">{envVars}</code></p>
-        {note && <p className="text-xs text-blue-400/60 mt-0.5 ml-4">{note}</p>}
+        <p className="text-xs text-gray-600 mt-0.5 ml-4 break-all">Env: <code className="text-gray-500">{envVars}</code></p>
+        {note && <p className="text-xs text-blue-400/60 mt-0.5 ml-4 break-all">{note}</p>}
       </div>
       <div className="flex items-center gap-2">
         {testResult && (

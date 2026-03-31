@@ -94,7 +94,8 @@ export default function Revenue() {
       {/* Revenue chart (bar chart using divs) */}
       <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
         <h2 className="text-sm font-semibold text-white mb-4">Monthly Revenue (12 months)</h2>
-        <div className="flex items-end gap-1.5" style={{ height: '200px' }}>
+        <div className="overflow-x-auto">
+        <div className="flex items-end gap-1.5" style={{ height: '200px', minWidth: '600px' }}>
           {months.map(m => (
             <div key={m.key} className="flex-1 flex flex-col items-center justify-end h-full">
               {/* Outstanding bar */}
@@ -111,6 +112,7 @@ export default function Revenue() {
             </div>
           ))}
         </div>
+        </div>
         <div className="flex gap-4 mt-3 text-xs">
           <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded bg-green-500" /> Revenue</span>
           <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded bg-yellow-600/30" /> Outstanding</span>
@@ -119,6 +121,7 @@ export default function Revenue() {
 
       {/* Monthly breakdown table */}
       <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
+        <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
             <tr className="text-xs text-gray-500 uppercase tracking-wider border-b border-gray-800">
@@ -143,6 +146,7 @@ export default function Revenue() {
             ))}
           </tbody>
         </table>
+        </div>
       </div>
 
       {/* Top clients */}
