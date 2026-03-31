@@ -219,16 +219,27 @@ export default function Dashboard() {
             {data.unpaid.length === 0 && <p className="text-xs text-gray-700">All paid up!</p>}
           </Panel>
 
-          {/* Messages */}
-          <Panel title="Messages" icon="💬" count={data.recentMsgs.length} linkTo="/communications">
+          {/* Inbox / Notifications */}
+          <Panel title="Inbox" icon="📥" count={data.recentMsgs.length} linkTo="/communications">
             {data.recentMsgs.map((msg, i) => (
-              <div key={i} className="py-1.5">
-                <div className="flex justify-between"><span className="text-sm text-white truncate">{msg.clientName}</span>
-                  <span className={`text-xs px-1 py-0.5 rounded ${msg.channel === 'email' ? 'bg-blue-900/30 text-blue-400' : msg.channel === 'text' ? 'bg-green-900/30 text-green-400' : 'bg-gray-800 text-gray-400'}`}>{msg.channel}</span></div>
-                <p className="text-xs text-gray-600 truncate">{msg.content?.slice(0, 50)}</p>
-              </div>
+              <Link key={i} to="/communications" className="block py-1.5 hover:bg-gray-800/50 rounded -mx-1 px-1">
+                <div className="flex justify-between">
+                  <span className="text-sm text-white truncate">{msg.clientName}</span>
+                  <div className="flex items-center gap-1 shrink-0">
+                    <span className={`text-xs px-1 py-0.5 rounded ${
+                      msg.channel === 'email' ? 'bg-blue-900/30 text-blue-400' :
+                      msg.channel === 'text' ? 'bg-green-900/30 text-green-400' :
+                      msg.channel === 'instagram' ? 'bg-pink-900/30 text-pink-400' :
+                      msg.channel === 'facebook' ? 'bg-indigo-900/30 text-indigo-400' :
+                      'bg-gray-800 text-gray-400'
+                    }`}>{msg.channel}</span>
+                    <span className="text-xs text-gray-700">{msg.timestamp ? new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}</span>
+                  </div>
+                </div>
+                <p className="text-xs text-gray-600 truncate">{msg.content?.slice(0, 60)}</p>
+              </Link>
             ))}
-            {data.recentMsgs.length === 0 && <p className="text-xs text-gray-700">No messages</p>}
+            {data.recentMsgs.length === 0 && <p className="text-xs text-gray-700">No recent messages. Gmail syncs when you open Inbox.</p>}
           </Panel>
 
           {/* AI Chat — compact */}
