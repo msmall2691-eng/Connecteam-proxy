@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import { getClients, saveClient, deleteClient } from '../lib/store'
+import ImportClients from '../components/ImportClients'
 
 const STATUS_COLORS = {
   active: 'bg-green-900/40 text-green-400',
@@ -17,6 +18,8 @@ const EMPTY_CLIENT = {
 export default function Clients() {
   const [clients, setClients] = useState([])
   const [showForm, setShowForm] = useState(false)
+  const [showImport, setShowImport] = useState(false)
+  const [importingGoogle, setImportingGoogle] = useState(false)
   const [editing, setEditing] = useState(null)
   const [form, setForm] = useState({ ...EMPTY_CLIENT })
   const [search, setSearch] = useState('')
@@ -67,13 +70,48 @@ export default function Clients() {
           <h1 className="text-2xl font-bold text-white">Clients</h1>
           <p className="text-sm text-gray-500 mt-1">{clients.length} total clients</p>
         </div>
-        <button
-          onClick={() => { setForm({ ...EMPTY_CLIENT }); setEditing(null); setShowForm(true) }}
-          className="px-4 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg text-sm font-medium text-white transition-colors"
-        >
-          + New Client
-        </button>
+        <div className="flex gap-2">
+          <button onClick={() => { setForm({ ...EMPTY_CLIENT }); setEditing(null); setShowForm(true) }}
+            className="px-4 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg text-sm font-medium text-white">+ New Client</button>
+          <button onClick={() => setShowImport(!showImport)}
+            className={`px-4 py-2 rounded-lg text-sm font-medium ${showImport ? 'bg-gray-700 text-white' : 'bg-gray-800 hover:bg-gray-700 text-gray-300'}`}>Import</button>
+          <button onClick={async () => {
+            setImportingGoogle(true)
+            try {
+              const res = await fetch('/api/google-contacts?action=list')
+              if (res.ok) {
+                const data = await res.json()
+                let imported = 0
+                const existing = getClients()
+                const existingEmails = new Set(existing.map(c => c.email?.toLowerCase()).filter(Boolean))
+                for (const c of data.contacts) {
+                  if (c.email && existingEmails.has(c.email.toLowerCase())) continue
+                  if (!c.name) continue
+                  saveClient({ name: c.name, email: c.email, phone: c.phone, address: c.address, status: 'lead', type: 'residential', source: 'Google Contacts' })
+                  imported++
+                }
+                alert(`Imported ${imported} contacts from Google. ${data.total - imported} skipped (duplicates or no name).`)
+                reload()
+              } else { alert('Google Contacts not connected. Add People API scope to your OAuth.') }
+            } catch { alert('Failed to sync Google Contacts') }
+            setImportingGoogle(false)
+          }} disabled={importingGoogle}
+            className="px-4 py-2 bg-gray-800 hover:bg-gray-700 disabled:opacity-50 rounded-lg text-sm text-gray-300">
+            {importingGoogle ? 'Syncing...' : 'Google Contacts'}
+          </button>
+        </div>
       </div>
+
+      {/* Import panel */}
+      {showImport && (
+        <div className="bg-gray-900 border border-gray-800 rounded-xl p-6">
+          <div className="flex justify-between items-center mb-4">
+            <h2 className="text-base font-semibold text-white">Import Clients</h2>
+            <button onClick={() => setShowImport(false)} className="text-xs text-gray-500 hover:text-gray-300">Close</button>
+          </div>
+          <ImportClients onDone={() => { setShowImport(false); reload() }} />
+        </div>
+      )}
 
       {/* Filters */}
       <div className="flex items-center gap-3">
