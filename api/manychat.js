@@ -217,7 +217,7 @@ async function sendNotificationEmail(subscriber) {
     ].filter(Boolean).join('\n')
 
     const raw = Buffer.from(
-      `To: info@maine-clean.co\r\nSubject: ${emoji} ${subscriber.name || 'New message'} via ${subscriber.channel}\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n${body}`
+      `To: office@mainecleaningco.com\r\nSubject: ${emoji} ${subscriber.name || 'New message'} via ${subscriber.channel}\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n${body}`
     ).toString('base64url')
 
     await fetch('https://gmail.googleapis.com/gmail/v1/users/me/messages/send', {

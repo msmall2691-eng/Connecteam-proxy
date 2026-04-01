@@ -262,7 +262,7 @@ export default async function handler(req, res) {
                 ].filter(Boolean).join('\n')
 
                 const raw = Buffer.from(
-                  `To: info@maine-clean.co\r\nSubject: 🔔 New Lead: ${lead.name} — ${quoteRange}\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n${emailBody}`
+                  `To: office@mainecleaningco.com\r\nSubject: 🔔 New Lead: ${lead.name} — ${quoteRange}\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n${emailBody}`
                 ).toString('base64url')
 
                 await fetch('https://gmail.googleapis.com/gmail/v1/users/me/messages/send', {

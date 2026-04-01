@@ -30,7 +30,7 @@ export default function Settings() {
   // Business settings
   const [company, setCompany] = useState(settings.company || {
     name: 'The Maine Cleaning & Property Management Co.',
-    email: 'info@maine-clean.co',
+    email: 'office@mainecleaningco.com',
     phone: '(207) 572-0502',
     address: '',
   })

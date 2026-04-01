@@ -26,7 +26,7 @@ export function AuthProvider({ children }) {
     } else {
       // Local auth: check session
       if (isSessionValid()) {
-        setUser({ email: 'admin@maine-clean.co', isLocal: true })
+        setUser({ email: 'admin@mainecleaningco.com', isLocal: true })
       }
       setLoading(false)
     }
@@ -45,8 +45,8 @@ export function AuthProvider({ children }) {
     const valid = await verifyPassword(password)
     if (!valid) return { error: { message: 'Invalid password' } }
     createSession()
-    setUser({ email: 'admin@maine-clean.co', isLocal: true })
-    return { data: { user: { email: 'admin@maine-clean.co' } } }
+    setUser({ email: 'admin@mainecleaningco.com', isLocal: true })
+    return { data: { user: { email: 'admin@mainecleaningco.com' } } }
   }
 
   async function signUp(email, password) {
@@ -81,7 +81,7 @@ export function AuthProvider({ children }) {
   async function setupPassword(password) {
     await setLocalPassword(password)
     createSession()
-    setUser({ email: 'admin@maine-clean.co', isLocal: true })
+    setUser({ email: 'admin@mainecleaningco.com', isLocal: true })
   }
 
   return (

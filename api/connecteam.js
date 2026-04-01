@@ -209,7 +209,7 @@ async function sendNotification(subject, body) {
     if (!tokenData.access_token) return
 
     const raw = Buffer.from(
-      `To: info@maine-clean.co\r\nSubject: [Connecteam] ${subject}\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n${body}\n\n— Workflow HQ Notification`
+      `To: office@mainecleaningco.com\r\nSubject: [Connecteam] ${subject}\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n${body}\n\n— Workflow HQ Notification`
     ).toString('base64url')
 
     await fetch('https://gmail.googleapis.com/gmail/v1/users/me/messages/send', {
