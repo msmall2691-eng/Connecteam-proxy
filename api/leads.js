@@ -7,14 +7,54 @@
 // Leads are stored via the frontend store, but this endpoint
 // accepts external webhooks and forwards to the store
 
+const ALLOWED_ORIGINS = [
+  'https://maineclean.co',
+  'https://www.maineclean.co',
+  'https://maine-clean.co',
+  'https://www.maine-clean.co',
+  'https://connecteam-proxy.vercel.app',
+  'http://localhost:5000',
+  'http://localhost:5173',
+]
+
 export default async function handler(req, res) {
-  res.setHeader('Access-Control-Allow-Origin', '*')
+  const origin = req.headers.origin || ''
+  const allowedOrigin = ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0]
+  res.setHeader('Access-Control-Allow-Origin', allowedOrigin)
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-Webhook-Secret')
 
   if (req.method === 'OPTIONS') return res.status(200).end()
 
   const action = req.query.action || 'create'
+
+  // ── LIST WEBSITE REQUESTS ──
+  if (req.method === 'GET' && (action === 'list' || action === 'create')) {
+    const supabaseUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL
+    const supabaseKey = process.env.SUPABASE_SERVICE_KEY || process.env.VITE_SUPABASE_ANON_KEY
+
+    if (supabaseUrl && supabaseKey) {
+      try {
+        const listRes = await fetch(
+          `${supabaseUrl}/rest/v1/website_requests?order=created_at.desc&limit=100`,
+          {
+            headers: {
+              'apikey': supabaseKey,
+              'Authorization': `Bearer ${supabaseKey}`,
+            },
+          }
+        )
+        if (listRes.ok) {
+          const requests = await listRes.json()
+          return res.status(200).json({ success: true, requests })
+        }
+      } catch (e) {
+        console.error('Failed to list website requests:', e)
+      }
+    }
+
+    return res.status(200).json({ success: true, requests: [] })
+  }
 
   // ── WEBSITE FORM SUBMISSION ──
   if (action === 'create' && req.method === 'POST') {
@@ -59,6 +99,11 @@ export default async function handler(req, res) {
       utm_campaign: utm_campaign || '',
       fbLeadId: fb_lead_id || '',
       fbFormId: fb_form_id || '',
+      // Estimate data (from website quote calculator)
+      estimateMin: estimateMin || null,
+      estimateMax: estimateMax || null,
+      petHair: petHair || '',
+      condition: condition || '',
       // Meta
       status: 'lead',
       type: mapPropertyType(propertyType),
@@ -176,7 +221,7 @@ export default async function handler(req, res) {
                   `Quote: ${quoteRange}`,
                   lead.message ? `Message: ${lead.message}` : '',
                   '',
-                  `View in Workflow HQ: https://connecteam-proxy.vercel.app/#/pipeline`,
+                  `View in Workflow HQ: https://connecteam-proxy.vercel.app/website-requests`,
                 ].filter(Boolean).join('\n')
 
                 const raw = Buffer.from(
@@ -192,6 +237,40 @@ export default async function handler(req, res) {
             }
           } catch (e) { console.error('Lead notification email failed:', e) }
 
+          // Also store as a website request for the dashboard
+          try {
+            if (supabaseUrl && supabaseKey) {
+              await fetch(`${supabaseUrl}/rest/v1/website_requests`, {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  'apikey': supabaseKey,
+                  'Authorization': `Bearer ${supabaseKey}`,
+                },
+                body: JSON.stringify({
+                  name: lead.name,
+                  email: lead.email,
+                  phone: lead.phone,
+                  address: lead.address,
+                  service: lead.service,
+                  message: lead.message,
+                  source: lead.source,
+                  property_type: lead.type,
+                  frequency: lead.frequency,
+                  estimate_min: lead.estimateMin || null,
+                  estimate_max: lead.estimateMax || null,
+                  sqft: lead.squareFeet || null,
+                  bathrooms: lead.bathrooms || null,
+                  pet_hair: lead.petHair || null,
+                  condition: lead.condition || null,
+                  status: 'new',
+                  client_id: clientId || null,
+                }),
+              })
+            }
+          } catch (e) { console.error('Website request storage failed:', e) }
+
+          lead.websiteRequestStored = true
           return res.status(200).json({ success: true, leadId: clientId, propertyId, lead })
         }
       } catch (err) {
@@ -200,6 +279,7 @@ export default async function handler(req, res) {
     }
 
     // Fallback: return lead for frontend to handle
+    lead.websiteRequestStored = true
     return res.status(200).json({ success: true, lead, note: 'Lead received. Add to CRM from the dashboard.' })
   }
 

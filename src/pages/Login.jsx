@@ -3,19 +3,37 @@ import { useAuth } from '../lib/auth'
 import { isSupabaseConfigured } from '../lib/supabase'
 
 export default function Login() {
-  const { signIn, signUp, resetPassword } = useAuth()
+  const { signIn, signUp, resetPassword, setupPassword, needsSetup } = useAuth()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
-  const [mode, setMode] = useState('login') // 'login', 'signup', 'reset'
+  const [confirmPassword, setConfirmPassword] = useState('')
+  const [mode, setMode] = useState(needsSetup ? 'setup' : 'login')
   const [error, setError] = useState('')
   const [message, setMessage] = useState('')
   const [loading, setLoading] = useState(false)
+  const isLocal = !isSupabaseConfigured()
 
   async function handleSubmit(e) {
     e.preventDefault()
     setError('')
     setMessage('')
     setLoading(true)
+
+    if (mode === 'setup') {
+      if (password.length < 6) {
+        setError('Password must be at least 6 characters')
+        setLoading(false)
+        return
+      }
+      if (password !== confirmPassword) {
+        setError('Passwords do not match')
+        setLoading(false)
+        return
+      }
+      await setupPassword(password)
+      setLoading(false)
+      return
+    }
 
     if (mode === 'login') {
       const { error } = await signIn(email, password)
@@ -33,18 +51,6 @@ export default function Login() {
     setLoading(false)
   }
 
-  if (!isSupabaseConfigured()) {
-    return (
-      <div className="min-h-screen bg-gray-950 flex items-center justify-center p-6">
-        <div className="bg-gray-900 border border-gray-800 rounded-2xl p-8 w-full max-w-md text-center space-y-4">
-          <h1 className="text-xl font-bold text-white">Workflow HQ</h1>
-          <p className="text-sm text-gray-400">Supabase not configured. Add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY to Vercel env vars to enable authentication.</p>
-          <p className="text-xs text-gray-600">The app will work without auth but data won't be secured.</p>
-        </div>
-      </div>
-    )
-  }
-
   return (
     <div className="min-h-screen bg-gray-950 flex items-center justify-center p-6">
       <div className="bg-gray-900 border border-gray-800 rounded-2xl p-8 w-full max-w-md space-y-6">
@@ -55,7 +61,8 @@ export default function Login() {
           </div>
           <h1 className="text-xl font-bold text-white">Workflow HQ</h1>
           <p className="text-sm text-gray-500 mt-1">
-            {mode === 'login' ? 'Sign in to your account' :
+            {mode === 'setup' ? 'Set up your password to get started' :
+             mode === 'login' ? (isLocal ? 'Enter your password to continue' : 'Sign in to your account') :
              mode === 'signup' ? 'Create your account' :
              'Reset your password'}
           </p>
@@ -69,17 +76,32 @@ export default function Login() {
         )}
 
         <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label className="block text-xs text-gray-500 mb-1.5">Email</label>
-            <input type="email" required value={email} onChange={e => setEmail(e.target.value)}
-              placeholder="you@company.com"
-              className="w-full px-3.5 py-2.5 bg-gray-800 border border-gray-700 rounded-lg text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500" />
-          </div>
+          {/* Email field - only for Supabase auth */}
+          {!isLocal && mode !== 'setup' && (
+            <div>
+              <label className="block text-xs text-gray-500 mb-1.5">Email</label>
+              <input type="email" required value={email} onChange={e => setEmail(e.target.value)}
+                placeholder="you@company.com"
+                className="w-full px-3.5 py-2.5 bg-gray-800 border border-gray-700 rounded-lg text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            </div>
+          )}
 
           {mode !== 'reset' && (
             <div>
-              <label className="block text-xs text-gray-500 mb-1.5">Password</label>
+              <label className="block text-xs text-gray-500 mb-1.5">
+                {mode === 'setup' ? 'Choose a Password' : 'Password'}
+              </label>
               <input type="password" required value={password} onChange={e => setPassword(e.target.value)}
+                placeholder="••••••••"
+                minLength={6}
+                className="w-full px-3.5 py-2.5 bg-gray-800 border border-gray-700 rounded-lg text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            </div>
+          )}
+
+          {mode === 'setup' && (
+            <div>
+              <label className="block text-xs text-gray-500 mb-1.5">Confirm Password</label>
+              <input type="password" required value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)}
                 placeholder="••••••••"
                 minLength={6}
                 className="w-full px-3.5 py-2.5 bg-gray-800 border border-gray-700 rounded-lg text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500" />
@@ -89,37 +111,46 @@ export default function Login() {
           <button type="submit" disabled={loading}
             className="w-full px-4 py-2.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 rounded-lg text-sm font-medium text-white transition-colors">
             {loading ? 'Please wait...' :
+             mode === 'setup' ? 'Set Up Password' :
              mode === 'login' ? 'Sign In' :
              mode === 'signup' ? 'Create Account' :
              'Send Reset Link'}
           </button>
         </form>
 
-        {/* Mode switchers */}
-        <div className="text-center space-y-2">
-          {mode === 'login' && (
-            <>
-              <button onClick={() => { setMode('reset'); setError(''); setMessage('') }}
-                className="text-xs text-gray-500 hover:text-gray-300">Forgot password?</button>
+        {/* Mode switchers - only for Supabase mode */}
+        {!isLocal && mode !== 'setup' && (
+          <div className="text-center space-y-2">
+            {mode === 'login' && (
+              <>
+                <button onClick={() => { setMode('reset'); setError(''); setMessage('') }}
+                  className="text-xs text-gray-500 hover:text-gray-300">Forgot password?</button>
+                <p className="text-xs text-gray-600">
+                  Don't have an account?{' '}
+                  <button onClick={() => { setMode('signup'); setError(''); setMessage('') }}
+                    className="text-blue-400 hover:text-blue-300">Sign up</button>
+                </p>
+              </>
+            )}
+            {mode === 'signup' && (
               <p className="text-xs text-gray-600">
-                Don't have an account?{' '}
-                <button onClick={() => { setMode('signup'); setError(''); setMessage('') }}
-                  className="text-blue-400 hover:text-blue-300">Sign up</button>
+                Already have an account?{' '}
+                <button onClick={() => { setMode('login'); setError(''); setMessage('') }}
+                  className="text-blue-400 hover:text-blue-300">Sign in</button>
               </p>
-            </>
-          )}
-          {mode === 'signup' && (
-            <p className="text-xs text-gray-600">
-              Already have an account?{' '}
+            )}
+            {mode === 'reset' && (
               <button onClick={() => { setMode('login'); setError(''); setMessage('') }}
-                className="text-blue-400 hover:text-blue-300">Sign in</button>
-            </p>
-          )}
-          {mode === 'reset' && (
-            <button onClick={() => { setMode('login'); setError(''); setMessage('') }}
-              className="text-xs text-blue-400 hover:text-blue-300">Back to sign in</button>
-          )}
-        </div>
+                className="text-xs text-blue-400 hover:text-blue-300">Back to sign in</button>
+            )}
+          </div>
+        )}
+
+        {mode === 'setup' && (
+          <p className="text-xs text-gray-600 text-center">
+            This password protects your Workflow HQ data. You'll need it each time you open the app.
+          </p>
+        )}
       </div>
     </div>
   )
