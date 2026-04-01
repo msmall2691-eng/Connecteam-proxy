@@ -153,9 +153,13 @@ export async function saveClientAsync(client) {
 export function saveClient(client) {
   const data = loadLocal()
   const now = new Date().toISOString()
+  let full = client
   if (client.id) {
     const idx = data.clients.findIndex(c => c.id === client.id)
-    if (idx >= 0) data.clients[idx] = { ...data.clients[idx], ...client, updatedAt: now }
+    if (idx >= 0) {
+      data.clients[idx] = { ...data.clients[idx], ...client, updatedAt: now }
+      full = data.clients[idx]
+    }
   } else {
     client.id = genId()
     client.createdAt = now
@@ -163,7 +167,7 @@ export function saveClient(client) {
     data.clients.unshift(client)
   }
   saveLocal(data)
-  syncToSupabase('clients', client, toSnake)
+  syncToSupabase('clients', full, toSnake)
   return client
 }
 
@@ -230,9 +234,13 @@ export async function saveConversationAsync(convo) {
 export function saveConversation(convo) {
   const data = loadLocal()
   const now = new Date().toISOString()
+  let full = convo
   if (convo.id) {
     const idx = data.conversations.findIndex(c => c.id === convo.id)
-    if (idx >= 0) data.conversations[idx] = { ...data.conversations[idx], ...convo, updatedAt: now }
+    if (idx >= 0) {
+      data.conversations[idx] = { ...data.conversations[idx], ...convo, updatedAt: now }
+      full = data.conversations[idx]
+    }
   } else {
     convo.id = genId()
     convo.createdAt = now
@@ -241,7 +249,7 @@ export function saveConversation(convo) {
     data.conversations.unshift(convo)
   }
   saveLocal(data)
-  syncToSupabase('conversations', convo, convoToSnake)
+  syncToSupabase('conversations', full, convoToSnake)
   return convo
 }
 
@@ -346,9 +354,13 @@ export async function saveJobAsync(job) {
 export function saveJob(job) {
   const data = loadLocal()
   const now = new Date().toISOString()
+  let full = job
   if (job.id) {
     const idx = data.jobs.findIndex(j => j.id === job.id)
-    if (idx >= 0) data.jobs[idx] = { ...data.jobs[idx], ...job, updatedAt: now }
+    if (idx >= 0) {
+      data.jobs[idx] = { ...data.jobs[idx], ...job, updatedAt: now }
+      full = data.jobs[idx]
+    }
   } else {
     job.id = genId()
     job.createdAt = now
@@ -356,7 +368,7 @@ export function saveJob(job) {
     data.jobs.unshift(job)
   }
   saveLocal(data)
-  syncToSupabase('jobs', job, jobToSnake)
+  syncToSupabase('jobs', full, jobToSnake)
   return job
 }
 
@@ -434,9 +446,13 @@ export async function saveInvoiceAsync(invoice) {
 export function saveInvoice(invoice) {
   const data = loadLocal()
   const now = new Date().toISOString()
+  let full = invoice
   if (invoice.id) {
     const idx = (data.invoices || []).findIndex(i => i.id === invoice.id)
-    if (idx >= 0) data.invoices[idx] = { ...data.invoices[idx], ...invoice, updatedAt: now }
+    if (idx >= 0) {
+      data.invoices[idx] = { ...data.invoices[idx], ...invoice, updatedAt: now }
+      full = data.invoices[idx]
+    }
   } else {
     if (!data.invoices) data.invoices = []
     invoice.id = genId()
@@ -445,7 +461,7 @@ export function saveInvoice(invoice) {
     data.invoices.unshift(invoice)
   }
   saveLocal(data)
-  syncToSupabase('invoices', invoice, invoiceToSnake)
+  syncToSupabase('invoices', full, invoiceToSnake)
   return invoice
 }
 
@@ -603,9 +619,13 @@ export function saveProperty(property) {
   const data = loadLocal()
   if (!data.properties) data.properties = []
   const now = new Date().toISOString()
+  let full = property
   if (property.id) {
     const idx = data.properties.findIndex(p => p.id === property.id)
-    if (idx >= 0) data.properties[idx] = { ...data.properties[idx], ...property, updatedAt: now }
+    if (idx >= 0) {
+      data.properties[idx] = { ...data.properties[idx], ...property, updatedAt: now }
+      full = data.properties[idx]
+    }
   } else {
     property.id = genId()
     property.createdAt = now
@@ -613,7 +633,7 @@ export function saveProperty(property) {
     data.properties.unshift(property)
   }
   saveLocal(data)
-  syncToSupabase('properties', property, propertyToSnake)
+  syncToSupabase('properties', full, propertyToSnake)
   return property
 }
 
@@ -670,9 +690,13 @@ export function saveQuote(quote) {
   const data = loadLocal()
   if (!data.quotes) data.quotes = []
   const now = new Date().toISOString()
+  let full = quote
   if (quote.id) {
     const idx = data.quotes.findIndex(q => q.id === quote.id)
-    if (idx >= 0) data.quotes[idx] = { ...data.quotes[idx], ...quote, updatedAt: now }
+    if (idx >= 0) {
+      data.quotes[idx] = { ...data.quotes[idx], ...quote, updatedAt: now }
+      full = data.quotes[idx]
+    }
   } else {
     quote.id = genId()
     quote.createdAt = now
@@ -680,7 +704,7 @@ export function saveQuote(quote) {
     data.quotes.unshift(quote)
   }
   saveLocal(data)
-  syncToSupabase('quotes', quote, quoteToSnake)
+  syncToSupabase('quotes', full, quoteToSnake)
   return quote
 }
 
