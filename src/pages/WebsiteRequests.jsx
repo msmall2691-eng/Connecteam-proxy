@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
-import { saveClient, saveClientAsync, saveProperty, savePropertyAsync, saveQuote, saveQuoteAsync, generateQuoteNumber } from '../lib/store'
+import { saveClient, saveClientAsync, getClientAsync, saveProperty, savePropertyAsync, getPropertiesAsync, getQuotesAsync, saveQuote, saveQuoteAsync, generateQuoteNumber } from '../lib/store'
 import { isSupabaseConfigured, getSupabase } from '../lib/supabase'
 
 const STATUS_OPTIONS = [
@@ -89,71 +89,99 @@ export default function WebsiteRequests() {
   async function acceptAsLead(req) {
     setConverting(req.id)
     try {
-      // 1. Create client in the CRM
-      const clientData = {
-        name: req.name || 'Unknown',
-        email: req.email || '',
-        phone: req.phone || '',
-        address: req.address || '',
-        status: 'lead',
-        type: req.property_type || req.propertyType || 'residential',
-        source: req.source || 'Website',
-        notes: [
-          req.estimate_min ? `Estimate: $${req.estimate_min}–$${req.estimate_max}` : '',
-          req.message || '',
-          req.service ? `Service: ${req.service}` : '',
-          req.frequency ? `Frequency: ${req.frequency}` : '',
-          req.sqft ? `Sq ft: ${req.sqft}` : '',
-          req.bathrooms ? `Bathrooms: ${req.bathrooms}` : '',
-        ].filter(Boolean).join('\n'),
-        tags: [req.service, req.frequency, 'Website'].filter(Boolean),
+      let client = null
+
+      // Check if /api/leads already created a client for this request
+      if (req.client_id && isSupabaseConfigured()) {
+        try {
+          client = await getClientAsync(req.client_id)
+        } catch (e) { console.error('Failed to fetch existing client:', e) }
       }
 
-      const client = isSupabaseConfigured()
-        ? await saveClientAsync(clientData)
-        : saveClient(clientData)
-
-      // 2. Create property if we have address info
-      if (client && req.address) {
-        const propData = {
-          clientId: client.id,
-          name: req.address.split(',')[0] || 'Primary',
-          addressLine1: req.address,
+      // Only create a new client if one doesn't already exist
+      if (!client) {
+        const clientData = {
+          name: req.name || 'Unknown',
+          email: req.email || '',
+          phone: req.phone || '',
+          address: req.address || '',
+          status: 'lead',
           type: req.property_type || req.propertyType || 'residential',
-          sqft: req.sqft ? parseInt(req.sqft) : null,
-          bathrooms: req.bathrooms ? parseInt(req.bathrooms) : null,
-          petHair: req.pet_hair || 'none',
-          condition: req.condition || 'maintenance',
-          isPrimary: true,
+          source: req.source || 'Website',
+          notes: [
+            req.estimate_min ? `Estimate: $${req.estimate_min}–$${req.estimate_max}` : '',
+            req.message || '',
+            req.service ? `Service: ${req.service}` : '',
+            req.frequency ? `Frequency: ${req.frequency}` : '',
+            req.sqft ? `Sq ft: ${req.sqft}` : '',
+            req.bathrooms ? `Bathrooms: ${req.bathrooms}` : '',
+          ].filter(Boolean).join('\n'),
+          tags: [req.service, req.frequency, 'Website'].filter(Boolean),
         }
-        try {
-          isSupabaseConfigured()
-            ? await savePropertyAsync(propData)
-            : saveProperty(propData)
-        } catch (e) { console.error('Property creation failed:', e) }
+        client = isSupabaseConfigured()
+          ? await saveClientAsync(clientData)
+          : saveClient(clientData)
       }
 
-      // 3. Create quote if we have estimate data
+      // Only create property if one doesn't already exist for this client
+      if (client && req.address) {
+        let hasProperty = false
+        if (isSupabaseConfigured()) {
+          try {
+            const existing = await getPropertiesAsync(client.id)
+            hasProperty = existing.length > 0
+          } catch {}
+        }
+        if (!hasProperty) {
+          const propData = {
+            clientId: client.id,
+            name: req.address.split(',')[0] || 'Primary',
+            addressLine1: req.address,
+            type: req.property_type || req.propertyType || 'residential',
+            sqft: req.sqft ? parseInt(req.sqft) : null,
+            bathrooms: req.bathrooms ? parseInt(req.bathrooms) : null,
+            petHair: req.pet_hair || 'none',
+            condition: req.condition || 'maintenance',
+            isPrimary: true,
+          }
+          try {
+            isSupabaseConfigured()
+              ? await savePropertyAsync(propData)
+              : saveProperty(propData)
+          } catch (e) { console.error('Property creation failed:', e) }
+        }
+      }
+
+      // Only create quote if one doesn't already exist for this client
       if (client && req.estimate_min) {
-        const quoteData = {
-          quoteNumber: generateQuoteNumber(),
-          clientId: client.id,
-          serviceType: req.service || 'standard',
-          frequency: req.frequency || 'one-time',
-          estimateMin: parseFloat(req.estimate_min),
-          estimateMax: parseFloat(req.estimate_max),
-          status: 'draft',
-          notes: req.message || '',
-          calcInputs: { sqft: req.sqft, bathrooms: req.bathrooms, petHair: req.pet_hair, condition: req.condition },
+        let hasQuote = false
+        if (isSupabaseConfigured()) {
+          try {
+            const existing = await getQuotesAsync(client.id)
+            hasQuote = existing.length > 0
+          } catch {}
         }
-        try {
-          isSupabaseConfigured()
-            ? await saveQuoteAsync(quoteData)
-            : saveQuote(quoteData)
-        } catch (e) { console.error('Quote creation failed:', e) }
+        if (!hasQuote) {
+          const quoteData = {
+            quoteNumber: generateQuoteNumber(),
+            clientId: client.id,
+            serviceType: req.service || 'standard',
+            frequency: req.frequency || 'one-time',
+            estimateMin: parseFloat(req.estimate_min),
+            estimateMax: parseFloat(req.estimate_max),
+            status: 'draft',
+            notes: req.message || '',
+            calcInputs: { sqft: req.sqft, bathrooms: req.bathrooms, petHair: req.pet_hair, condition: req.condition },
+          }
+          try {
+            isSupabaseConfigured()
+              ? await saveQuoteAsync(quoteData)
+              : saveQuote(quoteData)
+          } catch (e) { console.error('Quote creation failed:', e) }
+        }
       }
 
-      // 4. Update request status to converted (locally and in Supabase)
+      // Update request status to converted
       updateStatus(req.id, 'converted', client.id)
       setSuccessMessage({ id: req.id, clientId: client.id, name: req.name })
       setTimeout(() => setSuccessMessage(null), 5000)
