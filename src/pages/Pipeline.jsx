@@ -118,11 +118,11 @@ export default function Pipeline() {
 
       {view === 'kanban' ? (
         /* ── KANBAN BOARD ── */
-        <div className="flex md:grid md:grid-cols-2 xl:grid-cols-4 gap-4 min-h-[500px] overflow-x-auto pb-2">
+        <div className="flex md:grid md:grid-cols-2 xl:grid-cols-4 gap-2 sm:gap-4 min-h-[500px] overflow-x-auto pb-2">
           {STAGES.map(stage => {
             const stageClients = clients.filter(c => c.status === stage.id)
             return (
-              <div key={stage.id} className="bg-gray-900/50 border border-gray-800 rounded-xl flex flex-col min-w-[280px] md:min-w-0 shrink-0 md:shrink">
+              <div key={stage.id} className="bg-gray-900/50 border border-gray-800 rounded-xl flex flex-col min-w-[240px] md:min-w-0 shrink-0 md:shrink">
                 <div className="px-4 py-3 border-b border-gray-800">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
@@ -141,8 +141,8 @@ export default function Pipeline() {
                   {stageClients.map(client => {
                     const cStats = getClientStats(client.id)
                     return (
-                      <div key={client.id} className="bg-gray-900 border border-gray-800 rounded-lg p-3 hover:border-gray-700 transition-colors">
-                        <Link to={`/clients/${client.id}`} className="text-sm font-medium text-white hover:text-blue-400">{client.name}</Link>
+                      <div key={client.id} className="bg-gray-900 border border-gray-800 rounded-lg p-2 sm:p-3 hover:border-gray-700 transition-colors">
+                        <Link to={`/clients/${client.id}`} className="text-xs sm:text-sm font-medium text-white hover:text-blue-400">{client.name}</Link>
                         <div className="flex items-center gap-2 mt-1">
                           {client.source && (
                             <span className="text-xs text-gray-500">{SOURCE_ICONS[client.source] || '📋'} {client.source}</span>

@@ -27,7 +27,17 @@ const _saveProperty = (d) => sb() ? savePropertyAsync(d) : Promise.resolve(saveP
 const _saveConversation = (d) => sb() ? saveConversationAsync(d) : Promise.resolve(saveConversation(d))
 const _addMessage = (id, m) => sb() ? addMessageAsync(id, m) : Promise.resolve(addMessage(id, m))
 
-const TABS = ['overview', 'properties', 'quotes', 'conversations', 'jobs', 'invoices', 'documents', 'notes']
+const TAB_META = {
+  overview:      { icon: '\u2302', label: 'Overview' },
+  properties:    { icon: '\uD83C\uDFE0', label: 'Properties' },
+  quotes:        { icon: '\uD83D\uDCCB', label: 'Quotes' },
+  conversations: { icon: '\uD83D\uDCAC', label: 'Msgs' },
+  jobs:          { icon: '\uD83D\uDCC5', label: 'Jobs' },
+  invoices:      { icon: '\uD83D\uDCB0', label: 'Invoices' },
+  documents:     { icon: '\uD83D\uDCC4', label: 'Docs' },
+  notes:         { icon: '\u270F\uFE0F', label: 'Notes' },
+}
+const TABS = Object.keys(TAB_META)
 
 export default function ClientDetail() {
   const { id } = useParams()
@@ -40,6 +50,12 @@ export default function ClientDetail() {
   const [invoices, setInvoices] = useState([])
   const [properties, setProperties] = useState([])
   const [quotes, setQuotes] = useState([])
+  const [toast, setToast] = useState(null)
+
+  function showToast(msg) {
+    setToast(msg)
+    setTimeout(() => setToast(null), 4000)
+  }
 
   useEffect(() => { reload() }, [id])
   useEffect(() => { const t = searchParams.get('tab'); if (t) setTab(t) }, [searchParams])
@@ -100,23 +116,35 @@ export default function ClientDetail() {
         </div>
       </div>
 
-      <div className="flex gap-1 border-b border-gray-800 overflow-x-auto whitespace-nowrap">
+      <div className="flex gap-0.5 border-b border-gray-800 overflow-x-auto whitespace-nowrap">
         {TABS.map(t => (
           <button key={t} onClick={() => setTab(t)}
-            className={`px-4 py-2 text-sm font-medium transition-colors border-b-2 -mb-px shrink-0 ${
+            className={`px-2 sm:px-4 py-2 text-xs sm:text-sm font-medium transition-colors border-b-2 -mb-px shrink-0 flex items-center gap-1 ${
               tab === t ? 'border-blue-500 text-blue-400' : 'border-transparent text-gray-500 hover:text-gray-300'
-            }`}>{t.charAt(0).toUpperCase() + t.slice(1)}</button>
+            }`}>
+            <span className="sm:hidden">{TAB_META[t].icon}</span>
+            <span className="hidden sm:inline">{TAB_META[t].icon}</span>
+            <span className="hidden sm:inline">{TAB_META[t].label}</span>
+            <span className="sm:hidden text-[10px]">{TAB_META[t].label}</span>
+          </button>
         ))}
       </div>
 
       {tab === 'overview' && <OverviewTab client={client} convos={convos} jobs={jobs} invoices={invoices} properties={properties} quotes={quotes} />}
       {tab === 'properties' && <PropertiesTab clientId={id} properties={properties} onReload={reload} />}
-      {tab === 'quotes' && <QuotesTab client={client} properties={properties} quotes={quotes} onReload={reload} />}
+      {tab === 'quotes' && <QuotesTab client={client} properties={properties} quotes={quotes} onReload={reload} onSwitchTab={setTab} />}
       {tab === 'conversations' && <ConversationsTab clientId={id} convos={convos} onReload={reload} />}
-      {tab === 'jobs' && <JobsTab clientId={id} clientName={client.name} clientAddress={client.address} jobs={jobs} properties={properties} onReload={reload} />}
+      {tab === 'jobs' && <JobsTab clientId={id} clientName={client.name} clientAddress={client.address} jobs={jobs} properties={properties} onReload={reload} onToast={showToast} />}
       {tab === 'invoices' && <InvoicesTab clientId={id} clientName={client.name} jobs={jobs} invoices={invoices} onReload={reload} />}
       {tab === 'documents' && <DocumentsTab clientName={client.name} />}
       {tab === 'notes' && <NotesTab client={client} onSave={reload} />}
+
+      {/* Toast notification */}
+      {toast && (
+        <div className="fixed bottom-6 right-6 z-50 bg-green-600 text-white px-4 py-3 rounded-lg shadow-lg text-sm font-medium animate-pulse">
+          {toast}
+        </div>
+      )}
     </div>
   )
 }
@@ -286,7 +314,7 @@ function PropertiesTab({ clientId, properties, onReload }) {
 }
 
 // ── QUOTES TAB ──
-function QuotesTab({ client, properties, quotes, onReload }) {
+function QuotesTab({ client, properties, quotes, onReload, onSwitchTab }) {
   const [showCalculator, setShowCalculator] = useState(false)
   const [selectedProperty, setSelectedProperty] = useState(null)
   const [calcInputs, setCalcInputs] = useState({ sqft: '1500', serviceType: 'standard', frequency: 'biweekly', bathrooms: '2', petHair: 'none', condition: 'maintenance' })
@@ -407,6 +435,8 @@ function QuotesTab({ client, properties, quotes, onReload }) {
 
     setAcceptingQuote(null)
     onReload()
+    // Auto-switch to Jobs tab so user sees the newly scheduled job
+    if (onSwitchTab) onSwitchTab('jobs')
   }
 
   const QUOTE_STATUS_COLORS = {
@@ -764,7 +794,7 @@ function ConversationsTab({ clientId, convos, onReload }) {
   )
 }
 
-function JobsTab({ clientId, clientName, clientAddress, jobs, properties, onReload }) {
+function JobsTab({ clientId, clientName, clientAddress, jobs, properties, onReload, onToast }) {
   const [showNew, setShowNew] = useState(false)
   const [pushingId, setPushingId] = useState(null)
   const [expandedJob, setExpandedJob] = useState(null)
@@ -883,6 +913,17 @@ function JobsTab({ clientId, clientName, clientAddress, jobs, properties, onRelo
   // Get property for a job
   function getJobProperty(job) {
     return (properties || []).find(p => p.id === job.propertyId)
+  }
+
+  // Calculate next occurrence for recurring jobs
+  function getNextOccurrence(job) {
+    if (!job.isRecurring || !job.date) return null
+    const base = new Date(job.date + 'T00:00:00')
+    const today = new Date(); today.setHours(0, 0, 0, 0)
+    let next = new Date(base)
+    const interval = job.recurrenceRule === 'monthly' ? 30 : job.recurrenceRule === 'biweekly' ? 14 : 7
+    while (next <= today) next.setDate(next.getDate() + interval)
+    return next.toISOString().split('T')[0]
   }
 
   return (
@@ -1011,7 +1052,13 @@ function JobsTab({ clientId, clientName, clientAddress, jobs, properties, onRelo
                   {j.isRecurring && <span className="ml-1 px-1 py-0.5 rounded text-xs bg-purple-900/30 text-purple-400">{j.recurrenceRule}</span>}
                   {jobProp && <p className="text-xs text-gray-600">{jobProp.name || jobProp.addressLine1?.split(',')[0]}</p>}
                 </td>
-                <td className="px-3 py-2.5">{j.date}</td>
+                <td className="px-3 py-2.5">
+                  {j.date}
+                  {j.isRecurring && (() => {
+                    const next = getNextOccurrence(j)
+                    return next ? <p className="text-xs text-purple-400">Next: {next}</p> : null
+                  })()}
+                </td>
                 <td className="px-3 py-2.5 text-gray-400">{j.startTime && j.endTime ? `${j.startTime}-${j.endTime}` : '-'}</td>
                 <td className="px-3 py-2.5">{j.assignee || '-'}</td>
                 <td className="px-3 py-2.5 text-right font-mono">{j.price ? `$${j.price}` : '-'}</td>
@@ -1031,6 +1078,7 @@ function JobsTab({ clientId, clientName, clientAddress, jobs, properties, onRelo
                         subtotal: j.price, taxRate: 0, taxAmount: 0, total: j.price,
                         items: [{ jobId: j.id, description: `${j.title} (${j.date})`, quantity: 1, unitPrice: j.price, total: j.price }],
                       })
+                      if (onToast) onToast(`Draft invoice created for $${j.price} — go to Invoices to send`)
                     }
                     onReload()
                   }}

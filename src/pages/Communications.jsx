@@ -19,6 +19,9 @@ export default function Communications() {
   const [viewMode, setViewMode] = useState('conversations') // 'conversations' | 'inbox'
   const bottomRef = useRef(null)
 
+  const [autoImporting, setAutoImporting] = useState(false)
+  const [autoImportCount, setAutoImportCount] = useState(0)
+
   useEffect(() => { reload(); fetchGmail() }, [])
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [active])
 
@@ -93,6 +96,26 @@ export default function Communications() {
     const allConvos = isSupabaseConfigured() ? await getConversationsAsync() : getConversations()
     setActive(allConvos.find(c => c.id === convo.id))
     setViewMode('conversations')
+  }
+
+  // Auto-import Gmail threads from known client emails
+  async function autoImportClientEmails() {
+    setAutoImporting(true)
+    setAutoImportCount(0)
+    try {
+      // Get existing Gmail thread IDs so we don't duplicate
+      const existingThreadIds = new Set(convos.filter(c => c.gmailThreadId).map(c => c.gmailThreadId))
+      const toImport = gmailEmails.filter(em => em.clientMatch && !existingThreadIds.has(em.threadId))
+      for (const em of toImport) {
+        await importThread(em)
+        setAutoImportCount(prev => prev + 1)
+      }
+      if (toImport.length === 0) alert('No new client emails to import.')
+    } catch (err) {
+      console.error('Auto-import error:', err)
+    } finally {
+      setAutoImporting(false)
+    }
   }
 
   async function sendMessage(e) {
@@ -253,6 +276,17 @@ export default function Communications() {
           {viewMode === 'inbox' && (
             <>
               {gmailLoading && <p className="p-4 text-xs text-gray-500 text-center">Loading Gmail...</p>}
+              {!gmailLoading && gmailEmails.filter(em => em.clientMatch).length > 0 && (
+                <div className="px-3 py-2 border-b border-gray-800 bg-green-900/10">
+                  <button
+                    onClick={autoImportClientEmails}
+                    disabled={autoImporting}
+                    className="w-full text-xs text-green-400 hover:text-green-300 disabled:opacity-50 font-medium"
+                  >
+                    {autoImporting ? `Importing... (${autoImportCount})` : `Auto-import ${gmailEmails.filter(em => em.clientMatch && !convos.some(c => c.gmailThreadId === em.threadId)).length} client threads`}
+                  </button>
+                </div>
+              )}
               {!gmailLoading && gmailEmails.length === 0 && <p className="p-4 text-xs text-gray-500 text-center">Click to load Gmail or search above</p>}
               {gmailEmails.map(em => (
                 <button key={em.id} onClick={() => importThread(em)}

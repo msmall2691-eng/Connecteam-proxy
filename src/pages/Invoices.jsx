@@ -210,41 +210,55 @@ export default function Invoices() {
                     <button onClick={() => { setActiveInvoice(inv); setShowForm(true) }}
                       className="text-xs text-gray-500 hover:text-blue-400">Edit</button>
                     {inv.status === 'draft' && (
+                      <button
+                        disabled={sendingId === inv.id}
+                        onClick={async () => {
+                          setSendingId(inv.id)
+                          setEmailStatus(prev => ({ ...prev, [inv.id]: null }))
+                          try {
+                            await sendInvoiceEmail(inv)
+                            const updated = { ...inv, status: 'sent' }
+                            isSupabaseConfigured() ? await saveInvoiceAsync(updated) : saveInvoice(updated)
+                            setEmailStatus(prev => ({ ...prev, [inv.id]: 'sent' }))
+                            reload()
+                          } catch (err) {
+                            setEmailStatus(prev => ({ ...prev, [inv.id]: err.message }))
+                          } finally {
+                            setSendingId(null)
+                          }
+                        }}
+                        className="text-xs text-blue-400 hover:text-blue-300 disabled:opacity-50"
+                      >
+                        {sendingId === inv.id ? 'Sending...' : emailStatus[inv.id] === 'sent' ? 'Sent & Emailed' : 'Send & Email'}
+                      </button>
+                    )}
+                    {inv.status === 'draft' && (
                       <button onClick={async () => { isSupabaseConfigured() ? await saveInvoiceAsync({ ...inv, status: 'sent' }) : saveInvoice({ ...inv, status: 'sent' }); reload() }}
-                        className="text-xs text-gray-500 hover:text-green-400">Mark Sent</button>
+                        className="text-xs text-gray-500 hover:text-green-400">Mark Sent Only</button>
                     )}
                     {inv.status === 'sent' && (
                       <button onClick={async () => { isSupabaseConfigured() ? await saveInvoiceAsync({ ...inv, status: 'paid', paidAt: new Date().toISOString() }) : saveInvoice({ ...inv, status: 'paid', paidAt: new Date().toISOString() }); reload() }}
                         className="text-xs text-gray-500 hover:text-green-400">Mark Paid</button>
                     )}
                     {(inv.status === 'sent' || inv.status === 'overdue') && (
-                      <>
-                        <button
-                          disabled={sendingId === inv.id}
-                          onClick={async () => {
-                            setSendingId(inv.id)
-                            setEmailStatus(prev => ({ ...prev, [inv.id]: null }))
-                            try {
-                              await sendInvoiceEmail(inv)
-                              setEmailStatus(prev => ({ ...prev, [inv.id]: 'sent' }))
-                            } catch (err) {
-                              setEmailStatus(prev => ({ ...prev, [inv.id]: err.message }))
-                            } finally {
-                              setSendingId(null)
-                            }
-                          }}
-                          className="text-xs text-gray-500 hover:text-purple-400 disabled:opacity-50"
-                        >
-                          {sendingId === inv.id ? 'Sending...' : emailStatus[inv.id] === 'sent' ? 'Emailed' : 'Email Invoice'}
-                        </button>
-                        <button
-                          disabled
-                          className="text-xs text-gray-500/50 cursor-not-allowed"
-                          title="Coming soon"
-                        >
-                          Send via Square
-                        </button>
-                      </>
+                      <button
+                        disabled={sendingId === inv.id}
+                        onClick={async () => {
+                          setSendingId(inv.id)
+                          setEmailStatus(prev => ({ ...prev, [inv.id]: null }))
+                          try {
+                            await sendInvoiceEmail(inv)
+                            setEmailStatus(prev => ({ ...prev, [inv.id]: 'sent' }))
+                          } catch (err) {
+                            setEmailStatus(prev => ({ ...prev, [inv.id]: err.message }))
+                          } finally {
+                            setSendingId(null)
+                          }
+                        }}
+                        className="text-xs text-gray-500 hover:text-purple-400 disabled:opacity-50"
+                      >
+                        {sendingId === inv.id ? 'Sending...' : emailStatus[inv.id] === 'sent' ? 'Emailed' : 'Resend Email'}
+                      </button>
                     )}
                   </div>
                   {emailStatus[inv.id] && emailStatus[inv.id] !== 'sent' && (
