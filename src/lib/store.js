@@ -38,6 +38,11 @@ export async function initializeStore() {
   if (!sb) return
 
   try {
+    // Wait for auth session to be ready before querying
+    await sb.auth.getSession()
+
+    const local = loadLocal()
+
     const [clientsRes, jobsRes, invoicesRes, propertiesRes, quotesRes, convosRes] = await Promise.all([
       sb.from('clients').select('*').order('created_at', { ascending: false }),
       sb.from('jobs').select('*').order('date', { ascending: false }),
@@ -47,19 +52,40 @@ export async function initializeStore() {
       sb.from('conversations').select('*').order('updated_at', { ascending: false }),
     ])
 
-    const data = {
-      clients: (clientsRes.data || []).map(normalizeClient),
-      conversations: (convosRes.data || []).map(normalizeConvo),
-      jobs: (jobsRes.data || []).map(normalizeJob),
-      invoices: (invoicesRes.data || []).map(normalizeInvoice),
-      properties: (propertiesRes.data || []).map(normalizeProperty),
-      quotes: (quotesRes.data || []).map(normalizeQuote),
+    // Merge: Supabase records take precedence, local-only records are preserved and synced up
+    const merged = {
+      clients: mergeRecords(local.clients, (clientsRes.data || []).map(normalizeClient)),
+      conversations: mergeRecords(local.conversations, (convosRes.data || []).map(normalizeConvo)),
+      jobs: mergeRecords(local.jobs, (jobsRes.data || []).map(normalizeJob)),
+      invoices: mergeRecords(local.invoices || [], (invoicesRes.data || []).map(normalizeInvoice)),
+      properties: mergeRecords(local.properties || [], (propertiesRes.data || []).map(normalizeProperty)),
+      quotes: mergeRecords(local.quotes || [], (quotesRes.data || []).map(normalizeQuote)),
     }
 
-    saveLocal(data)
+    saveLocal(merged)
+
+    // Push local-only clients to Supabase (fire-and-forget)
+    const sbClientIds = new Set((clientsRes.data || []).map(c => c.id))
+    for (const c of local.clients.filter(c => !sbClientIds.has(c.id))) {
+      syncToSupabase('clients', c, toSnake)
+    }
+    const sbJobIds = new Set((jobsRes.data || []).map(j => j.id))
+    for (const j of (local.jobs || []).filter(j => !sbJobIds.has(j.id))) {
+      syncToSupabase('jobs', j, jobToSnake)
+    }
+    const sbQuoteIds = new Set((quotesRes.data || []).map(q => q.id))
+    for (const q of (local.quotes || []).filter(q => !sbQuoteIds.has(q.id))) {
+      syncToSupabase('quotes', q, quoteToSnake)
+    }
   } catch (err) {
     console.error('Store initialization from Supabase failed:', err)
   }
+}
+
+function mergeRecords(localRecords, supabaseRecords) {
+  const sbIds = new Set(supabaseRecords.map(r => r.id))
+  const localOnly = (localRecords || []).filter(r => !sbIds.has(r.id))
+  return [...supabaseRecords, ...localOnly]
 }
 
 function syncToSupabase(table, record, toSnakeFn) {
