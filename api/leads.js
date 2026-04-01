@@ -34,6 +34,7 @@ export default async function handler(req, res) {
     const supabaseKey = process.env.SUPABASE_SERVICE_KEY || process.env.VITE_SUPABASE_ANON_KEY
 
     if (supabaseUrl && supabaseKey) {
+      // Try website_requests table first
       try {
         const listRes = await fetch(
           `${supabaseUrl}/rest/v1/website_requests?order=created_at.desc&limit=100`,
@@ -46,10 +47,46 @@ export default async function handler(req, res) {
         )
         if (listRes.ok) {
           const requests = await listRes.json()
+          if (requests.length > 0) {
+            return res.status(200).json({ success: true, requests })
+          }
+        }
+      } catch (e) {
+        console.error('website_requests table query failed (may not exist yet):', e)
+      }
+
+      // Fallback: query clients table for website leads
+      try {
+        const clientsRes = await fetch(
+          `${supabaseUrl}/rest/v1/clients?source=eq.Website&order=created_at.desc&limit=100`,
+          {
+            headers: {
+              'apikey': supabaseKey,
+              'Authorization': `Bearer ${supabaseKey}`,
+            },
+          }
+        )
+        if (clientsRes.ok) {
+          const clients = await clientsRes.json()
+          const requests = clients.map(c => ({
+            id: c.id,
+            name: c.name,
+            email: c.email,
+            phone: c.phone,
+            address: c.address,
+            source: c.source,
+            property_type: c.type,
+            status: c.status === 'lead' ? 'new' : c.status === 'prospect' ? 'quoted' : c.status === 'active' ? 'converted' : c.status,
+            message: c.notes,
+            service: (c.tags || [])[0] || '',
+            frequency: (c.tags || [])[1] || '',
+            created_at: c.created_at,
+            client_id: c.id,
+          }))
           return res.status(200).json({ success: true, requests })
         }
       } catch (e) {
-        console.error('Failed to list website requests:', e)
+        console.error('Clients fallback query failed:', e)
       }
     }
 
