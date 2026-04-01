@@ -2,6 +2,12 @@ import { useState } from 'react'
 import { useAuth } from '../lib/auth'
 import { isSupabaseConfigured } from '../lib/supabase'
 
+// Only these emails can access the CRM
+const ALLOWED_EMAILS = [
+  'office@mainecleaningco.com',
+  'msmall2691@gmail.com',
+]
+
 export default function Login() {
   const { signIn, signUp, resetPassword, setupPassword, needsSetup } = useAuth()
   const [email, setEmail] = useState('')
@@ -35,13 +41,23 @@ export default function Login() {
       return
     }
 
+    // Check allowed emails for Supabase mode
+    if (!isLocal && (mode === 'login' || mode === 'signup')) {
+      const normalizedEmail = email.trim().toLowerCase()
+      if (!ALLOWED_EMAILS.includes(normalizedEmail)) {
+        setError('Access denied. This CRM is restricted to authorized users only.')
+        setLoading(false)
+        return
+      }
+    }
+
     if (mode === 'login') {
       const { error } = await signIn(email, password)
       if (error) setError(error.message)
     } else if (mode === 'signup') {
-      const { error } = await signUp(email, password)
+      const { data, error } = await signUp(email, password)
       if (error) setError(error.message)
-      else setMessage('Account created! Check your email to confirm, then log in.')
+      else setMessage('Account created! Check your email to confirm, then sign in.')
     } else if (mode === 'reset') {
       const { error } = await resetPassword(email)
       if (error) setError(error.message)
@@ -60,7 +76,8 @@ export default function Login() {
             <span className="text-white font-bold text-lg">W</span>
           </div>
           <h1 className="text-xl font-bold text-white">Workflow HQ</h1>
-          <p className="text-sm text-gray-500 mt-1">
+          <p className="text-xs text-gray-600 mt-0.5">Maine Cleaning & Property Management</p>
+          <p className="text-sm text-gray-500 mt-2">
             {mode === 'setup' ? 'Set up your password to get started' :
              mode === 'login' ? (isLocal ? 'Enter your password to continue' : 'Sign in to your account') :
              mode === 'signup' ? 'Create your account' :
@@ -81,7 +98,7 @@ export default function Login() {
             <div>
               <label className="block text-xs text-gray-500 mb-1.5">Email</label>
               <input type="email" required value={email} onChange={e => setEmail(e.target.value)}
-                placeholder="you@company.com"
+                placeholder="office@mainecleaningco.com"
                 className="w-full px-3.5 py-2.5 bg-gray-800 border border-gray-700 rounded-lg text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500" />
             </div>
           )}
@@ -118,7 +135,7 @@ export default function Login() {
           </button>
         </form>
 
-        {/* Mode switchers - only for Supabase mode */}
+        {/* Mode switchers */}
         {!isLocal && mode !== 'setup' && (
           <div className="text-center space-y-2">
             {mode === 'login' && (
@@ -126,9 +143,9 @@ export default function Login() {
                 <button onClick={() => { setMode('reset'); setError(''); setMessage('') }}
                   className="text-xs text-gray-500 hover:text-gray-300">Forgot password?</button>
                 <p className="text-xs text-gray-600">
-                  Don't have an account?{' '}
+                  First time?{' '}
                   <button onClick={() => { setMode('signup'); setError(''); setMessage('') }}
-                    className="text-blue-400 hover:text-blue-300">Sign up</button>
+                    className="text-blue-400 hover:text-blue-300">Create account</button>
                 </p>
               </>
             )}

@@ -384,6 +384,6 @@ function buildQuoteMessage(client, items, total, frequency, notes, quote) {
   if (quote) msg += `Estimated range: $${quote.estimateMin} – $${quote.estimateMax}\n\n`
   if (notes) msg += `Notes: ${notes}\n\n`
   msg += `To accept this quote, simply reply to this email or call us at (207) 572-0502.\n\n`
-  msg += `Best,\nThe Maine Cleaning & Property Management Co.\noffice@mainecleaningco.com | (207) 572-0502\nwww.maine-clean.co`
+  msg += `Best,\nThe Maine Cleaning & Property Management Co.\noffice@mainecleaningco.com | (207) 572-0502\nwww.maineclean.co`
   return msg
 }

@@ -5,6 +5,11 @@ import {
   isSessionValid, createSession, clearSession, changePassword
 } from './localAuth'
 
+const ALLOWED_EMAILS = [
+  'office@mainecleaningco.com',
+  'msmall2691@gmail.com',
+]
+
 const AuthContext = createContext(null)
 
 export function AuthProvider({ children }) {
@@ -16,7 +21,14 @@ export function AuthProvider({ children }) {
       const sb = getSupabase()
       if (!sb) { setLoading(false); return }
       sb.auth.getSession().then(({ data: { session } }) => {
-        setUser(session?.user || null)
+        const sessionUser = session?.user || null
+        // Verify session user is still allowed
+        if (sessionUser && !ALLOWED_EMAILS.includes(sessionUser.email?.toLowerCase())) {
+          sb.auth.signOut()
+          setUser(null)
+        } else {
+          setUser(sessionUser)
+        }
         setLoading(false)
       })
       const { data: { subscription } } = sb.auth.onAuthStateChange((_event, session) => {
@@ -38,6 +50,11 @@ export function AuthProvider({ children }) {
       if (!sb) return { error: { message: 'Supabase not configured' } }
       const { data, error } = await sb.auth.signInWithPassword({ email, password })
       if (error) return { error }
+      // Verify this user is allowed
+      if (!ALLOWED_EMAILS.includes(data.user?.email?.toLowerCase())) {
+        await sb.auth.signOut()
+        return { error: { message: 'Access denied. This account is not authorized.' } }
+      }
       setUser(data.user)
       return { data }
     }
