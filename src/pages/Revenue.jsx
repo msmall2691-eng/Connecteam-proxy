@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { getInvoices, getJobs, getClients, getQuotes } from '../lib/store'
+import { getInvoicesAsync, getJobsAsync, getClientsAsync, getQuotesAsync } from '../lib/store'
 
 export default function Revenue() {
   const [months, setMonths] = useState([])
@@ -8,11 +8,10 @@ export default function Revenue() {
 
   useEffect(() => { loadData() }, [])
 
-  function loadData() {
-    const invoices = getInvoices()
-    const jobs = getJobs()
-    const clients = getClients()
-    const quotes = getQuotes()
+  async function loadData() {
+    const [invoices, jobs, clients, quotes] = await Promise.all([
+      getInvoicesAsync(), getJobsAsync(), getClientsAsync(), getQuotesAsync()
+    ])
 
     // Monthly breakdown (last 12 months)
     const monthData = {}

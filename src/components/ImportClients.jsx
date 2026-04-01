@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { saveClient, getClients } from '../lib/store'
+import { saveClient, getClientsAsync } from '../lib/store'
 
 // Smart column mapping — auto-detects which CSV columns match client fields
 const FIELD_MAP = {
@@ -127,7 +127,7 @@ export default function ImportClients({ onDone }) {
 
   async function doImport() {
     setImporting(true)
-    const existing = getClients()
+    const existing = await getClientsAsync()
     const existingEmails = new Set(existing.map(c => c.email?.toLowerCase()).filter(Boolean))
     const existingPhones = new Set(existing.map(c => c.phone).filter(Boolean))
     const existingNames = new Set(existing.map(c => c.name?.toLowerCase()).filter(Boolean))

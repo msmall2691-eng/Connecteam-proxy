@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useParams, Link, useNavigate, useSearchParams } from 'react-router-dom'
-import { getClient, saveClient, getConversations, saveConversation, addMessage, getJobs, saveJob, getInvoices, saveInvoice, generateInvoiceNumber, getProperties, saveProperty, deleteProperty, getQuotes, saveQuote, generateQuoteNumber } from '../lib/store'
+import { getClientAsync, saveClient, getConversationsAsync, saveConversation, addMessage, getJobsAsync, saveJob, getInvoicesAsync, saveInvoice, generateInvoiceNumber, getPropertiesAsync, saveProperty, deleteProperty, getQuotesAsync, saveQuote, generateQuoteNumber } from '../lib/store'
 import { calculateQuote } from '../lib/quoteEngine'
 import PropertyForm from '../components/PropertyForm'
 import CustomFields from '../components/CustomFields'
@@ -22,15 +22,14 @@ export default function ClientDetail() {
   useEffect(() => { reload() }, [id])
   useEffect(() => { const t = searchParams.get('tab'); if (t) setTab(t) }, [searchParams])
 
-  function reload() {
-    const c = getClient(id)
+  async function reload() {
+    const c = await getClientAsync(id)
     if (!c) return navigate('/clients')
     setClient(c)
-    setConvos(getConversations(id))
-    setJobs(getJobs(id))
-    setInvoices(getInvoices(id))
-    setProperties(getProperties(id))
-    setQuotes(getQuotes(id))
+    const [cv, j, i, p, q] = await Promise.all([
+      getConversationsAsync(id), getJobsAsync(id), getInvoicesAsync(id), getPropertiesAsync(id), getQuotesAsync(id)
+    ])
+    setConvos(cv); setJobs(j); setInvoices(i); setProperties(p); setQuotes(q)
   }
 
   if (!client) return null

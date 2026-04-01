@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
 import { getApiKey, fetchUsers, fetchTimesheets, fetchTimeActivities, dateRangeWeeks } from '../lib/api'
-import { getClients, getJobs, getConversations } from '../lib/store'
+import { getClientsAsync, getJobsAsync, getConversationsAsync } from '../lib/store'
 
 export default function AgentChat({ onClose }) {
   const [messages, setMessages] = useState([
@@ -30,7 +30,7 @@ export default function AgentChat({ onClose }) {
     }
   }
 
-  function buildContextSummary() {
+  async function buildContextSummary() {
     const lines = []
 
     // Connecteam data
@@ -74,9 +74,9 @@ export default function AgentChat({ onClose }) {
     }
 
     // CRM data
-    const clients = getClients()
-    const jobs = getJobs()
-    const convos = getConversations()
+    const clients = await getClientsAsync()
+    const jobs = await getJobsAsync()
+    const convos = await getConversationsAsync()
 
     lines.push('', `=== CRM DATA ===`)
     lines.push(`Clients: ${clients.length} total`)
@@ -110,7 +110,7 @@ export default function AgentChat({ onClose }) {
 
     try {
       // Try Claude API first
-      const contextSummary = buildContextSummary()
+      const contextSummary = await buildContextSummary()
       let response = null
 
       try {
@@ -134,7 +134,7 @@ export default function AgentChat({ onClose }) {
 
       // Fallback to local response
       if (!response) {
-        response = generateLocalResponse(text)
+        response = await generateLocalResponse(text)
       }
 
       setMessages(prev => [...prev, { role: 'assistant', content: response }])
@@ -145,7 +145,7 @@ export default function AgentChat({ onClose }) {
     }
   }
 
-  function generateLocalResponse(question) {
+  async function generateLocalResponse(question) {
     const q = question.toLowerCase()
 
     if (!context) return "I'm still loading the data. Give me a moment and try again."
@@ -183,8 +183,8 @@ export default function AgentChat({ onClose }) {
     const unapproved = employees.filter(e => !e.approved)
 
     // CRM data
-    const clients = getClients()
-    const jobs = getJobs()
+    const clients = await getClientsAsync()
+    const jobs = await getJobsAsync()
 
     if (q.includes('rundown') || q.includes('summary') || q.includes('overview') || q.includes('how are we') || q.includes('what\'s going on') || q.includes('status')) {
       let resp = `**Operations Summary (${period.start} to ${period.end})**\n\n`

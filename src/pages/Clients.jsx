@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
-import { getClients, saveClient, deleteClient } from '../lib/store'
+import { getClientsAsync, saveClientAsync, deleteClientAsync } from '../lib/store'
 import ImportClients from '../components/ImportClients'
 
 const STATUS_COLORS = {
@@ -27,11 +27,11 @@ export default function Clients() {
 
   useEffect(() => { reload() }, [])
 
-  function reload() { setClients(getClients()) }
+  async function reload() { setClients(await getClientsAsync()) }
 
-  function handleSubmit(e) {
+  async function handleSubmit(e) {
     e.preventDefault()
-    saveClient(editing ? { ...form, id: editing } : { ...form })
+    await saveClientAsync(editing ? { ...form, id: editing } : { ...form })
     setForm({ ...EMPTY_CLIENT })
     setEditing(null)
     setShowForm(false)
@@ -44,9 +44,9 @@ export default function Clients() {
     setShowForm(true)
   }
 
-  function handleDelete(id) {
+  async function handleDelete(id) {
     if (confirm('Delete this client and all their data?')) {
-      deleteClient(id)
+      await deleteClientAsync(id)
       reload()
     }
   }
@@ -82,12 +82,12 @@ export default function Clients() {
               if (res.ok) {
                 const data = await res.json()
                 let imported = 0
-                const existing = getClients()
+                const existing = await getClientsAsync()
                 const existingEmails = new Set(existing.map(c => c.email?.toLowerCase()).filter(Boolean))
                 for (const c of data.contacts) {
                   if (c.email && existingEmails.has(c.email.toLowerCase())) continue
                   if (!c.name) continue
-                  saveClient({ name: c.name, email: c.email, phone: c.phone, address: c.address, status: 'lead', type: 'residential', source: 'Google Contacts' })
+                  await saveClientAsync({ name: c.name, email: c.email, phone: c.phone, address: c.address, status: 'lead', type: 'residential', source: 'Google Contacts' })
                   imported++
                 }
                 alert(`Imported ${imported} contacts from Google. ${data.total - imported} skipped (duplicates or no name).`)

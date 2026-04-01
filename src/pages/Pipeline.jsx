@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
-import { getClients, saveClient, getJobs, getInvoices, getProperties, getQuotes } from '../lib/store'
+import { getClientsAsync, saveClientAsync, getJobsAsync, getInvoicesAsync, getPropertiesAsync, getQuotesAsync } from '../lib/store'
 
 const STAGES = [
   { id: 'lead', label: 'Leads', color: 'blue', desc: 'New inquiries' },
@@ -24,12 +24,11 @@ export default function Pipeline() {
 
   useEffect(() => { reload() }, [])
 
-  function reload() {
-    setClients(getClients())
-    setJobs(getJobs())
-    setInvoices(getInvoices())
-    setAllProperties(getProperties())
-    setAllQuotes(getQuotes())
+  async function reload() {
+    const [c, j, i, p, q] = await Promise.all([
+      getClientsAsync(), getJobsAsync(), getInvoicesAsync(), getPropertiesAsync(), getQuotesAsync()
+    ])
+    setClients(c); setJobs(j); setInvoices(i); setAllProperties(p); setAllQuotes(q)
   }
 
   function getClientProperties(clientId) {
@@ -40,8 +39,8 @@ export default function Pipeline() {
     return allQuotes.filter(q => q.clientId === clientId)
   }
 
-  function moveClient(clientId, newStatus) {
-    saveClient({ id: clientId, status: newStatus })
+  async function moveClient(clientId, newStatus) {
+    await saveClientAsync({ id: clientId, status: newStatus })
     reload()
   }
 
