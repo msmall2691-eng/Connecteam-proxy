@@ -232,7 +232,7 @@ export default async function handler(req, res) {
             } catch (e) { console.error('Quote creation failed:', e) }
           }
 
-          // Send email notification to you about the new lead
+          // Send email notifications
           try {
             const gmailClientId = process.env.GMAIL_CLIENT_ID
             const gmailClientSecret = process.env.GMAIL_CLIENT_SECRET
@@ -245,31 +245,96 @@ export default async function handler(req, res) {
               })
               const tokenData = await tokenRes.json()
               if (tokenData.access_token) {
-                const quoteRange = lead.estimateMin ? `$${lead.estimateMin} – $${lead.estimateMax}` : 'No quote'
-                const emailBody = [
-                  `🔔 New Lead from ${lead.source || 'Website'}!`,
-                  '',
-                  `Name: ${lead.name}`,
-                  `Email: ${lead.email || 'N/A'}`,
-                  `Phone: ${lead.phone || 'N/A'}`,
-                  `Address: ${lead.address || 'N/A'}`,
-                  `Service: ${lead.service || 'N/A'}`,
-                  `Frequency: ${lead.frequency || 'N/A'}`,
-                  `Quote: ${quoteRange}`,
-                  lead.message ? `Message: ${lead.message}` : '',
-                  '',
-                  `View in Workflow HQ: https://connecteam-proxy.vercel.app/website-requests`,
-                ].filter(Boolean).join('\n')
+                const quoteRange = lead.estimateMin ? ('$' + lead.estimateMin + '-$' + lead.estimateMax) : 'Custom quote'
+                const serviceLabel = lead.service || lead.frequency || 'Cleaning'
 
-                const raw = Buffer.from(
-                  `To: office@mainecleaningco.com\r\nSubject: 🔔 New Lead: ${lead.name} — ${quoteRange}\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n${emailBody}`
+                // 1. NOTIFICATION EMAIL TO YOU (plain text, no emojis)
+                const notifySubject = 'New Lead: ' + lead.name + ' - ' + serviceLabel + ' ' + quoteRange
+                const notifyBody = [
+                  'NEW LEAD FROM ' + (lead.source || 'WEBSITE').toUpperCase(),
+                  '----------------------------------------',
+                  '',
+                  'Name: ' + lead.name,
+                  'Email: ' + (lead.email || 'N/A'),
+                  'Phone: ' + (lead.phone || 'N/A'),
+                  'Address: ' + (lead.address || 'N/A'),
+                  '',
+                  'Service: ' + (lead.service || 'N/A'),
+                  'Frequency: ' + (lead.frequency || 'N/A'),
+                  'Estimate: ' + quoteRange,
+                  '',
+                  lead.squareFeet ? 'Sq Ft: ' + lead.squareFeet : '',
+                  lead.bathrooms ? 'Bathrooms: ' + lead.bathrooms : '',
+                  lead.petHair && lead.petHair !== 'none' ? 'Pet Hair: ' + lead.petHair : '',
+                  lead.condition && lead.condition !== 'maintenance' ? 'Condition: ' + lead.condition : '',
+                  lead.message ? '\nMessage: ' + lead.message : '',
+                  '',
+                  '----------------------------------------',
+                  'View in Workflow HQ:',
+                  'https://connecteam-proxy.vercel.app/#/website-requests',
+                ].filter(Boolean).join('\r\n')
+
+                const notifyRaw = Buffer.from(
+                  'To: office@mainecleaningco.com\r\n' +
+                  'Subject: =?UTF-8?B?' + Buffer.from(notifySubject).toString('base64') + '?=\r\n' +
+                  'Content-Type: text/plain; charset=UTF-8\r\n' +
+                  'Content-Transfer-Encoding: base64\r\n' +
+                  '\r\n' +
+                  Buffer.from(notifyBody).toString('base64')
                 ).toString('base64url')
 
                 await fetch('https://gmail.googleapis.com/gmail/v1/users/me/messages/send', {
                   method: 'POST',
-                  headers: { Authorization: `Bearer ${tokenData.access_token}`, 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ raw }),
+                  headers: { Authorization: 'Bearer ' + tokenData.access_token, 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ raw: notifyRaw }),
                 })
+
+                // 2. CONFIRMATION EMAIL TO CUSTOMER
+                if (lead.email) {
+                  const firstName = lead.name ? lead.name.split(' ')[0] : ''
+                  const custSubject = (firstName ? firstName + ', w' : 'W') + 'e received your cleaning request - ' + quoteRange
+                  const custBody = [
+                    'Hi ' + (firstName || 'there') + ',',
+                    '',
+                    'Thank you for your cleaning request! We received your information and will be in touch shortly.',
+                    '',
+                    'Here is a summary of your request:',
+                    '----------------------------------------',
+                    'Service: ' + (lead.service || 'Cleaning'),
+                    'Frequency: ' + (lead.frequency || 'One-time'),
+                    'Estimate: ' + quoteRange,
+                    lead.address ? 'Address: ' + lead.address : '',
+                    '',
+                    'WHAT HAPPENS NEXT:',
+                    '1. We will review your request (within 1 business day)',
+                    '2. We will reach out to confirm details via phone, text, or email',
+                    '3. You will receive a final quote and we can get you scheduled',
+                    '',
+                    'Have questions? Reply to this email or call us at (207) 572-0502.',
+                    '',
+                    'Best,',
+                    'The Maine Cleaning Co.',
+                    'office@mainecleaningco.com | (207) 572-0502',
+                    'www.maineclean.co',
+                  ].filter(Boolean).join('\r\n')
+
+                  const custRaw = Buffer.from(
+                    'To: ' + lead.email + '\r\n' +
+                    'From: The Maine Cleaning Co. <office@mainecleaningco.com>\r\n' +
+                    'Reply-To: office@mainecleaningco.com\r\n' +
+                    'Subject: =?UTF-8?B?' + Buffer.from(custSubject).toString('base64') + '?=\r\n' +
+                    'Content-Type: text/plain; charset=UTF-8\r\n' +
+                    'Content-Transfer-Encoding: base64\r\n' +
+                    '\r\n' +
+                    Buffer.from(custBody).toString('base64')
+                  ).toString('base64url')
+
+                  await fetch('https://gmail.googleapis.com/gmail/v1/users/me/messages/send', {
+                    method: 'POST',
+                    headers: { Authorization: 'Bearer ' + tokenData.access_token, 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ raw: custRaw }),
+                  })
+                }
               }
             }
           } catch (e) { console.error('Lead notification email failed:', e) }
@@ -412,19 +477,13 @@ function mapPropertyType(type) {
 
 function buildLeadNotes(lead) {
   const lines = []
-  if (lead.estimateMin && lead.estimateMax) lines.push(`💰 INSTANT QUOTE: $${lead.estimateMin} – $${lead.estimateMax}`)
-  if (lead.message) lines.push(`Message: ${lead.message}`)
-  if (lead.service) lines.push(`Service: ${lead.service}`)
-  if (lead.frequency) lines.push(`Frequency: ${lead.frequency}`)
-  if (lead.squareFeet) lines.push(`Sq ft: ${lead.squareFeet}`)
-  if (lead.bedrooms) lines.push(`Bedrooms: ${lead.bedrooms}`)
-  if (lead.bathrooms) lines.push(`Bathrooms: ${lead.bathrooms}`)
-  if (lead.petHair) lines.push(`Pet hair: ${lead.petHair}`)
-  if (lead.condition) lines.push(`Condition: ${lead.condition}`)
-  if (lead.preferredDate) lines.push(`Preferred date: ${lead.preferredDate}`)
-  if (lead.preferredTime) lines.push(`Preferred time: ${lead.preferredTime}`)
-  if (lead.budget) lines.push(`Budget: ${lead.budget}`)
-  if (lead.receivedVia) lines.push(`Received via: ${lead.receivedVia}`)
-  if (lead.utm_campaign) lines.push(`Campaign: ${lead.utm_campaign}`)
+  if (lead.estimateMin && lead.estimateMax) lines.push('Estimate: $' + lead.estimateMin + '-$' + lead.estimateMax)
+  if (lead.message) lines.push('Notes: ' + lead.message)
+  if (lead.squareFeet) lines.push('Sq ft: ' + lead.squareFeet)
+  if (lead.bathrooms) lines.push('Bathrooms: ' + lead.bathrooms)
+  if (lead.petHair && lead.petHair !== 'none') lines.push('Pet hair: ' + lead.petHair)
+  if (lead.condition && lead.condition !== 'maintenance') lines.push('Condition: ' + lead.condition)
+  if (lead.preferredDate) lines.push('Preferred date: ' + lead.preferredDate)
+  if (lead.receivedVia) lines.push('Source: ' + lead.receivedVia)
   return lines.join('\n')
 }
