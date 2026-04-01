@@ -5,7 +5,7 @@ import { calculateQuote } from '../lib/quoteEngine'
 import PropertyForm from '../components/PropertyForm'
 import CustomFields from '../components/CustomFields'
 
-const TABS = ['overview', 'properties', 'quotes', 'conversations', 'jobs', 'invoices', 'documents', 'notes']
+const TABS = ['overview', 'properties', 'quotes', 'conversations', 'jobs', 'invoices', 'documents', 'notes', 'portal']
 
 export default function ClientDetail() {
   const { id } = useParams()
@@ -83,6 +83,7 @@ export default function ClientDetail() {
       {tab === 'invoices' && <InvoicesTab clientId={id} clientName={client.name} jobs={jobs} invoices={invoices} onReload={reload} />}
       {tab === 'documents' && <DocumentsTab clientName={client.name} />}
       {tab === 'notes' && <NotesTab client={client} onSave={reload} />}
+      {tab === 'portal' && <PortalAccessTab clientId={id} client={client} />}
     </div>
   )
 }
@@ -1338,6 +1339,227 @@ function NotesTab({ client, onSave }) {
         <button onClick={handleSave} className="px-4 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg text-sm font-medium text-white">Save Notes</button>
         {saved && <span className="text-sm text-green-400">Saved!</span>}
       </div>
+      </div>
+    </div>
+  )
+}
+
+function PortalAccessTab({ clientId, client }) {
+  const [portalUser, setPortalUser] = useState(null)
+  const [loading, setLoading] = useState(true)
+  const [creating, setCreating] = useState(false)
+  const [tempPassword, setTempPassword] = useState('')
+  const [error, setError] = useState('')
+  const [message, setMessage] = useState('')
+
+  useEffect(() => {
+    loadPortalStatus()
+  }, [clientId])
+
+  async function loadPortalStatus() {
+    try {
+      const res = await fetch(`/api/portal-admin?action=portal-users`, {
+        headers: { 'Authorization': `Bearer ${localStorage.getItem('supabase_anon_key') || import.meta.env.VITE_SUPABASE_ANON_KEY || ''}` },
+      })
+      if (res.ok) {
+        const data = await res.json()
+        const match = (data.users || []).find(u => u.client?.id === clientId)
+        setPortalUser(match || null)
+      }
+    } catch {} finally {
+      setLoading(false)
+    }
+  }
+
+  async function createAccount() {
+    setCreating(true)
+    setError('')
+    setMessage('')
+    setTempPassword('')
+    try {
+      const res = await fetch(`/api/portal-admin?action=create-portal-account`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('supabase_anon_key') || import.meta.env.VITE_SUPABASE_ANON_KEY || ''}`,
+        },
+        body: JSON.stringify({ clientId }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Failed to create account')
+      setTempPassword(data.tempPassword)
+      setMessage('Portal account created! Share the temporary password with the client.')
+      await loadPortalStatus()
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setCreating(false)
+    }
+  }
+
+  async function resetPassword() {
+    if (!portalUser) return
+    setError('')
+    setMessage('')
+    setTempPassword('')
+    try {
+      const res = await fetch(`/api/portal-admin?action=reset-client-password`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('supabase_anon_key') || import.meta.env.VITE_SUPABASE_ANON_KEY || ''}`,
+        },
+        body: JSON.stringify({ portalUserId: portalUser.id }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Failed to reset password')
+      setTempPassword(data.tempPassword)
+      setMessage('Password reset! Share the new temporary password with the client.')
+    } catch (err) {
+      setError(err.message)
+    }
+  }
+
+  async function toggleAccess() {
+    if (!portalUser) return
+    setError('')
+    setMessage('')
+    try {
+      const res = await fetch(`/api/portal-admin?action=toggle-portal-access`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('supabase_anon_key') || import.meta.env.VITE_SUPABASE_ANON_KEY || ''}`,
+        },
+        body: JSON.stringify({ portalUserId: portalUser.id, isActive: !portalUser.isActive }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Failed to toggle access')
+      setMessage(data.isActive ? 'Portal access enabled' : 'Portal access disabled')
+      await loadPortalStatus()
+    } catch (err) {
+      setError(err.message)
+    }
+  }
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <div className="animate-spin w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full" />
+      </div>
+    )
+  }
+
+  const portalUrl = `${window.location.origin}/#/portal/login`
+
+  return (
+    <div className="space-y-6 max-w-2xl">
+      {error && (
+        <div className="p-3 bg-red-900/30 border border-red-800 rounded-lg text-sm text-red-300">{error}</div>
+      )}
+      {message && (
+        <div className="p-3 bg-green-900/30 border border-green-800 rounded-lg text-sm text-green-300">{message}</div>
+      )}
+
+      {tempPassword && (
+        <div className="p-4 bg-yellow-900/20 border border-yellow-800 rounded-xl space-y-2">
+          <h4 className="text-sm font-semibold text-yellow-400">Temporary Password</h4>
+          <p className="text-sm text-gray-300">Share this password with the client. They will be required to change it on first login.</p>
+          <div className="flex items-center gap-2">
+            <code className="px-3 py-1.5 bg-gray-800 rounded text-sm text-white font-mono">{tempPassword}</code>
+            <button onClick={() => {
+              navigator.clipboard.writeText(tempPassword)
+              setMessage('Password copied to clipboard!')
+            }} className="px-2 py-1.5 bg-gray-700 hover:bg-gray-600 rounded text-xs text-gray-300">
+              Copy
+            </button>
+          </div>
+          <div className="flex items-center gap-2 mt-2">
+            <span className="text-xs text-gray-500">Portal URL:</span>
+            <code className="text-xs text-blue-400">{portalUrl}</code>
+            <button onClick={() => {
+              navigator.clipboard.writeText(portalUrl)
+              setMessage('Portal URL copied!')
+            }} className="px-2 py-1 bg-gray-700 hover:bg-gray-600 rounded text-xs text-gray-300">
+              Copy
+            </button>
+          </div>
+        </div>
+      )}
+
+      <div className="bg-gray-900 border border-gray-800 rounded-xl p-5 space-y-4">
+        <h3 className="text-sm font-semibold text-white">Portal Access</h3>
+
+        {!portalUser ? (
+          <div className="space-y-3">
+            <p className="text-sm text-gray-400">This client does not have portal access yet.</p>
+            <p className="text-xs text-gray-500">
+              Creating a portal account will allow this client to log in and view their schedule, invoices, quotes, and send messages.
+            </p>
+            {!client.email ? (
+              <p className="text-sm text-yellow-400">This client needs an email address before portal access can be created.</p>
+            ) : (
+              <button onClick={createAccount} disabled={creating}
+                className="px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 rounded-lg text-sm font-medium text-white">
+                {creating ? 'Creating...' : 'Create Portal Account'}
+              </button>
+            )}
+          </div>
+        ) : (
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 gap-4 text-sm">
+              <div>
+                <span className="text-gray-500">Status: </span>
+                <span className={portalUser.isActive ? 'text-green-400' : 'text-red-400'}>
+                  {portalUser.isActive ? 'Active' : 'Disabled'}
+                </span>
+              </div>
+              <div>
+                <span className="text-gray-500">Email: </span>
+                <span className="text-gray-300">{portalUser.email}</span>
+              </div>
+              <div>
+                <span className="text-gray-500">Last Login: </span>
+                <span className="text-gray-300">
+                  {portalUser.lastLogin ? new Date(portalUser.lastLogin).toLocaleString() : 'Never'}
+                </span>
+              </div>
+              <div>
+                <span className="text-gray-500">Login Count: </span>
+                <span className="text-gray-300">{portalUser.loginCount || 0}</span>
+              </div>
+              <div>
+                <span className="text-gray-500">Created: </span>
+                <span className="text-gray-300">{new Date(portalUser.createdAt).toLocaleDateString()}</span>
+              </div>
+              <div>
+                <span className="text-gray-500">Password: </span>
+                <span className={portalUser.mustChangePassword ? 'text-yellow-400' : 'text-gray-300'}>
+                  {portalUser.mustChangePassword ? 'Temp (needs change)' : 'Set by client'}
+                </span>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap gap-2 pt-2 border-t border-gray-800">
+              <button onClick={resetPassword}
+                className="px-3 py-1.5 bg-yellow-600 hover:bg-yellow-500 rounded-lg text-xs font-medium text-white">
+                Reset Password
+              </button>
+              <button onClick={toggleAccess}
+                className={`px-3 py-1.5 rounded-lg text-xs font-medium text-white ${
+                  portalUser.isActive ? 'bg-red-600 hover:bg-red-500' : 'bg-green-600 hover:bg-green-500'
+                }`}>
+                {portalUser.isActive ? 'Disable Access' : 'Enable Access'}
+              </button>
+              <button onClick={() => {
+                navigator.clipboard.writeText(portalUrl)
+                setMessage('Portal URL copied!')
+              }} className="px-3 py-1.5 bg-gray-700 hover:bg-gray-600 rounded-lg text-xs text-gray-300">
+                Copy Portal URL
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   )

@@ -1,4 +1,4 @@
-import { Routes, Route, NavLink } from 'react-router-dom'
+import { Routes, Route, NavLink, useLocation } from 'react-router-dom'
 import { useState } from 'react'
 import { useAuth } from './lib/auth'
 import Login from './pages/Login'
@@ -17,6 +17,7 @@ import Revenue from './pages/Revenue'
 import WebsiteRequests from './pages/WebsiteRequests'
 import MyWebsite from './pages/MyWebsite'
 import AgentChat from './components/AgentChat'
+import PortalApp from './pages/portal/PortalApp'
 
 const navItems = [
   { to: '/', label: 'Dashboard', icon: 'M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6' },
@@ -36,6 +37,12 @@ export default function App() {
   const { user, loading, signOut } = useAuth()
   const [chatOpen, setChatOpen] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  const location = useLocation()
+
+  // Portal routes are handled separately — no admin auth required
+  if (location.pathname.startsWith('/portal')) {
+    return <PortalApp />
+  }
 
   // Show loading while checking auth
   if (loading) {
@@ -170,6 +177,7 @@ export default function App() {
           <Route path="/my-website" element={<MyWebsite />} />
           <Route path="/settings" element={<Settings />} />
           <Route path="/setup" element={<Setup />} />
+          <Route path="/portal/*" element={<PortalApp />} />
         </Routes>
       </main>
 
