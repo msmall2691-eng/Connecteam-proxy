@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
-import { getInvoices, getJobs, getClients, getQuotes } from '../lib/store'
+import { getInvoices, getInvoicesAsync, getJobs, getJobsAsync, getClients, getClientsAsync, getQuotes, getQuotesAsync } from '../lib/store'
+import { isSupabaseConfigured } from '../lib/supabase'
 
 export default function Revenue() {
   const [months, setMonths] = useState([])
@@ -8,11 +9,15 @@ export default function Revenue() {
 
   useEffect(() => { loadData() }, [])
 
-  function loadData() {
-    const invoices = getInvoices()
-    const jobs = getJobs()
-    const clients = getClients()
-    const quotes = getQuotes()
+  async function loadData() {
+    let invoices, jobs, clients, quotes
+    if (isSupabaseConfigured()) {
+      ;[invoices, jobs, clients, quotes] = await Promise.all([
+        getInvoicesAsync(), getJobsAsync(), getClientsAsync(), getQuotesAsync(),
+      ])
+    } else {
+      invoices = getInvoices(); jobs = getJobs(); clients = getClients(); quotes = getQuotes()
+    }
 
     // Monthly breakdown (last 12 months)
     const monthData = {}

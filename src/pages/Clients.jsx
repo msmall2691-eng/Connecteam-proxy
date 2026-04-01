@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
-import { getClients, saveClient, deleteClient } from '../lib/store'
+import { getClients, getClientsAsync, saveClient, saveClientAsync, deleteClient, deleteClientAsync } from '../lib/store'
+import { isSupabaseConfigured } from '../lib/supabase'
 import ImportClients from '../components/ImportClients'
 
 const STATUS_COLORS = {
@@ -27,11 +28,19 @@ export default function Clients() {
 
   useEffect(() => { reload() }, [])
 
-  function reload() { setClients(getClients()) }
+  async function reload() {
+    const data = isSupabaseConfigured() ? await getClientsAsync() : getClients()
+    setClients(data)
+  }
 
-  function handleSubmit(e) {
+  async function handleSubmit(e) {
     e.preventDefault()
-    saveClient(editing ? { ...form, id: editing } : { ...form })
+    const clientData = editing ? { ...form, id: editing } : { ...form }
+    if (isSupabaseConfigured()) {
+      await saveClientAsync(clientData)
+    } else {
+      saveClient(clientData)
+    }
     setForm({ ...EMPTY_CLIENT })
     setEditing(null)
     setShowForm(false)
@@ -44,9 +53,13 @@ export default function Clients() {
     setShowForm(true)
   }
 
-  function handleDelete(id) {
+  async function handleDelete(id) {
     if (confirm('Delete this client and all their data?')) {
-      deleteClient(id)
+      if (isSupabaseConfigured()) {
+        await deleteClientAsync(id)
+      } else {
+        deleteClient(id)
+      }
       reload()
     }
   }
@@ -82,12 +95,13 @@ export default function Clients() {
               if (res.ok) {
                 const data = await res.json()
                 let imported = 0
-                const existing = getClients()
+                const existing = isSupabaseConfigured() ? await getClientsAsync() : getClients()
                 const existingEmails = new Set(existing.map(c => c.email?.toLowerCase()).filter(Boolean))
                 for (const c of data.contacts) {
                   if (c.email && existingEmails.has(c.email.toLowerCase())) continue
                   if (!c.name) continue
-                  saveClient({ name: c.name, email: c.email, phone: c.phone, address: c.address, status: 'lead', type: 'residential', source: 'Google Contacts' })
+                  const contactData = { name: c.name, email: c.email, phone: c.phone, address: c.address, status: 'lead', type: 'residential', source: 'Google Contacts' }
+                  if (isSupabaseConfigured()) { await saveClientAsync(contactData) } else { saveClient(contactData) }
                   imported++
                 }
                 alert(`Imported ${imported} contacts from Google. ${data.total - imported} skipped (duplicates or no name).`)

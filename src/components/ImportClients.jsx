@@ -1,5 +1,6 @@
 import { useState } from 'react'
-import { saveClient, getClients } from '../lib/store'
+import { saveClient, saveClientAsync, getClients, getClientsAsync } from '../lib/store'
+import { isSupabaseConfigured } from '../lib/supabase'
 
 // Smart column mapping — auto-detects which CSV columns match client fields
 const FIELD_MAP = {
@@ -127,7 +128,7 @@ export default function ImportClients({ onDone }) {
 
   async function doImport() {
     setImporting(true)
-    const existing = getClients()
+    const existing = isSupabaseConfigured() ? await getClientsAsync() : getClients()
     const existingEmails = new Set(existing.map(c => c.email?.toLowerCase()).filter(Boolean))
     const existingPhones = new Set(existing.map(c => c.phone).filter(Boolean))
     const existingNames = new Set(existing.map(c => c.name?.toLowerCase()).filter(Boolean))
@@ -144,7 +145,7 @@ export default function ImportClients({ onDone }) {
       }
 
       try {
-        saveClient(client)
+        if (isSupabaseConfigured()) { await saveClientAsync(client) } else { saveClient(client) }
         imported++
         if (client.email) existingEmails.add(client.email.toLowerCase())
         if (client.phone) existingPhones.add(client.phone)

@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { Link } from 'react-router-dom'
-import { getConversations, getClients, addMessage, saveConversation } from '../lib/store'
+import { getConversations, getConversationsAsync, getClients, getClientsAsync, addMessage, addMessageAsync, saveConversation, saveConversationAsync } from '../lib/store'
+import { isSupabaseConfigured } from '../lib/supabase'
 
 export default function Communications() {
   const [convos, setConvos] = useState([])
@@ -21,11 +22,16 @@ export default function Communications() {
   useEffect(() => { reload(); fetchGmail() }, [])
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [active])
 
-  function reload() {
-    const allConvos = getConversations()
+  async function reload() {
+    let allConvos, allClients
+    if (isSupabaseConfigured()) {
+      ;[allConvos, allClients] = await Promise.all([getConversationsAsync(), getClientsAsync()])
+    } else {
+      allConvos = getConversations(); allClients = getClients()
+    }
     setConvos(allConvos)
     const cls = {}
-    for (const c of getClients()) cls[c.id] = c
+    for (const c of allClients) cls[c.id] = c
     setClients(cls)
     if (active) {
       const updated = allConvos.find(c => c.id === active.id)

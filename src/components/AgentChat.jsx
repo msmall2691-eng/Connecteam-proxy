@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react'
 import { getApiKey, fetchUsers, fetchTimesheets, fetchTimeActivities, dateRangeWeeks } from '../lib/api'
-import { getClients, getJobs, getConversations } from '../lib/store'
+import { getClients, getClientsAsync, getJobs, getJobsAsync, getConversations, getConversationsAsync } from '../lib/store'
+import { isSupabaseConfigured } from '../lib/supabase'
 
 export default function AgentChat({ onClose }) {
   const [messages, setMessages] = useState([
@@ -30,7 +31,7 @@ export default function AgentChat({ onClose }) {
     }
   }
 
-  function buildContextSummary() {
+  async function buildContextSummary() {
     const lines = []
 
     // Connecteam data
@@ -74,9 +75,9 @@ export default function AgentChat({ onClose }) {
     }
 
     // CRM data
-    const clients = getClients()
-    const jobs = getJobs()
-    const convos = getConversations()
+    const clients = isSupabaseConfigured() ? await getClientsAsync() : getClients()
+    const jobs = isSupabaseConfigured() ? await getJobsAsync() : getJobs()
+    const convos = isSupabaseConfigured() ? await getConversationsAsync() : getConversations()
 
     lines.push('', `=== CRM DATA ===`)
     lines.push(`Clients: ${clients.length} total`)
@@ -145,7 +146,7 @@ export default function AgentChat({ onClose }) {
     }
   }
 
-  function generateLocalResponse(question) {
+  async function generateLocalResponse(question) {
     const q = question.toLowerCase()
 
     if (!context) return "I'm still loading the data. Give me a moment and try again."
@@ -183,8 +184,8 @@ export default function AgentChat({ onClose }) {
     const unapproved = employees.filter(e => !e.approved)
 
     // CRM data
-    const clients = getClients()
-    const jobs = getJobs()
+    const clients = isSupabaseConfigured() ? await getClientsAsync() : getClients()
+    const jobs = isSupabaseConfigured() ? await getJobsAsync() : getJobs()
 
     if (q.includes('rundown') || q.includes('summary') || q.includes('overview') || q.includes('how are we') || q.includes('what\'s going on') || q.includes('status')) {
       let resp = `**Operations Summary (${period.start} to ${period.end})**\n\n`

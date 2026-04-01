@@ -1,6 +1,11 @@
 import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
-import { getClients, saveClient, getJobs, getInvoices, getProperties, getQuotes } from '../lib/store'
+import {
+  getClients, getClientsAsync, saveClient, saveClientAsync,
+  getJobs, getJobsAsync, getInvoices, getInvoicesAsync,
+  getProperties, getPropertiesAsync, getQuotes, getQuotesAsync,
+} from '../lib/store'
+import { isSupabaseConfigured } from '../lib/supabase'
 
 const STAGES = [
   { id: 'lead', label: 'Leads', color: 'blue', desc: 'New inquiries' },
@@ -24,12 +29,18 @@ export default function Pipeline() {
 
   useEffect(() => { reload() }, [])
 
-  function reload() {
-    setClients(getClients())
-    setJobs(getJobs())
-    setInvoices(getInvoices())
-    setAllProperties(getProperties())
-    setAllQuotes(getQuotes())
+  async function reload() {
+    if (isSupabaseConfigured()) {
+      const [c, j, inv, p, q] = await Promise.all([
+        getClientsAsync(), getJobsAsync(), getInvoicesAsync(),
+        getPropertiesAsync(), getQuotesAsync(),
+      ])
+      setClients(c); setJobs(j); setInvoices(inv)
+      setAllProperties(p); setAllQuotes(q)
+    } else {
+      setClients(getClients()); setJobs(getJobs()); setInvoices(getInvoices())
+      setAllProperties(getProperties()); setAllQuotes(getQuotes())
+    }
   }
 
   function getClientProperties(clientId) {
@@ -40,8 +51,12 @@ export default function Pipeline() {
     return allQuotes.filter(q => q.clientId === clientId)
   }
 
-  function moveClient(clientId, newStatus) {
-    saveClient({ id: clientId, status: newStatus })
+  async function moveClient(clientId, newStatus) {
+    if (isSupabaseConfigured()) {
+      await saveClientAsync({ id: clientId, status: newStatus })
+    } else {
+      saveClient({ id: clientId, status: newStatus })
+    }
     reload()
   }
 

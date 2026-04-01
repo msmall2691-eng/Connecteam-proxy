@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
-import { saveClientAsync, savePropertyAsync, saveQuoteAsync, generateQuoteNumber } from '../lib/store'
-import { isSupabaseConfigured } from '../lib/supabase'
+import { saveClient, saveClientAsync, saveProperty, savePropertyAsync, saveQuote, saveQuoteAsync, generateQuoteNumber } from '../lib/store'
+import { isSupabaseConfigured, getSupabase } from '../lib/supabase'
 
 const STATUS_OPTIONS = [
   { value: 'new', label: 'New', color: 'blue' },
@@ -64,12 +64,26 @@ export default function WebsiteRequests() {
     setLoading(false)
   }
 
-  function updateStatus(id, newStatus) {
+  async function updateStatus(id, newStatus, clientId = null) {
     setRequests(prev => {
-      const updated = prev.map(r => r.id === id ? { ...r, status: newStatus } : r)
+      const updated = prev.map(r => r.id === id ? { ...r, status: newStatus, ...(clientId ? { client_id: clientId } : {}) } : r)
       saveLocalRequests(updated)
       return updated
     })
+
+    // Also update in Supabase website_requests table if configured
+    if (isSupabaseConfigured()) {
+      try {
+        const sb = getSupabase()
+        if (sb) {
+          const updateData = { status: newStatus }
+          if (clientId) updateData.client_id = clientId
+          await sb.from('website_requests').update(updateData).eq('id', id)
+        }
+      } catch (e) {
+        console.error('Failed to update request status in Supabase:', e)
+      }
+    }
   }
 
   async function acceptAsLead(req) {
@@ -97,7 +111,7 @@ export default function WebsiteRequests() {
 
       const client = isSupabaseConfigured()
         ? await saveClientAsync(clientData)
-        : (() => { const { saveClient } = require('../lib/store'); return saveClient(clientData) })()
+        : saveClient(clientData)
 
       // 2. Create property if we have address info
       if (client && req.address) {
@@ -115,7 +129,7 @@ export default function WebsiteRequests() {
         try {
           isSupabaseConfigured()
             ? await savePropertyAsync(propData)
-            : (() => { const { saveProperty } = require('../lib/store'); saveProperty(propData) })()
+            : saveProperty(propData)
         } catch (e) { console.error('Property creation failed:', e) }
       }
 
@@ -135,12 +149,12 @@ export default function WebsiteRequests() {
         try {
           isSupabaseConfigured()
             ? await saveQuoteAsync(quoteData)
-            : (() => { const { saveQuote } = require('../lib/store'); saveQuote(quoteData) })()
+            : saveQuote(quoteData)
         } catch (e) { console.error('Quote creation failed:', e) }
       }
 
-      // 4. Update request status
-      updateStatus(req.id, 'converted')
+      // 4. Update request status to converted (locally and in Supabase)
+      updateStatus(req.id, 'converted', client.id)
       setSuccessMessage({ id: req.id, clientId: client.id, name: req.name })
       setTimeout(() => setSuccessMessage(null), 5000)
     } catch (e) {

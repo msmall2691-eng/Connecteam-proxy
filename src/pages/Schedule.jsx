@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
-import { getClients } from '../lib/store'
+import { getClients, getClientsAsync } from '../lib/store'
+import { isSupabaseConfigured } from '../lib/supabase'
 
 // Rental calendar config
 const RENTAL_CAL_KEY = 'workflowhq_rental_calendars'

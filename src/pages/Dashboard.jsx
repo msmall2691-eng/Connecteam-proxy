@@ -1,7 +1,12 @@
 import { useState, useEffect, useRef } from 'react'
 import { Link } from 'react-router-dom'
 import { getApiKey, fetchTimesheets, fetchTimeActivities, dateRangeWeeks } from '../lib/api'
-import { getClients, getJobs, getConversations, getInvoices, getQuotes, getProperties } from '../lib/store'
+import {
+  getClients, getClientsAsync, getJobs, getJobsAsync,
+  getConversations, getConversationsAsync, getInvoices, getInvoicesAsync,
+  getQuotes, getQuotesAsync, getProperties, getPropertiesAsync,
+} from '../lib/store'
+import { isSupabaseConfigured } from '../lib/supabase'
 
 export default function Dashboard() {
   const [data, setData] = useState(null)
@@ -18,13 +23,17 @@ export default function Dashboard() {
   useEffect(() => { loadDashboard() }, [])
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages])
 
-  function loadDashboard() {
-    const clients = getClients()
-    const jobs = getJobs()
-    const invoices = getInvoices()
-    const quotes = getQuotes()
-    const convos = getConversations()
-    const properties = getProperties()
+  async function loadDashboard() {
+    let clients, jobs, invoices, quotes, convos, properties
+    if (isSupabaseConfigured()) {
+      ;[clients, jobs, invoices, quotes, convos, properties] = await Promise.all([
+        getClientsAsync(), getJobsAsync(), getInvoicesAsync(),
+        getQuotesAsync(), getConversationsAsync(), getPropertiesAsync(),
+      ])
+    } else {
+      clients = getClients(); jobs = getJobs(); invoices = getInvoices()
+      quotes = getQuotes(); convos = getConversations(); properties = getProperties()
+    }
 
     const today = new Date().toISOString().split('T')[0]
     const paidTotal = invoices.filter(i => i.status === 'paid').reduce((s, i) => s + (i.total || 0), 0)

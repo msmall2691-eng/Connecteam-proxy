@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Link } from 'react-router-dom'
-import { getInvoices, saveInvoice, getClients, getJobs, generateInvoiceNumber } from '../lib/store'
+import { getInvoices, getInvoicesAsync, saveInvoice, saveInvoiceAsync, getClients, getClientsAsync, getJobs, getJobsAsync, generateInvoiceNumber } from '../lib/store'
+import { isSupabaseConfigured } from '../lib/supabase'
 
 function buildInvoiceEmailHtml(inv) {
   const itemRows = (inv.items || []).map(item =>
@@ -61,7 +62,8 @@ function buildInvoiceEmailHtml(inv) {
 }
 
 async function sendInvoiceEmail(inv) {
-  const client = getClients().find(c => c.id === inv.clientId);
+  const allClients = isSupabaseConfigured() ? await getClientsAsync() : getClients();
+  const client = allClients.find(c => c.id === inv.clientId);
   const toEmail = client?.email;
   if (!toEmail) {
     throw new Error('Client does not have an email address. Please add one in Client details first.');
@@ -106,9 +108,13 @@ export default function Invoices() {
 
   useEffect(() => { reload() }, [])
 
-  function reload() {
-    setInvoices(getInvoices())
-    setClients(getClients())
+  async function reload() {
+    if (isSupabaseConfigured()) {
+      const [inv, cls] = await Promise.all([getInvoicesAsync(), getClientsAsync()])
+      setInvoices(inv); setClients(cls)
+    } else {
+      setInvoices(getInvoices()); setClients(getClients())
+    }
   }
 
   const filtered = invoices.filter(i => filterStatus === 'all' || i.status === filterStatus)

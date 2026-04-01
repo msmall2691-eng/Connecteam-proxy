@@ -1,6 +1,18 @@
 import { useState, useEffect } from 'react'
 import { useParams, Link, useNavigate, useSearchParams } from 'react-router-dom'
-import { getClient, saveClient, getConversations, saveConversation, addMessage, getJobs, saveJob, getInvoices, saveInvoice, generateInvoiceNumber, getProperties, saveProperty, deleteProperty, getQuotes, saveQuote, generateQuoteNumber } from '../lib/store'
+import {
+  getClient, getClientAsync, saveClient, saveClientAsync,
+  getConversations, getConversationsAsync, saveConversation, saveConversationAsync,
+  addMessage, addMessageAsync,
+  getJobs, getJobsAsync, saveJob, saveJobAsync,
+  getInvoices, getInvoicesAsync, saveInvoice, saveInvoiceAsync,
+  generateInvoiceNumber,
+  getProperties, getPropertiesAsync, saveProperty, savePropertyAsync,
+  deleteProperty,
+  getQuotes, getQuotesAsync, saveQuote, saveQuoteAsync,
+  generateQuoteNumber,
+} from '../lib/store'
+import { isSupabaseConfigured } from '../lib/supabase'
 import { calculateQuote } from '../lib/quoteEngine'
 import PropertyForm from '../components/PropertyForm'
 import CustomFields from '../components/CustomFields'
@@ -22,15 +34,27 @@ export default function ClientDetail() {
   useEffect(() => { reload() }, [id])
   useEffect(() => { const t = searchParams.get('tab'); if (t) setTab(t) }, [searchParams])
 
-  function reload() {
-    const c = getClient(id)
-    if (!c) return navigate('/clients')
-    setClient(c)
-    setConvos(getConversations(id))
-    setJobs(getJobs(id))
-    setInvoices(getInvoices(id))
-    setProperties(getProperties(id))
-    setQuotes(getQuotes(id))
+  async function reload() {
+    if (isSupabaseConfigured()) {
+      const c = await getClientAsync(id)
+      if (!c) return navigate('/clients')
+      setClient(c)
+      const [cv, j, inv, p, q] = await Promise.all([
+        getConversationsAsync(id), getJobsAsync(id), getInvoicesAsync(id),
+        getPropertiesAsync(id), getQuotesAsync(id),
+      ])
+      setConvos(cv); setJobs(j); setInvoices(inv)
+      setProperties(p); setQuotes(q)
+    } else {
+      const c = getClient(id)
+      if (!c) return navigate('/clients')
+      setClient(c)
+      setConvos(getConversations(id))
+      setJobs(getJobs(id))
+      setInvoices(getInvoices(id))
+      setProperties(getProperties(id))
+      setQuotes(getQuotes(id))
+    }
   }
 
   if (!client) return null
