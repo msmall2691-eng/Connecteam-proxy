@@ -133,7 +133,7 @@ export default function Payroll() {
     if (!payrollData) return
     setExporting(true)
     try {
-      const res = await fetch('/api/square-payroll?action=export', {
+      const res = await fetch('/api/square?action=export', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ employees: payrollData.employees }),
@@ -163,7 +163,7 @@ export default function Payroll() {
 
   async function checkSquareTeam() {
     try {
-      const res = await fetch('/api/square-payroll?action=team')
+      const res = await fetch('/api/square?action=team')
       const data = await res.json()
       if (data.members) {
         setSquareStatus({ type: 'success', message: `Connected! ${data.members.length} team members in Square.` })

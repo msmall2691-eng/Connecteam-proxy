@@ -78,7 +78,7 @@ export default function Clients() {
           <button onClick={async () => {
             setImportingGoogle(true)
             try {
-              const res = await fetch('/api/google-contacts?action=list')
+              const res = await fetch('/api/google?action=contacts-list')
               if (res.ok) {
                 const data = await res.json()
                 let imported = 0

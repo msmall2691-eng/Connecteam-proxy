@@ -342,11 +342,10 @@ function QuotesTab({ client, properties, quotes, onReload }) {
 
     // Create Google Calendar event
     try {
-      await fetch('/api/calendar', {
+      await fetch('/api/google?action=calendar-create', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          action: 'create',
           summary: `${q.serviceType === 'standard' ? 'Cleaning' : 'Deep Clean'} — ${client.name}`,
           description: `Client: ${client.name}\nPhone: ${client.phone || ''}\nAddress: ${prop?.addressLine1 || ''}\nPrice: $${q.finalPrice}\nQuote: ${q.quoteNumber}`,
           startDateTime: `${new Date().toISOString().split('T')[0]}T09:00:00`,
@@ -702,7 +701,7 @@ function JobsTab({ clientId, clientName, clientAddress, jobs, properties, onRelo
       const apiKey = localStorage.getItem('connecteam_api_key')
       if (!apiKey) { alert('Set your Connecteam API key in Settings first.'); setPushingCtId(null); return }
 
-      const res = await fetch('/api/connecteam-shift', {
+      const res = await fetch('/api/connecteam?action=shift', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-API-KEY': apiKey },
         body: JSON.stringify({
@@ -764,11 +763,10 @@ function JobsTab({ clientId, clientName, clientAddress, jobs, properties, onRelo
       const endTime = job.endTime || '12:00'
 
       // ONLY push safe info to Google Calendar — no door codes, no pricing, no notes
-      const res = await fetch('/api/calendar', {
+      const res = await fetch('/api/google?action=calendar-create', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          action: 'create',
           summary: `${job.title} — ${clientName}`,
           description: `${clientName}\n${address}`,
           startDateTime: `${job.date}T${startTime}:00`,
@@ -1190,7 +1188,7 @@ function DocumentsTab({ clientName }) {
   async function loadFiles() {
     setLoading(true)
     try {
-      const res = await fetch(`/api/drive?action=list&clientName=${encodeURIComponent(clientName)}`)
+      const res = await fetch(`/api/google?action=drive-list&clientName=${encodeURIComponent(clientName)}`)
       if (res.ok) {
         const data = await res.json()
         setFiles(data.files || [])
@@ -1209,10 +1207,10 @@ function DocumentsTab({ clientName }) {
       const reader = new FileReader()
       reader.onload = async (ev) => {
         const content = ev.target.result
-        await fetch('/api/drive', {
+        await fetch('/api/google?action=drive-upload', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'upload', clientName, fileName: file.name, content, mimeType: file.type || 'application/octet-stream' }),
+          body: JSON.stringify({ clientName, fileName: file.name, content, mimeType: file.type || 'application/octet-stream' }),
         })
         setUploading(false)
         loadFiles()
@@ -1222,20 +1220,20 @@ function DocumentsTab({ clientName }) {
   }
 
   async function saveNote(title, content) {
-    await fetch('/api/drive', {
+    await fetch('/api/google?action=drive-save-report', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'save-report', clientName, title, content }),
+      body: JSON.stringify({ clientName, title, content }),
     })
     loadFiles()
   }
 
   async function deleteFile(fileId) {
     if (!confirm('Delete this file from Google Drive?')) return
-    await fetch('/api/drive', {
+    await fetch('/api/google?action=drive-delete', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'delete', fileId }),
+      body: JSON.stringify({ fileId }),
     })
     loadFiles()
   }

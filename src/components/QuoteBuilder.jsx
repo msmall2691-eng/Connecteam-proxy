@@ -149,11 +149,10 @@ export default function QuoteBuilder({ client, onSave, onSend }) {
       })
 
       try {
-        await fetch('/api/calendar', {
+        await fetch('/api/google?action=calendar-create', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            action: 'create',
             summary: `${item.description} — ${client.name}`,
             description: `Client: ${client.name}\nAddress: ${client.address || ''}\nPhone: ${client.phone || ''}\nPrice: $${item.unitPrice}\n${notes}`,
             startDateTime: `${new Date().toISOString().split('T')[0]}T09:00:00`,

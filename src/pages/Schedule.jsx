@@ -36,7 +36,7 @@ export default function Schedule() {
 
   async function loadCalendars() {
     try {
-      const res = await fetch('/api/calendar?action=calendars')
+      const res = await fetch('/api/google?action=calendars')
       if (res.ok) {
         const data = await res.json()
         const cals = data.calendars || []
@@ -60,7 +60,7 @@ export default function Schedule() {
       const calParam = rentalCals.map(c => `${c.calendarId}|${c.name}`).join(',')
       const now = new Date()
       const future = new Date(now.getTime() + 60 * 86400000)
-      const res = await fetch(`/api/calendar?action=turnovers&calendars=${encodeURIComponent(calParam)}&timeMin=${now.toISOString()}&timeMax=${future.toISOString()}`)
+      const res = await fetch(`/api/google?action=turnovers&calendars=${encodeURIComponent(calParam)}&timeMin=${now.toISOString()}&timeMax=${future.toISOString()}`)
       if (res.ok) {
         const data = await res.json()
         setTurnovers(data.turnovers || [])
@@ -90,11 +90,10 @@ export default function Schedule() {
       const cleanEnd = new Date(`${turnover.checkOut}T${turnover.cleaningTime}:00`)
       cleanEnd.setHours(cleanEnd.getHours() + 3)
 
-      await fetch('/api/calendar', {
+      await fetch('/api/google?action=calendar-create', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          action: 'create',
           summary: `🧹 Turnover: ${turnover.property}`,
           description: `Checkout: ${turnover.checkoutTime}\nGuest: ${turnover.guestName}\nProperty: ${turnover.property}\n${turnover.reservationUrl ? `Reservation: ${turnover.reservationUrl}` : ''}`,
           startDateTime: `${turnover.checkOut}T${turnover.cleaningTime}:00`,
@@ -116,11 +115,10 @@ export default function Schedule() {
     if (!newEvent.title || !newEvent.date) return
     setCreatingEvent(true)
     try {
-      const res = await fetch('/api/calendar', {
+      const res = await fetch('/api/google?action=calendar-create', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          action: 'create',
           summary: newEvent.title,
           description: newEvent.description + (newEvent.clientEmail ? `\nClient: ${newEvent.clientEmail}` : ''),
           startDateTime: `${newEvent.date}T${newEvent.startTime}:00`,

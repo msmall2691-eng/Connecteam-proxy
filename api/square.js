@@ -1,5 +1,7 @@
-// Vercel serverless: Square Invoicing API
-// Creates and sends invoices via Square for payment
+// Vercel serverless: Square API (Payroll + Invoicing)
+// Unified handler — use ?action= to route
+// Payroll actions: team, wages, export, adjustment
+// Invoice actions: location, create-customer, search-customer, create, send, list
 // Requires SQUARE_ACCESS_TOKEN in env
 
 export default async function handler(req, res) {
@@ -24,9 +26,86 @@ export default async function handler(req, res) {
     'Square-Version': '2024-01-18',
   }
 
-  const action = req.query.action || req.body?.action
+  const action = req.query.action || req.body?.action || 'invoice'
 
   try {
+    // ════════════════════════════════════════════════════
+    // PAYROLL ACTIONS
+    // ════════════════════════════════════════════════════
+    if (action === 'team' || action === 'wages' || action === 'export' || action === 'adjustment') {
+
+      // ── LIST TEAM MEMBERS ──
+      if (action === 'team') {
+        const teamRes = await fetch(`${SQUARE_BASE}/v2/team-members/search`, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({ query: { filter: { status: { members: ['ACTIVE'] } } } }),
+        })
+        const teamData = await teamRes.json()
+        const members = (teamData.team_members || []).map(m => ({
+          id: m.id,
+          name: `${m.given_name || ''} ${m.family_name || ''}`.trim(),
+          email: m.email_address,
+          phone: m.phone_number,
+          status: m.status,
+        }))
+        return res.status(200).json({ members })
+      }
+
+      // ── GET PAYROLL (via Team Member Wages) ──
+      if (action === 'wages') {
+        const wageRes = await fetch(`${SQUARE_BASE}/v2/labor/team-member-wages`, { headers })
+        const wageData = await wageRes.json()
+        return res.status(200).json(wageData)
+      }
+
+      // ── EXPORT PAYROLL CSV ──
+      if (action === 'export' && req.method === 'POST') {
+        const { employees } = req.body
+        if (!employees || !Array.isArray(employees)) {
+          return res.status(400).json({ error: 'employees array required' })
+        }
+
+        const csvLines = ['Employee Name,Hours Worked,Hourly Rate,Gross Pay,Mileage Reimbursement,Total Compensation']
+        for (const emp of employees) {
+          csvLines.push([
+            `"${emp.name}"`,
+            emp.hours,
+            emp.rate || '',
+            emp.pay,
+            emp.mileageReimbursement || 0,
+            emp.totalComp || emp.pay,
+          ].join(','))
+        }
+
+        const csv = csvLines.join('\n')
+        res.setHeader('Content-Type', 'text/csv')
+        res.setHeader('Content-Disposition', `attachment; filename="payroll-export-${new Date().toISOString().split('T')[0]}.csv"`)
+        return res.status(200).send(csv)
+      }
+
+      // ── CREATE PAYROLL ADJUSTMENT (bonus/reimbursement) ──
+      if (action === 'adjustment' && req.method === 'POST') {
+        const { teamMemberId, amount, description } = req.body
+
+        return res.status(200).json({
+          note: 'Square Payroll API requires specific subscription for automated pay runs. Use the CSV export to import into Square Payroll, or submit adjustments manually.',
+          prepared: {
+            teamMemberId,
+            amount,
+            description,
+            date: new Date().toISOString().split('T')[0],
+          },
+        })
+      }
+
+      return res.status(400).json({ error: 'Unknown payroll action or wrong method. Use: team, wages, export (POST), adjustment (POST)' })
+    }
+
+    // ════════════════════════════════════════════════════
+    // INVOICE ACTIONS (default)
+    // ════════════════════════════════════════════════════
+
     // ── GET LOCATION (needed for invoices) ──
     if (action === 'location') {
       const r = await fetch(`${SQUARE_BASE}/v2/locations`, { headers })
@@ -192,9 +271,9 @@ export default async function handler(req, res) {
       return res.status(200).json({ invoices: data.invoices || [] })
     }
 
-    return res.status(400).json({ error: 'Unknown action. Use: location, create-customer, create, send, list' })
+    return res.status(400).json({ error: 'Unknown action. Payroll: team, wages, export, adjustment. Invoice: location, create-customer, search-customer, create, send, list' })
   } catch (err) {
-    console.error('Square invoice error:', err)
+    console.error('Square handler error:', err)
     return res.status(500).json({ error: err.message })
   }
 }

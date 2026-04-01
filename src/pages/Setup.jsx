@@ -132,7 +132,7 @@ const STEPS = [
       'Copy the Production Access Token (or Sandbox for testing)',
       '⚠️ Add to Vercel as SQUARE_ACCESS_TOKEN, then redeploy',
     ],
-    testEndpoint: '/api/square-payroll?action=team',
+    testEndpoint: '/api/square?action=team',
   },
 ]
 
@@ -187,7 +187,7 @@ export default function Setup() {
 
     // Square
     try {
-      const res = await fetch('/api/square-payroll?action=team')
+      const res = await fetch('/api/square?action=team')
       results.square = res.ok ? 'connected' : 'not_configured'
     } catch { results.square = 'not_configured' }
 

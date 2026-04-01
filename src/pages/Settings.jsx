@@ -62,8 +62,8 @@ export default function Settings() {
       { key: 'anthropic', url: '/api/chat', method: 'POST', body: { messages: [{ role: 'user', content: 'ping' }], context: '' } },
       { key: 'gmail', url: '/api/gmail?action=profile' },
       { key: 'twilio', url: '/api/sms?action=list&limit=1' },
-      { key: 'square', url: '/api/square-payroll?action=team' },
-      { key: 'calendar', url: '/api/calendar?action=calendars' },
+      { key: 'square', url: '/api/square?action=team' },
+      { key: 'calendar', url: '/api/google?action=calendars' },
     ]
 
     for (const check of checks) {
@@ -184,7 +184,7 @@ export default function Settings() {
         {connecteamKey && (
           <div className="mt-3 bg-gray-800/50 rounded-lg p-3 space-y-1">
             <p className="text-xs text-gray-400 font-medium">Connecteam Webhook URL:</p>
-            <code className="block text-xs text-blue-400 break-all">https://connecteam-proxy.vercel.app/api/connecteam-webhook</code>
+            <code className="block text-xs text-blue-400 break-all">https://connecteam-proxy.vercel.app/api/connecteam?action=webhook</code>
             <p className="text-xs text-gray-600">Add this in Connecteam → Settings → Webhooks to receive real-time clock in/out, shift changes, and form submissions.</p>
           </div>
         )}
@@ -201,13 +201,13 @@ export default function Settings() {
             onTest={() => testEndpoint('gmail', '/api/gmail?action=profile')} testResult={testResults.gmail} />
 
           <IntegrationRow name="Google Calendar" envVars="Same as Gmail (auto-shared)" status={integrations.calendar}
-            onTest={() => testEndpoint('calendar', '/api/calendar?action=calendars')} testResult={testResults.calendar} />
+            onTest={() => testEndpoint('calendar', '/api/google?action=calendars')} testResult={testResults.calendar} />
 
           <IntegrationRow name="Twilio SMS" envVars="TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_PHONE_NUMBER" status={integrations.twilio}
             onTest={() => testEndpoint('twilio', '/api/sms?action=list&limit=1')} testResult={testResults.twilio} />
 
           <IntegrationRow name="Square" envVars="SQUARE_ACCESS_TOKEN" status={integrations.square}
-            onTest={() => testEndpoint('square', '/api/square-payroll?action=team')} testResult={testResults.square} />
+            onTest={() => testEndpoint('square', '/api/square?action=team')} testResult={testResults.square} />
 
           <div className="py-2 border-b border-gray-800/50">
             <IntegrationRow name="Supabase Database" envVars="VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY"
@@ -425,7 +425,7 @@ function GoogleCalendarSettings() {
   async function loadCalendars() {
     setLoading(true)
     try {
-      const res = await fetch('/api/calendar?action=calendars')
+      const res = await fetch('/api/google?action=calendars')
       if (res.ok) {
         const data = await res.json()
         setCalendars(data.calendars || [])
