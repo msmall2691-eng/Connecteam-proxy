@@ -20,7 +20,63 @@ function defaultData() {
 }
 
 function genId() {
+  if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+    return crypto.randomUUID()
+  }
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 8)
+}
+
+// ══════════════════════════════════════════
+// SUPABASE SYNC HELPERS
+// ══════════════════════════════════════════
+let _storeInitialized = false
+
+export async function initializeStore() {
+  if (_storeInitialized) return
+  _storeInitialized = true
+  const sb = getSupabase()
+  if (!sb) return
+
+  try {
+    const [clientsRes, jobsRes, invoicesRes, propertiesRes, quotesRes, convosRes] = await Promise.all([
+      sb.from('clients').select('*').order('created_at', { ascending: false }),
+      sb.from('jobs').select('*').order('date', { ascending: false }),
+      sb.from('invoices').select('*, invoice_items(*)').order('created_at', { ascending: false }),
+      sb.from('properties').select('*').order('created_at', { ascending: false }),
+      sb.from('quotes').select('*').order('created_at', { ascending: false }),
+      sb.from('conversations').select('*').order('updated_at', { ascending: false }),
+    ])
+
+    const data = {
+      clients: (clientsRes.data || []).map(normalizeClient),
+      conversations: (convosRes.data || []).map(normalizeConvo),
+      jobs: (jobsRes.data || []).map(normalizeJob),
+      invoices: (invoicesRes.data || []).map(normalizeInvoice),
+      properties: (propertiesRes.data || []).map(normalizeProperty),
+      quotes: (quotesRes.data || []).map(normalizeQuote),
+    }
+
+    saveLocal(data)
+  } catch (err) {
+    console.error('Store initialization from Supabase failed:', err)
+  }
+}
+
+function syncToSupabase(table, record, toSnakeFn) {
+  const sb = getSupabase()
+  if (!sb) return
+  const row = toSnakeFn(record)
+  sb.from(table).upsert(row, { onConflict: 'id' }).then(({ error }) => {
+    if (error) console.error(`Supabase ${table} sync failed:`, error)
+  })
+}
+
+function deleteFromSupabase(table, id) {
+  const sb = getSupabase()
+  if (!sb) return
+  sb.from(table).delete().eq('id', id).then(({ error }) => {
+    if (error) console.error(`Supabase ${table} delete failed:`, error)
+  })
 }
 
 // ══════════════════════════════════════════
@@ -81,6 +137,7 @@ export function saveClient(client) {
     data.clients.unshift(client)
   }
   saveLocal(data)
+  syncToSupabase('clients', client, toSnake)
   return client
 }
 
@@ -100,6 +157,7 @@ export function deleteClient(id) {
   data.jobs = data.jobs.filter(j => j.clientId !== id)
   data.invoices = (data.invoices || []).filter(i => i.clientId !== id)
   saveLocal(data)
+  deleteFromSupabase('clients', id)
 }
 
 // ══════════════════════════════════════════
@@ -157,6 +215,7 @@ export function saveConversation(convo) {
     data.conversations.unshift(convo)
   }
   saveLocal(data)
+  syncToSupabase('conversations', convo, convoToSnake)
   return convo
 }
 
@@ -271,6 +330,7 @@ export function saveJob(job) {
     data.jobs.unshift(job)
   }
   saveLocal(data)
+  syncToSupabase('jobs', job, jobToSnake)
   return job
 }
 
@@ -278,6 +338,7 @@ export function deleteJob(id) {
   const data = loadLocal()
   data.jobs = data.jobs.filter(j => j.id !== id)
   saveLocal(data)
+  deleteFromSupabase('jobs', id)
 }
 
 // ══════════════════════════════════════════
@@ -358,6 +419,7 @@ export function saveInvoice(invoice) {
     data.invoices.unshift(invoice)
   }
   saveLocal(data)
+  syncToSupabase('invoices', invoice, invoiceToSnake)
   return invoice
 }
 
@@ -525,6 +587,7 @@ export function saveProperty(property) {
     data.properties.unshift(property)
   }
   saveLocal(data)
+  syncToSupabase('properties', property, propertyToSnake)
   return property
 }
 
@@ -532,6 +595,7 @@ export function deleteProperty(id) {
   const data = loadLocal()
   data.properties = (data.properties || []).filter(p => p.id !== id)
   saveLocal(data)
+  deleteFromSupabase('properties', id)
 }
 
 // ══════════════════════════════════════════
@@ -590,6 +654,7 @@ export function saveQuote(quote) {
     data.quotes.unshift(quote)
   }
   saveLocal(data)
+  syncToSupabase('quotes', quote, quoteToSnake)
   return quote
 }
 

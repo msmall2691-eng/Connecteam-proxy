@@ -1,7 +1,8 @@
 import { Routes, Route, NavLink } from 'react-router-dom'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useAuth } from './lib/auth'
 import { isSupabaseConfigured } from './lib/supabase'
+import { initializeStore } from './lib/store'
 import Login from './pages/Login'
 import Dashboard from './pages/Dashboard'
 import Reports from './pages/Reports'
@@ -33,9 +34,14 @@ export default function App() {
   const { user, loading, signOut } = useAuth()
   const [chatOpen, setChatOpen] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [storeReady, setStoreReady] = useState(false)
 
-  // Show loading while checking auth
-  if (loading) {
+  useEffect(() => {
+    initializeStore().then(() => setStoreReady(true))
+  }, [])
+
+  // Show loading while checking auth or initializing store
+  if (loading || !storeReady) {
     return (
       <div className="flex items-center justify-center h-screen bg-gray-950">
         <div className="animate-spin w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full" />
