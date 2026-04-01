@@ -52,6 +52,12 @@ export default async function handler(req, res) {
       preferredDate: preferredDate || '',
       preferredTime: preferredTime || '',
       budget: budget || '',
+      // Quote data (pre-calculated by website form)
+      estimateMin: estimateMin || null,
+      estimateMax: estimateMax || null,
+      // Property condition inputs
+      petHair: petHair || '',
+      condition: condition || '',
       // Tracking
       source: source || detectSource(req, { utm_source, fb_lead_id }),
       utm_source: utm_source || '',
@@ -112,7 +118,7 @@ export default async function handler(req, res) {
                   name: lead.address.split(',')[0] || 'Primary',
                   address_line1: lead.address,
                   type: lead.type || 'residential',
-                  sqft: lead.squareFeet ? parseInt(lead.squareFeet) : null,
+                  sqft: parseSqftRange(lead.squareFeet),
                   bedrooms: lead.bedrooms ? parseInt(lead.bedrooms) : null,
                   bathrooms: lead.bathrooms ? parseInt(lead.bathrooms) : null,
                   pet_hair: lead.petHair || 'none',
@@ -291,6 +297,15 @@ function mapPropertyType(type) {
   if (t.includes('rental') || t.includes('airbnb') || t.includes('vrbo')) return 'rental'
   if (t.includes('marina')) return 'marina'
   return 'residential'
+}
+
+function parseSqftRange(val) {
+  if (!val) return null
+  if (val.toLowerCase().startsWith('under')) return 400
+  const rangeMatch = val.match(/(\d+)\s*[-–]\s*(\d+)/)
+  if (rangeMatch) return Math.round((parseInt(rangeMatch[1]) + parseInt(rangeMatch[2])) / 2)
+  const numMatch = val.match(/(\d+)/)
+  return numMatch ? parseInt(numMatch[1]) : null
 }
 
 function buildLeadNotes(lead) {
