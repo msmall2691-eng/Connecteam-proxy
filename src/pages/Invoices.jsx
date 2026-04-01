@@ -210,11 +210,11 @@ export default function Invoices() {
                     <button onClick={() => { setActiveInvoice(inv); setShowForm(true) }}
                       className="text-xs text-gray-500 hover:text-blue-400">Edit</button>
                     {inv.status === 'draft' && (
-                      <button onClick={() => { saveInvoice({ ...inv, status: 'sent' }); reload() }}
+                      <button onClick={async () => { isSupabaseConfigured() ? await saveInvoiceAsync({ ...inv, status: 'sent' }) : saveInvoice({ ...inv, status: 'sent' }); reload() }}
                         className="text-xs text-gray-500 hover:text-green-400">Mark Sent</button>
                     )}
                     {inv.status === 'sent' && (
-                      <button onClick={() => { saveInvoice({ ...inv, status: 'paid', paidAt: new Date().toISOString() }); reload() }}
+                      <button onClick={async () => { isSupabaseConfigured() ? await saveInvoiceAsync({ ...inv, status: 'paid', paidAt: new Date().toISOString() }) : saveInvoice({ ...inv, status: 'paid', paidAt: new Date().toISOString() }); reload() }}
                         className="text-xs text-gray-500 hover:text-green-400">Mark Paid</button>
                     )}
                     {(inv.status === 'sent' || inv.status === 'overdue') && (
@@ -312,7 +312,7 @@ function InvoiceForm({ invoice, clients, onSave, onCancel }) {
     setForm({ ...form, clientId, clientName: client?.name || '' })
   }
 
-  function handleSubmit(e) {
+  async function handleSubmit(e) {
     e.preventDefault()
     const subtotal = form.items.reduce((s, i) => s + (parseFloat(i.total) || 0), 0)
     const taxAmount = subtotal * (parseFloat(form.taxRate) || 0)
@@ -334,7 +334,7 @@ function InvoiceForm({ invoice, clients, onSave, onCancel }) {
       items: form.items.filter(i => i.description),
     }
 
-    saveInvoice(inv)
+    if (isSupabaseConfigured()) { await saveInvoiceAsync(inv) } else { saveInvoice(inv) }
     onSave()
   }
 

@@ -62,7 +62,9 @@ export default function Communications() {
   // Import a Gmail thread into a client conversation
   async function importThread(email) {
     const client = email.clientMatch
-    const convo = saveConversation({
+    const _save = isSupabaseConfigured() ? saveConversationAsync : saveConversation
+    const _msg = isSupabaseConfigured() ? addMessageAsync : addMessage
+    const convo = await _save({
       clientId: client?.id || '',
       subject: email.subject,
       channel: 'email',
@@ -76,7 +78,7 @@ export default function Communications() {
         const data = await res.json()
         for (const msg of data.messages || []) {
           const isInbound = !msg.from.includes('maine-clean') && !msg.from.includes('info@')
-          addMessage(convo.id, {
+          await _msg(convo.id, {
             content: msg.body || msg.snippet,
             direction: isInbound ? 'inbound' : 'outbound',
             sender: msg.from.split('<')[0].trim(),
@@ -87,8 +89,9 @@ export default function Communications() {
       }
     } catch {}
 
-    reload()
-    setActive(getConversations().find(c => c.id === convo.id))
+    await reload()
+    const allConvos = isSupabaseConfigured() ? await getConversationsAsync() : getConversations()
+    setActive(allConvos.find(c => c.id === convo.id))
     setViewMode('conversations')
   }
 
@@ -109,7 +112,8 @@ export default function Communications() {
         })
         if (res.ok) {
           const data = await res.json()
-          addMessage(active.id, { content: newMsg.trim(), direction: 'outbound', sender: 'You', channel: 'email', gmailMessageId: data.messageId })
+          const _msg = isSupabaseConfigured() ? addMessageAsync : addMessage
+          await _msg(active.id, { content: newMsg.trim(), direction: 'outbound', sender: 'You', channel: 'email', gmailMessageId: data.messageId })
           setNewMsg(''); reload(); setSending(false); return
         } else { const err = await res.json().catch(() => ({})); setSendError(err.error || 'Email failed') }
       } catch (err) { setSendError(err.message || 'Email failed') }
@@ -124,29 +128,33 @@ export default function Communications() {
         })
         if (res.ok) {
           const data = await res.json()
-          addMessage(active.id, { content: newMsg.trim(), direction: 'outbound', sender: 'You', channel: 'text', twilioSid: data.sid })
+          const _msg2 = isSupabaseConfigured() ? addMessageAsync : addMessage
+          await _msg2(active.id, { content: newMsg.trim(), direction: 'outbound', sender: 'You', channel: 'text', twilioSid: data.sid })
           setNewMsg(''); reload(); setSending(false); return
         } else { const err = await res.json().catch(() => ({})); setSendError(err.error || 'SMS failed') }
       } catch (err) { setSendError(err.message || 'SMS failed') }
     }
 
     // Fallback: local
-    addMessage(active.id, { content: newMsg.trim(), direction: 'outbound', sender: 'You' })
+    const _msgLocal = isSupabaseConfigured() ? addMessageAsync : addMessage
+    await _msgLocal(active.id, { content: newMsg.trim(), direction: 'outbound', sender: 'You' })
     setNewMsg(''); reload(); setSending(false)
   }
 
-  function logInbound() {
+  async function logInbound() {
     if (!active) return
     const content = prompt('Paste the message received:')
     if (!content) return
-    addMessage(active.id, { content, direction: 'inbound', sender: clients[active.clientId]?.name || 'Client' })
+    const _msg = isSupabaseConfigured() ? addMessageAsync : addMessage
+    await _msg(active.id, { content, direction: 'inbound', sender: clients[active.clientId]?.name || 'Client' })
     reload()
   }
 
-  function createConvo(e) {
+  async function createConvo(e) {
     e.preventDefault()
     if (!newConvo.clientId || !newConvo.subject.trim()) return
-    saveConversation({ ...newConvo, messages: [] })
+    const _save = isSupabaseConfigured() ? saveConversationAsync : saveConversation
+    await _save({ ...newConvo, messages: [] })
     setShowNew(false)
     setNewConvo({ clientId: '', subject: '', channel: 'email' })
     reload()

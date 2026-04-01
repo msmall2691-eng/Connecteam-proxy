@@ -12,10 +12,20 @@ import {
   getQuotes, getQuotesAsync, saveQuote, saveQuoteAsync,
   generateQuoteNumber,
 } from '../lib/store'
-import { isSupabaseConfigured } from '../lib/supabase'
+import { isSupabaseConfigured, getSupabase } from '../lib/supabase'
 import { calculateQuote } from '../lib/quoteEngine'
 import PropertyForm from '../components/PropertyForm'
 import CustomFields from '../components/CustomFields'
+
+// Smart save wrappers — use Supabase when configured, localStorage otherwise
+const sb = () => isSupabaseConfigured()
+const _saveClient = (d) => sb() ? saveClientAsync(d) : Promise.resolve(saveClient(d))
+const _saveJob = (d) => sb() ? saveJobAsync(d) : Promise.resolve(saveJob(d))
+const _saveInvoice = (d) => sb() ? saveInvoiceAsync(d) : Promise.resolve(saveInvoice(d))
+const _saveQuote = (d) => sb() ? saveQuoteAsync(d) : Promise.resolve(saveQuote(d))
+const _saveProperty = (d) => sb() ? savePropertyAsync(d) : Promise.resolve(saveProperty(d))
+const _saveConversation = (d) => sb() ? saveConversationAsync(d) : Promise.resolve(saveConversation(d))
+const _addMessage = (id, m) => sb() ? addMessageAsync(id, m) : Promise.resolve(addMessage(id, m))
 
 const TABS = ['overview', 'properties', 'quotes', 'conversations', 'jobs', 'invoices', 'documents', 'notes']
 
@@ -204,8 +214,8 @@ function PropertiesTab({ clientId, properties, onReload }) {
   const [showForm, setShowForm] = useState(false)
   const [editing, setEditing] = useState(null)
 
-  function handleSave(prop) {
-    saveProperty({ ...prop, clientId })
+  async function handleSave(prop) {
+    await _saveProperty({ ...prop, clientId })
     setShowForm(false)
     setEditing(null)
     onReload()
@@ -259,7 +269,7 @@ function PropertiesTab({ clientId, properties, onReload }) {
             {prop.accessNotes && <p className="text-xs text-gray-600 mb-2">Access: {prop.accessNotes}</p>}
             <div className="flex gap-2 mt-2">
               <button onClick={() => { setEditing(prop); setShowForm(true) }} className="text-xs text-gray-500 hover:text-blue-400">Edit</button>
-              <button onClick={() => { if (confirm('Delete this property?')) { deleteProperty(prop.id); onReload() } }}
+              <button onClick={async () => { if (confirm('Delete this property?')) { if (sb()) { const s = getSupabase(); if(s) await s.from('properties').delete().eq('id', prop.id) } else { deleteProperty(prop.id) }; onReload() } }}
                 className="text-xs text-gray-500 hover:text-red-400">Delete</button>
             </div>
           </div>
@@ -305,7 +315,7 @@ function QuotesTab({ client, properties, quotes, onReload }) {
 
   async function handleSendQuote(channel) {
     setSending(true)
-    const q = saveQuote({
+    const q = await _saveQuote({
       quoteNumber: generateQuoteNumber(),
       clientId: client.id,
       propertyId: selectedProperty?.id || null,
@@ -325,7 +335,7 @@ function QuotesTab({ client, properties, quotes, onReload }) {
       preferredDay: 1,
     })
 
-    saveClient({ id: client.id, status: 'prospect' })
+    await _saveClient({ id: client.id, status: 'prospect' })
 
     const portalToken = btoa(`${client.id}|${Date.now()}`).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
     const portalUrl = `${window.location.origin}/portal.html?token=${portalToken}`
@@ -344,17 +354,33 @@ function QuotesTab({ client, properties, quotes, onReload }) {
     onReload()
   }
 
-  async function handleAcceptQuote(q) {
-    saveQuote({ ...q, status: 'accepted', acceptedAt: new Date().toISOString() })
-    saveClient({ id: client.id, status: 'active' })
+  const [acceptingQuote, setAcceptingQuote] = useState(null)
+  const [acceptDate, setAcceptDate] = useState('')
+  const [acceptTime, setAcceptTime] = useState('09:00')
 
-    // Create job
+  function startAcceptQuote(q) {
+    setAcceptingQuote(q)
+    // Default to next Monday
+    const d = new Date(); d.setDate(d.getDate() + ((8 - d.getDay()) % 7 || 7))
+    setAcceptDate(d.toISOString().split('T')[0])
+    setAcceptTime('09:00')
+  }
+
+  async function confirmAcceptQuote() {
+    const q = acceptingQuote
+    if (!q || !acceptDate) return
+    await _saveQuote({ ...q, status: 'accepted', acceptedAt: new Date().toISOString() })
+    await _saveClient({ id: client.id, status: 'active' })
+
     const prop = properties.find(p => p.id === q.propertyId)
-    const job = saveJob({
+    const endTime = (() => { const [h, m] = acceptTime.split(':'); return `${String(Math.min(23, parseInt(h) + 3)).padStart(2, '0')}:${m}` })()
+
+    await _saveJob({
       clientId: client.id, clientName: client.name,
       propertyId: q.propertyId, quoteId: q.id,
       title: (q.items?.[0]?.description) || 'Cleaning',
-      date: new Date().toISOString().split('T')[0],
+      date: acceptDate,
+      startTime: acceptTime, endTime,
       status: 'scheduled',
       price: q.finalPrice, priceType: 'flat',
       serviceType: q.serviceType,
@@ -364,21 +390,22 @@ function QuotesTab({ client, properties, quotes, onReload }) {
       recurrenceDay: q.preferredDay || 1,
     })
 
-    // Create Google Calendar event
+    // Push to Google Calendar
     try {
       await fetch('/api/google?action=calendar-create', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           summary: `${q.serviceType === 'standard' ? 'Cleaning' : 'Deep Clean'} — ${client.name}`,
-          description: `Client: ${client.name}\nPhone: ${client.phone || ''}\nAddress: ${prop?.addressLine1 || ''}\nPrice: $${q.finalPrice}\nQuote: ${q.quoteNumber}`,
-          startDateTime: `${new Date().toISOString().split('T')[0]}T09:00:00`,
-          endDateTime: `${new Date().toISOString().split('T')[0]}T12:00:00`,
+          description: `${client.name}\n${prop?.addressLine1 || ''}`,
+          startDateTime: `${acceptDate}T${acceptTime}:00`,
+          endDateTime: `${acceptDate}T${endTime}:00`,
           location: prop?.addressLine1 || client.address || '',
         }),
       })
     } catch {}
 
+    setAcceptingQuote(null)
     onReload()
   }
 
@@ -512,8 +539,8 @@ function QuotesTab({ client, properties, quotes, onReload }) {
               <input type="number" step="5" value={editingPrice}
                 onChange={e => setEditingPrice(e.target.value)}
                 className="w-24 px-2 py-1 bg-gray-800 border border-gray-700 rounded text-sm text-white text-right" />
-              <button onClick={() => {
-                saveQuote({ ...previewQuote, finalPrice: parseFloat(editingPrice) || previewQuote.finalPrice })
+              <button onClick={async () => {
+                await _saveQuote({ ...previewQuote, finalPrice: parseFloat(editingPrice) || previewQuote.finalPrice })
                 onReload()
                 setPreviewQuote({ ...previewQuote, finalPrice: parseFloat(editingPrice) || previewQuote.finalPrice })
               }} className="px-2 py-1 bg-blue-600 hover:bg-blue-500 rounded text-xs text-white">Update</button>
@@ -548,18 +575,46 @@ function QuotesTab({ client, properties, quotes, onReload }) {
               <>
                 {client.email && <button onClick={() => { handleSendQuote('email'); setPreviewQuote(null) }} className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 rounded-lg text-xs text-white">Email Quote</button>}
                 {client.phone && <button onClick={() => { handleSendQuote('text'); setPreviewQuote(null) }} className="px-3 py-1.5 bg-green-600 hover:bg-green-500 rounded-lg text-xs text-white">Text Quote</button>}
-                <button onClick={() => { saveQuote({ ...previewQuote, status: 'sent', sentAt: new Date().toISOString() }); setPreviewQuote(null); onReload() }}
+                <button onClick={async () => { await _saveQuote({ ...previewQuote, status: 'sent', sentAt: new Date().toISOString() }); setPreviewQuote(null); onReload() }}
                   className="px-3 py-1.5 bg-gray-700 rounded-lg text-xs text-gray-300">Mark Sent</button>
               </>
             )}
             {previewQuote.status === 'sent' && (
-              <button onClick={() => { handleAcceptQuote(previewQuote); setPreviewQuote(null) }}
+              <button onClick={() => { startAcceptQuote(previewQuote); setPreviewQuote(null) }}
                 className="px-3 py-1.5 bg-green-600 hover:bg-green-500 rounded-lg text-xs text-white font-medium">Accept → Create Job</button>
             )}
             {(previewQuote.status === 'sent' || previewQuote.status === 'draft') && (
-              <button onClick={() => { saveQuote({ ...previewQuote, status: 'declined', declinedAt: new Date().toISOString() }); setPreviewQuote(null); onReload() }}
+              <button onClick={async () => { await _saveQuote({ ...previewQuote, status: 'declined', declinedAt: new Date().toISOString() }); setPreviewQuote(null); onReload() }}
                 className="px-3 py-1.5 bg-gray-800 rounded-lg text-xs text-red-400">Decline</button>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Accept quote — schedule date picker */}
+      {acceptingQuote && (
+        <div className="bg-green-900/20 border border-green-800/50 rounded-xl p-5 space-y-4">
+          <h3 className="text-sm font-semibold text-white">Accept Quote &amp; Schedule First Job</h3>
+          <p className="text-xs text-gray-400">Quote {acceptingQuote.quoteNumber} — ${acceptingQuote.finalPrice || acceptingQuote.estimateMax}/clean</p>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">First Service Date *</label>
+              <input type="date" value={acceptDate} onChange={e => setAcceptDate(e.target.value)}
+                className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-sm text-white focus:outline-none focus:ring-2 focus:ring-green-500" />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Start Time</label>
+              <input type="time" value={acceptTime} onChange={e => setAcceptTime(e.target.value)}
+                className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-sm text-white focus:outline-none focus:ring-2 focus:ring-green-500" />
+            </div>
+          </div>
+          <div className="flex gap-2">
+            <button onClick={confirmAcceptQuote} disabled={!acceptDate}
+              className="px-4 py-2 bg-green-600 hover:bg-green-500 disabled:opacity-50 rounded-lg text-sm font-medium text-white">
+              Accept &amp; Schedule
+            </button>
+            <button onClick={() => setAcceptingQuote(null)}
+              className="px-4 py-2 bg-gray-800 rounded-lg text-sm text-gray-300">Cancel</button>
           </div>
         </div>
       )}
@@ -593,11 +648,11 @@ function QuotesTab({ client, properties, quotes, onReload }) {
                       <button onClick={() => { setPreviewQuote(q); setEditingPrice(String(q.finalPrice || q.estimateMax || 0)) }}
                         className="text-xs text-gray-400 hover:text-blue-400">View</button>
                       {q.status === 'sent' && (
-                        <button onClick={() => handleAcceptQuote(q)}
+                        <button onClick={() => startAcceptQuote(q)}
                           className="text-xs text-green-400 hover:text-green-300">Accept</button>
                       )}
                       {q.status === 'draft' && (
-                        <button onClick={() => { saveQuote({ ...q, status: 'sent', sentAt: new Date().toISOString() }); onReload() }}
+                        <button onClick={async () => { await _saveQuote({ ...q, status: 'sent', sentAt: new Date().toISOString() }); onReload() }}
                           className="text-xs text-blue-400 hover:text-blue-300">Send</button>
                       )}
                     </div>
@@ -624,22 +679,21 @@ function ConversationsTab({ clientId, convos, onReload }) {
   const [activeConvo, setActiveConvo] = useState(null)
   const [newMsg, setNewMsg] = useState('')
 
-  function createConvo(e) {
+  async function createConvo(e) {
     e.preventDefault()
     if (!newConvo.subject.trim()) return
-    saveConversation({ ...newConvo, clientId, messages: [] })
+    await _saveConversation({ ...newConvo, clientId, messages: [] })
     setShowNew(false)
     setNewConvo({ subject: '', channel: 'email' })
     onReload()
   }
 
-  function sendMessage(e) {
+  async function sendMessage(e) {
     e.preventDefault()
     if (!newMsg.trim() || !activeConvo) return
-    addMessage(activeConvo.id, { content: newMsg.trim(), direction: 'outbound', sender: 'You' })
+    await _addMessage(activeConvo.id, { content: newMsg.trim(), direction: 'outbound', sender: 'You' })
     setNewMsg('')
     onReload()
-    setActiveConvo(getConversations(clientId).find(c => c.id === activeConvo.id))
   }
 
   const currentConvo = activeConvo ? convos.find(c => c.id === activeConvo.id) || activeConvo : null
@@ -720,7 +774,7 @@ function JobsTab({ clientId, clientName, clientAddress, jobs, properties, onRelo
     setPushingCtId(job.id)
     try {
       const prop = (properties || []).find(p => p.id === job.propertyId)
-      const client = getClient(clientId)
+      const client = sb() ? await getClientAsync(clientId) : getClient(clientId)
       const address = prop?.addressLine1 || job.address || clientAddress || ''
       const apiKey = localStorage.getItem('connecteam_api_key')
       if (!apiKey) { alert('Set your Connecteam API key in Settings first.'); setPushingCtId(null); return }
@@ -745,7 +799,7 @@ function JobsTab({ clientId, clientName, clientAddress, jobs, properties, onRelo
       })
       if (res.ok) {
         const data = await res.json()
-        saveJob({ ...job, connecteamShiftId: data.shift?.id || 'synced' })
+        await _saveJob({ ...job, connecteamShiftId: data.shift?.id || 'synced' })
         onReload()
       } else {
         const err = await res.json().catch(() => ({}))
@@ -800,7 +854,7 @@ function JobsTab({ clientId, clientName, clientAddress, jobs, properties, onRelo
       })
       if (res.ok) {
         const data = await res.json()
-        saveJob({ ...job, googleEventId: data.id })
+        await _saveJob({ ...job, googleEventId: data.id })
         onReload()
       }
     } catch (err) {
@@ -810,10 +864,10 @@ function JobsTab({ clientId, clientName, clientAddress, jobs, properties, onRelo
     }
   }
 
-  function handleSubmit(e) {
+  async function handleSubmit(e) {
     e.preventDefault()
     const prop = (properties || []).find(p => p.id === form.propertyId)
-    saveJob({
+    await _saveJob({
       ...form,
       clientId,
       clientName,
@@ -962,14 +1016,15 @@ function JobsTab({ clientId, clientName, clientAddress, jobs, properties, onRelo
                 <td className="px-3 py-2.5">{j.assignee || '-'}</td>
                 <td className="px-3 py-2.5 text-right font-mono">{j.price ? `$${j.price}` : '-'}</td>
                 <td className="px-3 py-2.5 text-center">
-                  <select value={j.status} onChange={e => {
+                  <select value={j.status} onChange={async e => {
                     const newStatus = e.target.value
-                    saveJob({ ...j, status: newStatus })
+                    await _saveJob({ ...j, status: newStatus })
                     // Auto-generate invoice when job completed
                     if (newStatus === 'completed' && j.price) {
-                      saveInvoice({
+                      await _saveInvoice({
                         invoiceNumber: generateInvoiceNumber(),
                         clientId, clientName,
+                        propertyId: j.propertyId,
                         status: 'draft',
                         issueDate: new Date().toISOString().split('T')[0],
                         dueDate: new Date(Date.now() + 30 * 86400000).toISOString().split('T')[0],
@@ -1038,14 +1093,14 @@ function InvoicesTab({ clientId, clientName, jobs, invoices, onReload }) {
   const [previewInv, setPreviewInv] = useState(null)
   const [editItems, setEditItems] = useState([])
 
-  function quickInvoice() {
+  async function quickInvoice() {
     const items = completedJobs.map(j => ({
       jobId: j.id, description: `${j.title} (${j.date})`, quantity: 1,
       unitPrice: j.price || 0, total: j.price || 0,
     })).filter(i => i.unitPrice > 0)
     if (items.length === 0) { alert('No completed jobs with prices.'); return }
     const subtotal = items.reduce((s, i) => s + i.total, 0)
-    saveInvoice({
+    await _saveInvoice({
       invoiceNumber: generateInvoiceNumber(), clientId, clientName,
       status: 'draft', issueDate: new Date().toISOString().split('T')[0],
       dueDate: new Date(Date.now() + 30 * 86400000).toISOString().split('T')[0],
@@ -1076,10 +1131,10 @@ function InvoicesTab({ clientId, clientName, jobs, invoices, onReload }) {
     setEditItems(editItems.filter((_, i) => i !== idx))
   }
 
-  function saveEdits() {
+  async function saveEdits() {
     const subtotal = editItems.reduce((s, i) => s + (parseFloat(i.total) || 0), 0)
     const taxAmount = subtotal * (previewInv.taxRate || 0)
-    saveInvoice({ ...previewInv, items: editItems, subtotal, taxAmount, total: subtotal + taxAmount })
+    await _saveInvoice({ ...previewInv, items: editItems, subtotal, taxAmount, total: subtotal + taxAmount })
     setPreviewInv(null)
     onReload()
   }
@@ -1141,11 +1196,11 @@ function InvoicesTab({ clientId, clientName, jobs, invoices, onReload }) {
           <div className="flex gap-2 pt-2 border-t border-gray-800">
             <button onClick={saveEdits} className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 rounded-lg text-xs text-white">Save Changes</button>
             {previewInv.status === 'draft' && (
-              <button onClick={() => { saveInvoice({ ...previewInv, status: 'sent', items: editItems }); setPreviewInv(null); onReload() }}
+              <button onClick={async () => { await _saveInvoice({ ...previewInv, status: 'sent', items: editItems }); setPreviewInv(null); onReload() }}
                 className="px-3 py-1.5 bg-green-600 hover:bg-green-500 rounded-lg text-xs text-white">Mark Sent</button>
             )}
             {previewInv.status === 'sent' && (
-              <button onClick={() => { saveInvoice({ ...previewInv, status: 'paid', paidAt: new Date().toISOString() }); setPreviewInv(null); onReload() }}
+              <button onClick={async () => { await _saveInvoice({ ...previewInv, status: 'paid', paidAt: new Date().toISOString() }); setPreviewInv(null); onReload() }}
                 className="px-3 py-1.5 bg-green-600 hover:bg-green-500 rounded-lg text-xs text-white">Mark Paid</button>
             )}
           </div>
@@ -1181,11 +1236,11 @@ function InvoicesTab({ clientId, clientName, jobs, invoices, onReload }) {
                   <div className="flex gap-2 justify-end">
                     <button onClick={() => openPreview(inv)} className="text-xs text-gray-400 hover:text-blue-400">View/Edit</button>
                     {inv.status === 'draft' && (
-                      <button onClick={() => { saveInvoice({ ...inv, status: 'sent' }); onReload() }}
+                      <button onClick={async () => { await _saveInvoice({ ...inv, status: 'sent' }); onReload() }}
                         className="text-xs text-gray-500 hover:text-green-400">Send</button>
                     )}
                     {inv.status === 'sent' && (
-                      <button onClick={() => { saveInvoice({ ...inv, status: 'paid', paidAt: new Date().toISOString() }); onReload() }}
+                      <button onClick={async () => { await _saveInvoice({ ...inv, status: 'paid', paidAt: new Date().toISOString() }); onReload() }}
                         className="text-xs text-gray-500 hover:text-green-400">Paid</button>
                     )}
                   </div>
@@ -1334,8 +1389,8 @@ function NotesTab({ client, onSave }) {
   const [notes, setNotes] = useState(client.notes || '')
   const [saved, setSaved] = useState(false)
 
-  function handleSave() {
-    saveClient({ id: client.id, notes })
+  async function handleSave() {
+    await _saveClient({ id: client.id, notes })
     setSaved(true)
     onSave()
     setTimeout(() => setSaved(false), 2000)
@@ -1348,7 +1403,7 @@ function NotesTab({ client, onSave }) {
         <CustomFields
           label="Custom Client Fields"
           fields={client.customFields || {}}
-          onSave={(fields) => { saveClient({ id: client.id, customFields: fields }); onSave() }}
+          onSave={async (fields) => { await _saveClient({ id: client.id, customFields: fields }); onSave() }}
         />
       </div>
 
