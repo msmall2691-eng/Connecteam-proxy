@@ -135,15 +135,35 @@ export default function Schedule() {
   }
 
   async function loadTurnovers() {
-    if (rentalCals.length === 0) return
     try {
-      const calParam = rentalCals.map(c => `${c.calendarId}|${c.name}`).join(',')
+      // Primary: load from Supabase rental properties (persists across devices)
+      const allProps = isSupabaseConfigured() ? await getPropertiesAsync() : []
+      const rentalProps = allProps.filter(p => p.type === 'rental' && p.googleCalendarId)
+
+      // Fallback: also include legacy localStorage calendars
+      const legacyCals = rentalCals.filter(c =>
+        !rentalProps.some(p => p.googleCalendarId === c.calendarId)
+      )
+
+      const calEntries = [
+        ...rentalProps.map(p => ({ calendarId: p.googleCalendarId, name: p.name || p.addressLine1, clientId: p.clientId, propertyId: p.id, address: p.addressLine1 })),
+        ...legacyCals.map(c => ({ calendarId: c.calendarId, name: c.name, clientId: null, propertyId: null, address: '' })),
+      ]
+
+      if (calEntries.length === 0) return
+
+      const calParam = calEntries.map(c => `${c.calendarId}|${c.name}`).join(',')
       const now = new Date()
       const future = new Date(now.getTime() + 60 * 86400000)
       const res = await fetch(`/api/google?action=turnovers&calendars=${encodeURIComponent(calParam)}&timeMin=${now.toISOString()}&timeMax=${future.toISOString()}`)
       if (res.ok) {
         const data = await res.json()
-        setTurnovers(data.turnovers || [])
+        // Enrich turnovers with client/property linkage from Supabase properties
+        const enriched = (data.turnovers || []).map(t => {
+          const match = calEntries.find(c => c.calendarId === t.calendarId || c.name === t.property)
+          return { ...t, clientId: match?.clientId || null, propertyId: match?.propertyId || null, address: t.address || match?.address || '' }
+        })
+        setTurnovers(enriched)
       }
     } catch {}
   }
@@ -167,6 +187,8 @@ export default function Schedule() {
           cleaningTime: st.cleaningTime,
           address: st.address,
           clientName: st.clientName,
+          clientId: st.clientId,
+          propertyId: st.propertyId,
           fromScan: true,
         })
       }
@@ -218,8 +240,10 @@ export default function Schedule() {
           })
         }
 
-        // Refresh Google Calendar turnovers too
+        // Refresh all schedule data so new visits appear immediately
         loadTurnovers()
+        loadCrmData()
+        loadRentalStays()
       } else {
         const err = await res.json().catch(() => ({}))
         setToast({ type: 'error', message: 'Scan failed', details: err.error || 'Unknown error' })
@@ -786,6 +810,9 @@ export default function Schedule() {
                     title="Push to Connecteam Scheduler">
                     {pushingToConnecteam === t.eventId ? '...' : 'Connecteam'}
                   </button>
+                  {t.clientId && (
+                    <Link to={`/clients/${t.clientId}?tab=properties`} className="text-xs text-gray-500 hover:text-gray-300" title="View client & property">View</Link>
+                  )}
                 </div>
               </div>
             ))}
@@ -935,6 +962,8 @@ export default function Schedule() {
                 endTime: v.scheduledEndTime,
                 clientName: v.client?.name || '',
                 clientId: v.clientId,
+                propertyId: v.propertyId,
+                propertyName: v.property?.name || '',
                 address: v.address || v.property?.address_line1 || '',
                 googleEventId: v.googleEventId,
                 connecteamShiftId: v.connecteamShiftId,
@@ -953,6 +982,7 @@ export default function Schedule() {
                 title: j.title, date: j.date,
                 startTime: j.startTime, endTime: j.endTime,
                 clientName: j.clientName, clientId: j.clientId,
+                propertyId: j.propertyId,
                 address: j.address,
                 googleEventId: j.googleEventId,
                 connecteamShiftId: j.connecteamShiftId,
@@ -1005,7 +1035,7 @@ export default function Schedule() {
                       <span className="text-xs text-purple-400 px-1.5">Synced</span>
                     )}
                     {item.clientId && (
-                      <Link to={`/clients/${item.clientId}?tab=jobs`} className="text-xs text-gray-500 hover:text-gray-300">View</Link>
+                      <Link to={`/clients/${item.clientId}?tab=${item.source === 'ical_sync' ? 'properties' : 'jobs'}`} className="text-xs text-gray-500 hover:text-gray-300">View</Link>
                     )}
                   </div>
                 </div>
