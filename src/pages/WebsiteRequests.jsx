@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import { saveClient, saveClientAsync, getClientAsync, saveProperty, savePropertyAsync, getPropertiesAsync, getQuotesAsync, saveQuote, saveQuoteAsync, generateQuoteNumber } from '../lib/store'
 import { isSupabaseConfigured, getSupabase } from '../lib/supabase'
@@ -10,6 +10,8 @@ const STATUS_OPTIONS = [
   { value: 'converted', label: 'Converted', color: 'green' },
   { value: 'lost', label: 'Lost', color: 'gray' },
 ]
+
+const SOURCE_OPTIONS = ['All Sources', 'Website', 'Facebook', 'Google', 'Referral', 'Yelp', 'Other']
 
 const LOCAL_KEY = 'workflowhq_website_requests'
 
@@ -29,6 +31,9 @@ export default function WebsiteRequests() {
   const [expandedId, setExpandedId] = useState(null)
   const [converting, setConverting] = useState(null)
   const [successMessage, setSuccessMessage] = useState(null)
+  const [search, setSearch] = useState('')
+  const [sourceFilter, setSourceFilter] = useState('All Sources')
+  const [dateRange, setDateRange] = useState('all')
 
   useEffect(() => {
     fetchRequests()
@@ -105,6 +110,7 @@ export default function WebsiteRequests() {
           email: req.email || '',
           phone: req.phone || '',
           address: req.address || '',
+          companyName: req.company_name || req.companyName || '',
           status: 'lead',
           type: req.property_type || req.propertyType || 'residential',
           source: req.source || 'Website',
@@ -191,8 +197,36 @@ export default function WebsiteRequests() {
     setConverting(null)
   }
 
-  const filtered = filter === 'all' ? requests : requests.filter(r => r.status === filter)
+  const filtered = useMemo(() => {
+    let result = requests
+    if (filter !== 'all') result = result.filter(r => r.status === filter)
+    if (sourceFilter !== 'All Sources') result = result.filter(r => (r.source || 'Website') === sourceFilter)
+    if (search) {
+      const s = search.toLowerCase()
+      result = result.filter(r =>
+        (r.name || '').toLowerCase().includes(s) ||
+        (r.email || '').toLowerCase().includes(s) ||
+        (r.phone || '').includes(s) ||
+        (r.address || '').toLowerCase().includes(s) ||
+        (r.company_name || r.companyName || '').toLowerCase().includes(s)
+      )
+    }
+    if (dateRange !== 'all') {
+      const days = parseInt(dateRange)
+      const cutoff = new Date(Date.now() - days * 86400000).toISOString()
+      result = result.filter(r => (r.created_at || '') >= cutoff)
+    }
+    return result
+  }, [requests, filter, sourceFilter, search, dateRange])
+
   const newCount = requests.filter(r => r.status === 'new').length
+
+  async function markAllContacted() {
+    const newReqs = requests.filter(r => r.status === 'new')
+    for (const r of newReqs) {
+      await updateStatus(r.id, 'contacted')
+    }
+  }
 
   const statusColor = (status) => {
     const s = STATUS_OPTIONS.find(o => o.value === status)
@@ -275,22 +309,47 @@ export default function WebsiteRequests() {
         </details>
       </div>
 
-      {/* Filters */}
-      <div className="flex gap-2 flex-wrap">
-        <button onClick={() => setFilter('all')}
-          className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${filter === 'all' ? 'bg-gray-700 text-white' : 'bg-gray-900 text-gray-500 hover:bg-gray-800'}`}>
-          All ({requests.length})
-        </button>
-        {STATUS_OPTIONS.map(s => {
-          const count = requests.filter(r => r.status === s.value).length
-          if (count === 0 && s.value !== 'new') return null
-          return (
-            <button key={s.value} onClick={() => setFilter(s.value)}
-              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${filter === s.value ? 'bg-gray-700 text-white' : 'bg-gray-900 text-gray-500 hover:bg-gray-800'}`}>
-              {s.label} ({count})
+      {/* Search + Filters */}
+      <div className="space-y-3">
+        <div className="flex flex-wrap gap-2 items-center">
+          <input value={search} onChange={e => setSearch(e.target.value)}
+            placeholder="Search name, email, phone, address..."
+            className="flex-1 min-w-[200px] max-w-xs px-3 py-1.5 bg-gray-800 border border-gray-700 rounded-lg text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+          <select value={sourceFilter} onChange={e => setSourceFilter(e.target.value)}
+            className="px-3 py-1.5 bg-gray-800 border border-gray-700 rounded-lg text-xs text-white">
+            {SOURCE_OPTIONS.map(s => <option key={s} value={s}>{s}</option>)}
+          </select>
+          <div className="flex rounded-lg overflow-hidden border border-gray-700">
+            {[{ v: 'all', l: 'All' }, { v: '7', l: '7d' }, { v: '30', l: '30d' }].map(d => (
+              <button key={d.v} onClick={() => setDateRange(d.v)}
+                className={`px-2.5 py-1.5 text-xs ${dateRange === d.v ? 'bg-blue-600 text-white' : 'bg-gray-800 text-gray-400 hover:text-gray-200'}`}>
+                {d.l}
+              </button>
+            ))}
+          </div>
+          {newCount > 3 && (
+            <button onClick={markAllContacted}
+              className="px-3 py-1.5 bg-yellow-600/20 border border-yellow-800 rounded-lg text-xs text-yellow-400 hover:bg-yellow-600/30">
+              Mark all new as contacted
             </button>
-          )
-        })}
+          )}
+        </div>
+        <div className="flex gap-2 flex-wrap">
+          <button onClick={() => setFilter('all')}
+            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${filter === 'all' ? 'bg-gray-700 text-white' : 'bg-gray-900 text-gray-500 hover:bg-gray-800'}`}>
+            All ({requests.length})
+          </button>
+          {STATUS_OPTIONS.map(s => {
+            const count = requests.filter(r => r.status === s.value).length
+            if (count === 0 && s.value !== 'new') return null
+            return (
+              <button key={s.value} onClick={() => setFilter(s.value)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${filter === s.value ? 'bg-gray-700 text-white' : 'bg-gray-900 text-gray-500 hover:bg-gray-800'}`}>
+                {s.label} ({count})
+              </button>
+            )
+          })}
+        </div>
       </div>
 
       {/* Requests list */}
@@ -391,10 +450,14 @@ export default function WebsiteRequests() {
                         <span className="text-gray-600 block">Source</span>
                         <span className="text-gray-300">{r.source || 'Website'}</span>
                       </div>
+                      {(r.company_name || r.companyName) && <div><span className="text-gray-600 block">Company</span><span className="text-gray-300">{r.company_name || r.companyName}</span></div>}
                       {r.sqft && <div><span className="text-gray-600 block">Sq Ft</span><span className="text-gray-300">{Number(r.sqft).toLocaleString()}</span></div>}
+                      {r.bedrooms && <div><span className="text-gray-600 block">Bedrooms</span><span className="text-gray-300">{r.bedrooms}</span></div>}
                       {r.bathrooms && <div><span className="text-gray-600 block">Bathrooms</span><span className="text-gray-300">{r.bathrooms}</span></div>}
                       {r.pet_hair && r.pet_hair !== 'none' && <div><span className="text-gray-600 block">Pet Hair</span><span className="text-gray-300 capitalize">{r.pet_hair}</span></div>}
                       {r.condition && r.condition !== 'maintenance' && <div><span className="text-gray-600 block">Condition</span><span className="text-gray-300 capitalize">{r.condition}</span></div>}
+                      {(r.preferred_day || r.preferredDay) && <div><span className="text-gray-600 block">Preferred Day</span><span className="text-gray-300">{r.preferred_day || r.preferredDay}</span></div>}
+                      {(r.preferred_time || r.preferredTime) && <div><span className="text-gray-600 block">Preferred Time</span><span className="text-gray-300">{r.preferred_time || r.preferredTime}</span></div>}
                     </div>
 
                     {r.message && (

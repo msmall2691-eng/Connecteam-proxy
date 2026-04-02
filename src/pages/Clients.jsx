@@ -1,6 +1,7 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { Link } from 'react-router-dom'
-import { getClients, getClientsAsync, saveClient, saveClientAsync, deleteClient, deleteClientAsync } from '../lib/store'
+import { getClients, getClientsAsync, saveClient, saveClientAsync, deleteClient, deleteClientAsync,
+  getQuotes, getQuotesAsync, getJobs, getJobsAsync, getInvoices, getInvoicesAsync } from '../lib/store'
 import { isSupabaseConfigured } from '../lib/supabase'
 import ImportClients from '../components/ImportClients'
 
@@ -11,9 +12,18 @@ const STATUS_COLORS = {
   prospect: 'bg-purple-900/40 text-purple-400',
 }
 
+const SOURCE_OPTIONS = ['Website', 'Referral', 'Google', 'Facebook', 'Instagram', 'Yelp', 'Nextdoor', 'Google Contacts', 'Other']
+const TYPE_OPTIONS = ['residential', 'commercial', 'rental', 'marina']
+const SORT_OPTIONS = [
+  { value: 'name-az', label: 'Name A-Z' },
+  { value: 'name-za', label: 'Name Z-A' },
+  { value: 'newest', label: 'Newest' },
+  { value: 'revenue', label: 'Revenue (highest)' },
+]
+
 const EMPTY_CLIENT = {
-  name: '', email: '', phone: '', address: '', status: 'lead',
-  type: 'residential', notes: '', source: '', tags: [],
+  name: '', companyName: '', email: '', phone: '', address: '', status: 'lead',
+  type: 'residential', notes: '', source: '', tags: [], preferredContact: 'email',
 }
 
 export default function Clients() {
@@ -25,12 +35,35 @@ export default function Clients() {
   const [form, setForm] = useState({ ...EMPTY_CLIENT })
   const [search, setSearch] = useState('')
   const [filterStatus, setFilterStatus] = useState('all')
+  const [filterSource, setFilterSource] = useState('all')
+  const [filterType, setFilterType] = useState('all')
+  const [sortBy, setSortBy] = useState('name-az')
+  const [clientStats, setClientStats] = useState({})
 
   useEffect(() => { reload() }, [])
 
   async function reload() {
     const data = isSupabaseConfigured() ? await getClientsAsync() : getClients()
     setClients(data)
+    loadStats(data)
+  }
+
+  async function loadStats(clientList) {
+    const stats = {}
+    for (const client of clientList) {
+      try {
+        const quotes = isSupabaseConfigured() ? await getQuotesAsync(client.id) : getQuotes(client.id)
+        const jobs = isSupabaseConfigured() ? await getJobsAsync(client.id) : getJobs(client.id)
+        const invoices = isSupabaseConfigured() ? await getInvoicesAsync(client.id) : getInvoices(client.id)
+        const revenue = invoices
+          .filter(inv => inv.status === 'paid')
+          .reduce((sum, inv) => sum + (Number(inv.total) || 0), 0)
+        stats[client.id] = { quotes: quotes.length, jobs: jobs.length, revenue }
+      } catch {
+        stats[client.id] = { quotes: 0, jobs: 0, revenue: 0 }
+      }
+    }
+    setClientStats(stats)
   }
 
   async function handleSubmit(e) {
@@ -64,17 +97,32 @@ export default function Clients() {
     }
   }
 
-  const filtered = clients.filter(c => {
-    if (filterStatus !== 'all' && c.status !== filterStatus) return false
-    if (search) {
-      const s = search.toLowerCase()
-      return c.name?.toLowerCase().includes(s) ||
-        c.email?.toLowerCase().includes(s) ||
-        c.phone?.includes(s) ||
-        c.address?.toLowerCase().includes(s)
-    }
-    return true
-  })
+  const filtered = useMemo(() => {
+    let result = clients.filter(c => {
+      if (filterStatus !== 'all' && c.status !== filterStatus) return false
+      if (filterSource !== 'all' && (c.source || '').toLowerCase() !== filterSource.toLowerCase()) return false
+      if (filterType !== 'all' && c.type !== filterType) return false
+      if (search) {
+        const s = search.toLowerCase()
+        return c.name?.toLowerCase().includes(s) ||
+          c.companyName?.toLowerCase().includes(s) ||
+          c.email?.toLowerCase().includes(s) ||
+          c.phone?.includes(s) ||
+          c.address?.toLowerCase().includes(s)
+      }
+      return true
+    })
+    result.sort((a, b) => {
+      switch (sortBy) {
+        case 'name-az': return (a.name || '').localeCompare(b.name || '')
+        case 'name-za': return (b.name || '').localeCompare(a.name || '')
+        case 'newest': return (b.createdAt || b.id || '').toString().localeCompare((a.createdAt || a.id || '').toString())
+        case 'revenue': return (clientStats[b.id]?.revenue || 0) - (clientStats[a.id]?.revenue || 0)
+        default: return 0
+      }
+    })
+    return result
+  }, [clients, filterStatus, filterSource, filterType, search, sortBy, clientStats])
 
   return (
     <div className="p-6 max-w-7xl mx-auto space-y-6">
@@ -128,27 +176,68 @@ export default function Clients() {
       )}
 
       {/* Filters */}
-      <div className="flex items-center gap-3">
-        <input
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-          placeholder="Search clients..."
-          className="flex-1 max-w-xs px-3 py-1.5 bg-gray-800 border border-gray-700 rounded-lg text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
-        />
-        <div className="flex gap-1">
-          {['all', 'active', 'lead', 'prospect', 'inactive'].map(s => (
-            <button
-              key={s}
-              onClick={() => setFilterStatus(s)}
-              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
-                filterStatus === s
-                  ? 'bg-blue-600/20 text-blue-400'
-                  : 'bg-gray-800 text-gray-400 hover:text-gray-200'
-              }`}
-            >
-              {s.charAt(0).toUpperCase() + s.slice(1)}
-            </button>
-          ))}
+      <div className="space-y-3">
+        <div className="flex items-center gap-3 flex-wrap">
+          <input
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            placeholder="Search clients..."
+            className="flex-1 max-w-xs px-3 py-1.5 bg-gray-800 border border-gray-700 rounded-lg text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          />
+          <div className="flex gap-1">
+            {['all', 'active', 'lead', 'prospect', 'inactive'].map(s => (
+              <button
+                key={s}
+                onClick={() => setFilterStatus(s)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                  filterStatus === s
+                    ? 'bg-blue-600/20 text-blue-400'
+                    : 'bg-gray-800 text-gray-400 hover:text-gray-200'
+                }`}
+              >
+                {s.charAt(0).toUpperCase() + s.slice(1)}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="flex items-center gap-3 flex-wrap">
+          {/* Type filter */}
+          <div className="flex gap-1">
+            {['all', ...TYPE_OPTIONS].map(t => (
+              <button
+                key={t}
+                onClick={() => setFilterType(t)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors capitalize ${
+                  filterType === t
+                    ? 'bg-purple-600/20 text-purple-400'
+                    : 'bg-gray-800 text-gray-400 hover:text-gray-200'
+                }`}
+              >
+                {t === 'all' ? 'All Types' : t === 'rental' ? 'Rental' : t}
+              </button>
+            ))}
+          </div>
+          {/* Source filter */}
+          <select
+            value={filterSource}
+            onChange={e => setFilterSource(e.target.value)}
+            className="px-3 py-1.5 bg-gray-800 border border-gray-700 rounded-lg text-xs text-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          >
+            <option value="all">All Sources</option>
+            {SOURCE_OPTIONS.map(s => (
+              <option key={s} value={s}>{s}</option>
+            ))}
+          </select>
+          {/* Sort */}
+          <select
+            value={sortBy}
+            onChange={e => setSortBy(e.target.value)}
+            className="px-3 py-1.5 bg-gray-800 border border-gray-700 rounded-lg text-xs text-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          >
+            {SORT_OPTIONS.map(o => (
+              <option key={o.value} value={o.value}>{o.label}</option>
+            ))}
+          </select>
         </div>
       </div>
 
@@ -163,6 +252,12 @@ export default function Clients() {
               <label className="block text-xs text-gray-500 mb-1">Name *</label>
               <input required value={form.name} onChange={e => setForm({ ...form, name: e.target.value })}
                 className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Company Name</label>
+              <input value={form.companyName || ''} onChange={e => setForm({ ...form, companyName: e.target.value })}
+                placeholder="Business or company name"
+                className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500" />
             </div>
             <div>
               <label className="block text-xs text-gray-500 mb-1">Email</label>
@@ -201,9 +296,22 @@ export default function Clients() {
             </div>
             <div>
               <label className="block text-xs text-gray-500 mb-1">Source</label>
-              <input value={form.source} onChange={e => setForm({ ...form, source: e.target.value })}
-                placeholder="Referral, Google, etc."
-                className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              <select value={form.source} onChange={e => setForm({ ...form, source: e.target.value })}
+                className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+                <option value="">-- Select Source --</option>
+                {SOURCE_OPTIONS.map(s => (
+                  <option key={s} value={s}>{s}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Preferred Contact</label>
+              <select value={form.preferredContact || 'email'} onChange={e => setForm({ ...form, preferredContact: e.target.value })}
+                className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+                <option value="email">Email</option>
+                <option value="phone">Phone</option>
+                <option value="text">Text</option>
+              </select>
             </div>
             <div>
               <label className="block text-xs text-gray-500 mb-1">Tags</label>
@@ -239,6 +347,9 @@ export default function Clients() {
                 <th className="px-3 py-3 text-left">Contact</th>
                 <th className="px-3 py-3 text-left">Type</th>
                 <th className="px-3 py-3 text-center">Status</th>
+                <th className="px-3 py-3 text-center">Quotes</th>
+                <th className="px-3 py-3 text-center">Jobs</th>
+                <th className="px-3 py-3 text-right">Revenue</th>
                 <th className="px-3 py-3 text-left">Tags</th>
                 <th className="px-5 py-3 text-right">Actions</th>
               </tr>
@@ -250,6 +361,7 @@ export default function Clients() {
                     <Link to={`/clients/${client.id}`} className="font-medium text-white hover:text-blue-400 transition-colors">
                       {client.name}
                     </Link>
+                    {client.companyName && <p className="text-xs text-gray-400 mt-0.5">{client.companyName}</p>}
                     {client.address && <p className="text-xs text-gray-500 mt-0.5">{client.address}</p>}
                   </td>
                   <td className="px-3 py-3">
@@ -261,6 +373,21 @@ export default function Clients() {
                     <span className={`inline-block px-2 py-0.5 rounded text-xs font-medium ${STATUS_COLORS[client.status] || STATUS_COLORS.inactive}`}>
                       {client.status}
                     </span>
+                  </td>
+                  <td className="px-3 py-3 text-center">
+                    <span className="inline-block px-2 py-0.5 bg-blue-900/30 text-blue-400 rounded text-xs font-medium">
+                      {clientStats[client.id]?.quotes ?? '-'}
+                    </span>
+                  </td>
+                  <td className="px-3 py-3 text-center">
+                    <span className="inline-block px-2 py-0.5 bg-green-900/30 text-green-400 rounded text-xs font-medium">
+                      {clientStats[client.id]?.jobs ?? '-'}
+                    </span>
+                  </td>
+                  <td className="px-3 py-3 text-right text-xs text-gray-300">
+                    {clientStats[client.id]?.revenue != null
+                      ? `$${clientStats[client.id].revenue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                      : '-'}
                   </td>
                   <td className="px-3 py-3">
                     <div className="flex gap-1 flex-wrap">
@@ -279,7 +406,7 @@ export default function Clients() {
               ))}
               {filtered.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="px-5 py-12 text-center text-gray-500">
+                  <td colSpan={9} className="px-5 py-12 text-center text-gray-500">
                     {clients.length === 0 ? 'No clients yet. Add your first client to get started.' : 'No clients match your search.'}
                   </td>
                 </tr>

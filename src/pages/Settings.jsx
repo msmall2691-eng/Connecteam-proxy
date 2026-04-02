@@ -19,8 +19,8 @@ export default function Settings() {
   const [saved, setSaved] = useState(null)
   const [testResults, setTestResults] = useState({})
 
-  // Client-side keys (stored in browser)
-  const [connecteamKey, setConnecteamKey] = useState(getApiKey())
+  // Client-side keys (stored in browser) — also persisted in settings via Save All
+  const [connecteamKey, setConnecteamKey] = useState(getApiKey() || settings.connecteamKey || '')
 
   // Server-side integration status
   const [integrations, setIntegrations] = useState({
@@ -39,6 +39,18 @@ export default function Settings() {
   })
   const [invoice, setInvoice] = useState(settings.invoice || {
     defaultTaxRate: 0, defaultDueDays: 30, paymentInstructions: '', prefix: 'INV',
+  })
+  const [quote, setQuote] = useState(settings.quote || {
+    quotePrefix: 'QTE', defaultExpiryDays: 30, quoteTerms: '', defaultFrequency: 'one-time',
+  })
+  const [scheduling, setScheduling] = useState(settings.scheduling || {
+    defaultStartTime: '09:00', defaultEndTime: '12:00', defaultAssignee: '', bufferMinutes: 30,
+  })
+  const [notifications, setNotifications] = useState(settings.notifications || {
+    notifyOnNewLead: true, notifyOnQuoteAccepted: true, notifyOnPayment: true, notificationEmail: '',
+  })
+  const [clientPortal, setClientPortal] = useState(settings.clientPortal || {
+    portalEnabled: true, portalShowInvoices: true, portalShowSchedule: true, portalShowQuotes: true, portalWelcomeMessage: '',
   })
   const [automations, setAutomations] = useState(settings.automations || {
     autoScanTurnovers: true,
@@ -82,9 +94,8 @@ export default function Settings() {
   }
 
   function handleSaveAll() {
-    // Save business settings
-    saveSettings({ company, payroll, invoice, automations })
-    // Save Connecteam key
+    // Save all settings including Connecteam key
+    saveSettings({ company, payroll, invoice, quote, scheduling, notifications, clientPortal, automations, connecteamKey })
     setApiKey(connecteamKey)
     setSaved('All settings saved!')
     setTimeout(() => setSaved(null), 3000)
@@ -280,6 +291,97 @@ export default function Settings() {
         </div>
         <div className="mt-3">
           <Field label="Payment Instructions" value={invoice.paymentInstructions} onChange={v => setInvoice({ ...invoice, paymentInstructions: v })} placeholder="e.g. Pay via Venmo @handle" />
+        </div>
+      </Section>
+
+      {/* ── QUOTE DEFAULTS ── */}
+      <Section title="Quote Defaults" desc="Default settings for new quotes.">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <Field label="Quote Prefix" value={quote.quotePrefix} onChange={v => setQuote({ ...quote, quotePrefix: v })} />
+          <Field label="Default Expiry (days)" type="number" value={quote.defaultExpiryDays} onChange={v => setQuote({ ...quote, defaultExpiryDays: parseInt(v) || 30 })} />
+          <div>
+            <label className="block text-xs text-gray-500 mb-1">Default Frequency</label>
+            <select value={quote.defaultFrequency} onChange={e => setQuote({ ...quote, defaultFrequency: e.target.value })}
+              className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+              <option value="one-time">One-time</option>
+              <option value="weekly">Weekly</option>
+              <option value="biweekly">Bi-weekly</option>
+              <option value="monthly">Monthly</option>
+            </select>
+          </div>
+        </div>
+        <div className="mt-3">
+          <label className="block text-xs text-gray-500 mb-1">Terms & Conditions</label>
+          <textarea rows={4} value={quote.quoteTerms} onChange={e => setQuote({ ...quote, quoteTerms: e.target.value })}
+            placeholder="Terms and conditions shown on quotes..."
+            className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+        </div>
+      </Section>
+
+      {/* ── SCHEDULING DEFAULTS ── */}
+      <Section title="Scheduling Defaults" desc="Default settings when creating new scheduled jobs.">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <div>
+            <label className="block text-xs text-gray-500 mb-1">Default Start Time</label>
+            <input type="time" value={scheduling.defaultStartTime} onChange={e => setScheduling({ ...scheduling, defaultStartTime: e.target.value })}
+              className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500" />
+          </div>
+          <div>
+            <label className="block text-xs text-gray-500 mb-1">Default End Time</label>
+            <input type="time" value={scheduling.defaultEndTime} onChange={e => setScheduling({ ...scheduling, defaultEndTime: e.target.value })}
+              className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500" />
+          </div>
+          <Field label="Default Assignee" value={scheduling.defaultAssignee} onChange={v => setScheduling({ ...scheduling, defaultAssignee: v })} placeholder="e.g. Charnette" />
+          <Field label="Buffer Between Jobs (min)" type="number" value={scheduling.bufferMinutes} onChange={v => setScheduling({ ...scheduling, bufferMinutes: parseInt(v) || 0 })} />
+        </div>
+      </Section>
+
+      {/* ── NOTIFICATIONS ── */}
+      <Section title="Notifications" desc="Configure which events trigger notifications.">
+        <div className="space-y-3">
+          <label className="flex items-center gap-3 cursor-pointer">
+            <input type="checkbox" checked={notifications.notifyOnNewLead} onChange={e => setNotifications({ ...notifications, notifyOnNewLead: e.target.checked })} className="rounded border-gray-600" />
+            <div><span className="text-sm text-white">New lead received</span><p className="text-xs text-gray-600">Get notified when a new lead comes in from Facebook, ManyChat, or the website</p></div>
+          </label>
+          <label className="flex items-center gap-3 cursor-pointer">
+            <input type="checkbox" checked={notifications.notifyOnQuoteAccepted} onChange={e => setNotifications({ ...notifications, notifyOnQuoteAccepted: e.target.checked })} className="rounded border-gray-600" />
+            <div><span className="text-sm text-white">Quote accepted</span><p className="text-xs text-gray-600">Get notified when a client accepts a quote</p></div>
+          </label>
+          <label className="flex items-center gap-3 cursor-pointer">
+            <input type="checkbox" checked={notifications.notifyOnPayment} onChange={e => setNotifications({ ...notifications, notifyOnPayment: e.target.checked })} className="rounded border-gray-600" />
+            <div><span className="text-sm text-white">Payment received</span><p className="text-xs text-gray-600">Get notified when a payment is recorded or received via Square</p></div>
+          </label>
+        </div>
+        <div className="mt-3">
+          <Field label="Notification Email" value={notifications.notificationEmail} onChange={v => setNotifications({ ...notifications, notificationEmail: v })} placeholder="e.g. alerts@mainecleaningco.com" />
+        </div>
+      </Section>
+
+      {/* ── CLIENT PORTAL ── */}
+      <Section title="Client Portal" desc="Configure the client-facing portal experience.">
+        <div className="space-y-3">
+          <label className="flex items-center gap-3 cursor-pointer">
+            <input type="checkbox" checked={clientPortal.portalEnabled} onChange={e => setClientPortal({ ...clientPortal, portalEnabled: e.target.checked })} className="rounded border-gray-600" />
+            <div><span className="text-sm text-white">Enable client portal</span><p className="text-xs text-gray-600">Allow clients to log in and view their account</p></div>
+          </label>
+          <label className="flex items-center gap-3 cursor-pointer">
+            <input type="checkbox" checked={clientPortal.portalShowInvoices} onChange={e => setClientPortal({ ...clientPortal, portalShowInvoices: e.target.checked })} className="rounded border-gray-600" />
+            <div><span className="text-sm text-white">Show invoices</span><p className="text-xs text-gray-600">Clients can view and pay their invoices</p></div>
+          </label>
+          <label className="flex items-center gap-3 cursor-pointer">
+            <input type="checkbox" checked={clientPortal.portalShowSchedule} onChange={e => setClientPortal({ ...clientPortal, portalShowSchedule: e.target.checked })} className="rounded border-gray-600" />
+            <div><span className="text-sm text-white">Show schedule</span><p className="text-xs text-gray-600">Clients can see their upcoming scheduled services</p></div>
+          </label>
+          <label className="flex items-center gap-3 cursor-pointer">
+            <input type="checkbox" checked={clientPortal.portalShowQuotes} onChange={e => setClientPortal({ ...clientPortal, portalShowQuotes: e.target.checked })} className="rounded border-gray-600" />
+            <div><span className="text-sm text-white">Show quotes</span><p className="text-xs text-gray-600">Clients can view and accept/decline quotes</p></div>
+          </label>
+        </div>
+        <div className="mt-3">
+          <label className="block text-xs text-gray-500 mb-1">Welcome Message</label>
+          <textarea rows={3} value={clientPortal.portalWelcomeMessage} onChange={e => setClientPortal({ ...clientPortal, portalWelcomeMessage: e.target.value })}
+            placeholder="Welcome message displayed when clients log in..."
+            className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500" />
         </div>
       </Section>
 

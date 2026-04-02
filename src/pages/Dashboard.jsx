@@ -46,6 +46,7 @@ export default function Dashboard() {
     // Quotes to send or follow up
     const draftQuotes = quotes.filter(q => q.status === 'draft').slice(0, 5)
     const sentQuotes = quotes.filter(q => q.status === 'sent').slice(0, 5)
+    const acceptedQuotes = quotes.filter(q => q.status === 'accepted' || q.status === 'signed')
     // Today
     const todayJobs = jobs.filter(j => j.date === today && j.status !== 'cancelled')
     // Upcoming this week
@@ -67,8 +68,27 @@ export default function Dashboard() {
     }
     recentMsgs.sort((a, b) => new Date(b.timestamp || 0) - new Date(a.timestamp || 0))
 
+    // Workflow funnel stats
+    const workflow = {
+      leads: clients.filter(c => c.status === 'lead').length,
+      quoted: clients.filter(c => c.status === 'prospect').length,
+      active: clients.filter(c => c.status === 'active').length,
+      totalQuotes: quotes.length,
+      draftQuotes: quotes.filter(q => q.status === 'draft').length,
+      sentQuotes: quotes.filter(q => q.status === 'sent').length,
+      acceptedQuotes: acceptedQuotes.length,
+      scheduledJobs: jobs.filter(j => j.status === 'scheduled').length,
+      completedJobs: jobs.filter(j => j.status === 'completed').length,
+      draftInvoices: invoices.filter(i => i.status === 'draft').length,
+      sentInvoices: invoices.filter(i => i.status === 'sent').length,
+      paidInvoices: invoices.filter(i => i.status === 'paid').length,
+      overdueInvoices: invoices.filter(i => i.status === 'overdue').length,
+      totalProperties: properties.length,
+    }
+
     setData({
       stats: { clients: clients.length, active: clients.filter(c => c.status === 'active').length, leads: leads.length, scheduled: thisWeekJobs.length, paidTotal, outstanding },
+      workflow,
       todayJobs, thisWeekJobs, unpushedJobs, unpushedCT, draftQuotes, sentQuotes, leads, unpaid,
       recentMsgs: recentMsgs.slice(0, 4),
     })
@@ -141,6 +161,56 @@ export default function Dashboard() {
         <Stat label="Revenue" value={`$${data.stats.paidTotal.toFixed(0)}`} color="text-green-400" />
         <Stat label="Owed" value={`$${data.stats.outstanding.toFixed(0)}`} color={data.stats.outstanding > 0 ? 'text-yellow-400' : ''} />
         <Stat label="Clients" value={data.stats.clients} />
+      </div>
+
+      {/* Workflow Funnel */}
+      <div className="bg-gray-900 border border-gray-800 rounded-xl p-4">
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-sm font-semibold text-white">Workflow Pipeline</h2>
+          <Link to="/pipeline" className="text-xs text-gray-500 hover:text-gray-300">View Pipeline</Link>
+        </div>
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
+          <Link to="/website-requests" className="bg-gray-800/50 rounded-lg p-3 hover:bg-gray-800 transition-colors">
+            <div className="flex items-center gap-2 mb-1">
+              <span className="w-2 h-2 rounded-full bg-blue-500" />
+              <span className="text-xs text-gray-400">Leads</span>
+            </div>
+            <p className="text-lg font-bold text-blue-400">{data.workflow.leads}</p>
+            <p className="text-xs text-gray-600">new inquiries</p>
+          </Link>
+          <Link to="/pipeline" className="bg-gray-800/50 rounded-lg p-3 hover:bg-gray-800 transition-colors">
+            <div className="flex items-center gap-2 mb-1">
+              <span className="w-2 h-2 rounded-full bg-purple-500" />
+              <span className="text-xs text-gray-400">Quotes</span>
+            </div>
+            <p className="text-lg font-bold text-purple-400">{data.workflow.draftQuotes + data.workflow.sentQuotes}</p>
+            <p className="text-xs text-gray-600">{data.workflow.draftQuotes} draft, {data.workflow.sentQuotes} sent</p>
+          </Link>
+          <Link to="/schedule" className="bg-gray-800/50 rounded-lg p-3 hover:bg-gray-800 transition-colors">
+            <div className="flex items-center gap-2 mb-1">
+              <span className="w-2 h-2 rounded-full bg-cyan-500" />
+              <span className="text-xs text-gray-400">Scheduled</span>
+            </div>
+            <p className="text-lg font-bold text-cyan-400">{data.workflow.scheduledJobs}</p>
+            <p className="text-xs text-gray-600">{data.workflow.completedJobs} completed</p>
+          </Link>
+          <Link to="/invoices" className="bg-gray-800/50 rounded-lg p-3 hover:bg-gray-800 transition-colors">
+            <div className="flex items-center gap-2 mb-1">
+              <span className="w-2 h-2 rounded-full bg-yellow-500" />
+              <span className="text-xs text-gray-400">Invoiced</span>
+            </div>
+            <p className="text-lg font-bold text-yellow-400">{data.workflow.sentInvoices + data.workflow.draftInvoices}</p>
+            <p className="text-xs text-gray-600">{data.workflow.overdueInvoices > 0 ? `${data.workflow.overdueInvoices} overdue` : `${data.workflow.draftInvoices} draft`}</p>
+          </Link>
+          <Link to="/revenue" className="bg-gray-800/50 rounded-lg p-3 hover:bg-gray-800 transition-colors">
+            <div className="flex items-center gap-2 mb-1">
+              <span className="w-2 h-2 rounded-full bg-green-500" />
+              <span className="text-xs text-gray-400">Paid</span>
+            </div>
+            <p className="text-lg font-bold text-green-400">{data.workflow.paidInvoices}</p>
+            <p className="text-xs text-gray-600">${data.stats.paidTotal.toFixed(0)} total</p>
+          </Link>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4">

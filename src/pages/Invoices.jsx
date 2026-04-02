@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import { getInvoices, getInvoicesAsync, saveInvoice, saveInvoiceAsync, getClients, getClientsAsync, getJobs, getJobsAsync, generateInvoiceNumber } from '../lib/store'
 import { isSupabaseConfigured } from '../lib/supabase'
@@ -105,6 +105,10 @@ export default function Invoices() {
   const [filterStatus, setFilterStatus] = useState('all')
   const [sendingId, setSendingId] = useState(null)
   const [emailStatus, setEmailStatus] = useState({})
+  const [searchQuery, setSearchQuery] = useState('')
+  const [filterClient, setFilterClient] = useState('all')
+  const [dateRange, setDateRange] = useState('all')
+  const [sortBy, setSortBy] = useState('date-desc')
 
   useEffect(() => { reload() }, [])
 
@@ -117,7 +121,63 @@ export default function Invoices() {
     }
   }
 
-  const filtered = invoices.filter(i => filterStatus === 'all' || i.status === filterStatus)
+  const filtered = useMemo(() => {
+    let result = invoices
+
+    // Status filter
+    if (filterStatus !== 'all') result = result.filter(i => i.status === filterStatus)
+
+    // Client filter
+    if (filterClient !== 'all') result = result.filter(i => i.clientId === filterClient)
+
+    // Search filter
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase()
+      result = result.filter(i =>
+        (i.clientName || '').toLowerCase().includes(q) ||
+        (i.invoiceNumber || '').toLowerCase().includes(q) ||
+        (i.notes || '').toLowerCase().includes(q)
+      )
+    }
+
+    // Date range filter
+    if (dateRange !== 'all') {
+      const now = new Date()
+      let start
+      if (dateRange === 'this-week') {
+        start = new Date(now); start.setDate(now.getDate() - now.getDay()); start.setHours(0, 0, 0, 0)
+      } else if (dateRange === 'this-month') {
+        start = new Date(now.getFullYear(), now.getMonth(), 1)
+      } else if (dateRange === 'last-month') {
+        start = new Date(now.getFullYear(), now.getMonth() - 1, 1)
+        const end = new Date(now.getFullYear(), now.getMonth(), 0)
+        result = result.filter(i => {
+          const d = new Date(i.issueDate)
+          return d >= start && d <= end
+        })
+        start = null // already filtered
+      }
+      if (start) {
+        result = result.filter(i => new Date(i.issueDate) >= start)
+      }
+    }
+
+    // Sort
+    result = [...result].sort((a, b) => {
+      switch (sortBy) {
+        case 'date-asc': return new Date(a.issueDate) - new Date(b.issueDate)
+        case 'date-desc': return new Date(b.issueDate) - new Date(a.issueDate)
+        case 'amount-asc': return (a.total || 0) - (b.total || 0)
+        case 'amount-desc': return (b.total || 0) - (a.total || 0)
+        case 'status': return (a.status || '').localeCompare(b.status || '')
+        default: return new Date(b.issueDate) - new Date(a.issueDate)
+      }
+    })
+
+    return result
+  }, [invoices, filterStatus, filterClient, searchQuery, dateRange, sortBy])
+
+  const filteredTotal = filtered.reduce((s, i) => s + (i.total || 0), 0)
 
   const stats = {
     outstanding: invoices.filter(i => i.status === 'sent').reduce((s, i) => s + i.total, 0),
@@ -128,7 +188,15 @@ export default function Invoices() {
       const now = new Date()
       return paid.getMonth() === now.getMonth() && paid.getFullYear() === now.getFullYear()
     }).reduce((s, i) => s + i.total, 0),
+    draftCount: invoices.filter(i => i.status === 'draft').length,
   }
+
+  // Unique clients that have invoices, for the client filter dropdown
+  const invoiceClients = useMemo(() => {
+    const map = new Map()
+    invoices.forEach(i => { if (i.clientId && i.clientName) map.set(i.clientId, i.clientName) })
+    return Array.from(map.entries()).sort((a, b) => a[1].localeCompare(b[1]))
+  }, [invoices])
 
   return (
     <div className="p-6 max-w-7xl mx-auto space-y-6">
@@ -144,7 +212,7 @@ export default function Invoices() {
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
         <div className="bg-gray-900 border border-gray-800 rounded-xl p-4">
           <p className="text-xs text-gray-500 uppercase">Outstanding</p>
           <p className="text-xl font-bold text-blue-400">${stats.outstanding.toFixed(2)}</p>
@@ -157,16 +225,66 @@ export default function Invoices() {
           <p className="text-xs text-gray-500 uppercase">Paid This Month</p>
           <p className="text-xl font-bold text-green-400">${stats.paidThisMonth.toFixed(2)}</p>
         </div>
+        <div className="bg-gray-900 border border-gray-800 rounded-xl p-4">
+          <p className="text-xs text-gray-500 uppercase">Drafts</p>
+          <p className="text-xl font-bold text-gray-400">{stats.draftCount}</p>
+        </div>
       </div>
 
-      {/* Filter */}
-      <div className="flex flex-wrap gap-1">
-        {['all', 'draft', 'sent', 'paid', 'overdue', 'cancelled'].map(s => (
-          <button key={s} onClick={() => setFilterStatus(s)}
-            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
-              filterStatus === s ? 'bg-blue-600/20 text-blue-400' : 'bg-gray-800 text-gray-400 hover:text-gray-200'
-            }`}>{s.charAt(0).toUpperCase() + s.slice(1)}</button>
-        ))}
+      {/* Filters */}
+      <div className="space-y-3">
+        {/* Search + Client + Date Range */}
+        <div className="flex flex-col sm:flex-row gap-3">
+          <input
+            type="text"
+            placeholder="Search invoices..."
+            value={searchQuery}
+            onChange={e => setSearchQuery(e.target.value)}
+            className="flex-1 px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          />
+          <select
+            value={filterClient}
+            onChange={e => setFilterClient(e.target.value)}
+            className="px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+          >
+            <option value="all">All Clients</option>
+            {invoiceClients.map(([id, name]) => (
+              <option key={id} value={id}>{name}</option>
+            ))}
+          </select>
+          <select
+            value={sortBy}
+            onChange={e => setSortBy(e.target.value)}
+            className="px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+          >
+            <option value="date-desc">Newest First</option>
+            <option value="date-asc">Oldest First</option>
+            <option value="amount-desc">Highest Amount</option>
+            <option value="amount-asc">Lowest Amount</option>
+            <option value="status">Status</option>
+          </select>
+        </div>
+
+        {/* Date range toggles + Status filter */}
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="flex flex-wrap gap-1">
+            {[['all', 'All Time'], ['this-week', 'This Week'], ['this-month', 'This Month'], ['last-month', 'Last Month']].map(([val, label]) => (
+              <button key={val} onClick={() => setDateRange(val)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                  dateRange === val ? 'bg-purple-600/20 text-purple-400' : 'bg-gray-800 text-gray-400 hover:text-gray-200'
+                }`}>{label}</button>
+            ))}
+          </div>
+          <div className="w-px h-5 bg-gray-700 hidden sm:block" />
+          <div className="flex flex-wrap gap-1">
+            {['all', 'draft', 'sent', 'paid', 'overdue', 'cancelled'].map(s => (
+              <button key={s} onClick={() => setFilterStatus(s)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                  filterStatus === s ? 'bg-blue-600/20 text-blue-400' : 'bg-gray-800 text-gray-400 hover:text-gray-200'
+                }`}>{s.charAt(0).toUpperCase() + s.slice(1)}</button>
+            ))}
+          </div>
+        </div>
       </div>
 
       {/* Invoice Form */}
@@ -187,6 +305,7 @@ export default function Invoices() {
             <tr className="text-xs text-gray-500 uppercase tracking-wider border-b border-gray-800">
               <th className="px-5 py-3 text-left">Invoice</th>
               <th className="px-3 py-3 text-left">Client</th>
+              <th className="px-3 py-3 text-left">Source</th>
               <th className="px-3 py-3 text-left">Date</th>
               <th className="px-3 py-3 text-left">Due</th>
               <th className="px-3 py-3 text-right">Amount</th>
@@ -199,6 +318,15 @@ export default function Invoices() {
               <tr key={inv.id} className="text-gray-300 hover:bg-gray-800/30 transition-colors">
                 <td className="px-5 py-3 font-mono text-white">{inv.invoiceNumber}</td>
                 <td className="px-3 py-3">{inv.clientId ? <Link to={`/clients/${inv.clientId}`} className="hover:text-blue-400 transition-colors">{inv.clientName || '-'}</Link> : (inv.clientName || '-')}</td>
+                <td className="px-3 py-3 text-xs text-gray-500">
+                  {inv.quoteId ? (
+                    <Link to={`/clients/${inv.clientId}`} className="text-purple-400 hover:text-purple-300">Quote</Link>
+                  ) : inv.items?.some(item => item.jobId) ? (
+                    <Link to={`/clients/${inv.clientId}`} className="text-cyan-400 hover:text-cyan-300">Job</Link>
+                  ) : (
+                    <span className="text-gray-600">Manual</span>
+                  )}
+                </td>
                 <td className="px-3 py-3">{inv.issueDate}</td>
                 <td className="px-3 py-3">{inv.dueDate || '-'}</td>
                 <td className="px-3 py-3 text-right font-mono">${inv.total.toFixed(2)}</td>
@@ -268,9 +396,31 @@ export default function Invoices() {
               </tr>
             ))}
             {filtered.length === 0 && (
-              <tr><td colSpan={7} className="px-5 py-12 text-center text-gray-500">No invoices yet.</td></tr>
+              <tr><td colSpan={8} className="px-5 py-12 text-center">
+                <div className="space-y-2">
+                  <p className="text-gray-500">{invoices.length === 0 ? 'No invoices yet.' : 'No invoices match the current filters.'}</p>
+                  {invoices.length === 0 && (
+                    <p className="text-sm text-gray-600">
+                      Create one from a client page or{' '}
+                      <Link to="/clients" className="text-blue-400 hover:text-blue-300 underline">browse your clients</Link>{' '}
+                      to get started.
+                    </p>
+                  )}
+                </div>
+              </td></tr>
             )}
           </tbody>
+          {filtered.length > 0 && (
+            <tfoot>
+              <tr className="border-t border-gray-700 bg-gray-800/40">
+                <td colSpan={5} className="px-5 py-3 text-xs text-gray-400 font-medium uppercase">
+                  {filtered.length} invoice{filtered.length !== 1 ? 's' : ''} shown
+                </td>
+                <td className="px-3 py-3 text-right font-mono text-sm text-white font-semibold">${filteredTotal.toFixed(2)}</td>
+                <td colSpan={2}></td>
+              </tr>
+            </tfoot>
+          )}
         </table>
         </div>
       </div>

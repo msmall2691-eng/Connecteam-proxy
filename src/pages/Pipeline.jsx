@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import {
   getClients, getClientsAsync, saveClient, saveClientAsync,
@@ -19,6 +19,15 @@ const SOURCE_ICONS = {
   'Referral': '🤝', 'Email': '📧', 'SMS': '💬', 'Phone': '📞', 'Direct': '📋',
 }
 
+const CLIENT_TYPES = ['all', 'residential', 'commercial', 'rental', 'marina']
+
+const WORKFLOW_STEPS = [
+  { key: 'request', label: 'Request' },
+  { key: 'quote', label: 'Quote' },
+  { key: 'schedule', label: 'Schedule' },
+  { key: 'invoice', label: 'Invoice' },
+]
+
 export default function Pipeline() {
   const [clients, setClients] = useState([])
   const [jobs, setJobs] = useState([])
@@ -26,6 +35,9 @@ export default function Pipeline() {
   const [allProperties, setAllProperties] = useState([])
   const [allQuotes, setAllQuotes] = useState([])
   const [view, setView] = useState('kanban')
+  const [searchTerm, setSearchTerm] = useState('')
+  const [sourceFilter, setSourceFilter] = useState('all')
+  const [typeFilter, setTypeFilter] = useState('all')
 
   useEffect(() => { reload() }, [])
 
@@ -71,6 +83,76 @@ export default function Pipeline() {
     }
   }
 
+  function getClientWorkflow(clientId) {
+    const hasQuotes = allQuotes.some(q => q.clientId === clientId)
+    const clientJobs = jobs.filter(j => j.clientId === clientId)
+    const hasJobs = clientJobs.length > 0
+    const clientInvoices = invoices.filter(i => i.clientId === clientId)
+    const hasInvoices = clientInvoices.length > 0
+    return {
+      request: true, // they are in the pipeline, so request exists
+      quote: hasQuotes,
+      schedule: hasJobs,
+      invoice: hasInvoices,
+    }
+  }
+
+  function getClientLastActivity(clientId) {
+    const dates = []
+    allQuotes.filter(q => q.clientId === clientId).forEach(q => {
+      if (q.createdAt) dates.push(new Date(q.createdAt))
+      if (q.updatedAt) dates.push(new Date(q.updatedAt))
+    })
+    jobs.filter(j => j.clientId === clientId).forEach(j => {
+      if (j.date) dates.push(new Date(j.date))
+      if (j.createdAt) dates.push(new Date(j.createdAt))
+      if (j.updatedAt) dates.push(new Date(j.updatedAt))
+    })
+    invoices.filter(i => i.clientId === clientId).forEach(i => {
+      if (i.date) dates.push(new Date(i.date))
+      if (i.createdAt) dates.push(new Date(i.createdAt))
+      if (i.updatedAt) dates.push(new Date(i.updatedAt))
+    })
+    const valid = dates.filter(d => !isNaN(d.getTime()))
+    if (valid.length === 0) return null
+    return new Date(Math.max(...valid.map(d => d.getTime())))
+  }
+
+  // Get unique sources for filter dropdown
+  const availableSources = useMemo(() => {
+    const sources = new Set(clients.map(c => c.source).filter(Boolean))
+    return ['all', ...Array.from(sources).sort()]
+  }, [clients])
+
+  // Filter clients
+  const filteredClients = useMemo(() => {
+    let result = clients
+    if (searchTerm) {
+      const term = searchTerm.toLowerCase()
+      result = result.filter(c =>
+        (c.name || '').toLowerCase().includes(term) ||
+        (c.email || '').toLowerCase().includes(term) ||
+        (c.phone || '').toLowerCase().includes(term) ||
+        (c.companyName || '').toLowerCase().includes(term)
+      )
+    }
+    if (sourceFilter !== 'all') {
+      result = result.filter(c => c.source === sourceFilter)
+    }
+    if (typeFilter !== 'all') {
+      result = result.filter(c => c.type === typeFilter)
+    }
+    return result
+  }, [clients, searchTerm, sourceFilter, typeFilter])
+
+  // Compute stage revenue from filtered clients
+  function getStageRevenue(stageId) {
+    const stageClientIds = new Set(filteredClients.filter(c => c.status === stageId).map(c => c.id))
+    return invoices
+      .filter(i => stageClientIds.has(i.clientId) && i.status === 'paid')
+      .reduce((s, i) => s + (i.total || 0), 0)
+  }
+
   // Pipeline stats
   const stats = {
     leads: clients.filter(c => c.status === 'lead').length,
@@ -97,6 +179,52 @@ export default function Pipeline() {
         </div>
       </div>
 
+      {/* Filters */}
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="relative flex-1 min-w-[200px] max-w-sm">
+          <input
+            type="text"
+            placeholder="Search name, email, phone, company..."
+            value={searchTerm}
+            onChange={e => setSearchTerm(e.target.value)}
+            className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 pl-9 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-blue-600"
+          />
+          <svg className="absolute left-3 top-2.5 w-4 h-4 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+          </svg>
+        </div>
+        <select
+          value={sourceFilter}
+          onChange={e => setSourceFilter(e.target.value)}
+          className="bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-600"
+        >
+          {availableSources.map(src => (
+            <option key={src} value={src}>
+              {src === 'all' ? 'All Sources' : `${SOURCE_ICONS[src] || ''} ${src}`}
+            </option>
+          ))}
+        </select>
+        <div className="flex rounded-lg overflow-hidden border border-gray-700">
+          {CLIENT_TYPES.map(t => (
+            <button
+              key={t}
+              onClick={() => setTypeFilter(t)}
+              className={`px-3 py-1.5 text-xs capitalize ${typeFilter === t ? 'bg-blue-600 text-white' : 'bg-gray-800 text-gray-400 hover:text-gray-300'}`}
+            >
+              {t === 'all' ? 'All Types' : t}
+            </button>
+          ))}
+        </div>
+        {(searchTerm || sourceFilter !== 'all' || typeFilter !== 'all') && (
+          <button
+            onClick={() => { setSearchTerm(''); setSourceFilter('all'); setTypeFilter('all') }}
+            className="text-xs text-gray-500 hover:text-gray-300"
+          >
+            Clear filters
+          </button>
+        )}
+      </div>
+
       {/* Webhook info */}
       <div className="bg-gray-900 border border-gray-800 rounded-xl p-4">
         <details>
@@ -120,7 +248,8 @@ export default function Pipeline() {
         /* ── KANBAN BOARD ── */
         <div className="flex md:grid md:grid-cols-2 xl:grid-cols-4 gap-2 sm:gap-4 min-h-[500px] overflow-x-auto pb-2">
           {STAGES.map(stage => {
-            const stageClients = clients.filter(c => c.status === stage.id)
+            const stageClients = filteredClients.filter(c => c.status === stage.id)
+            const stageRev = getStageRevenue(stage.id)
             return (
               <div key={stage.id} className="bg-gray-900/50 border border-gray-800 rounded-xl flex flex-col min-w-[240px] md:min-w-0 shrink-0 md:shrink">
                 <div className="px-4 py-3 border-b border-gray-800">
@@ -135,14 +264,23 @@ export default function Pipeline() {
                     </div>
                     <span className="text-xs text-gray-500 bg-gray-800 rounded-full px-2 py-0.5">{stageClients.length}</span>
                   </div>
-                  <p className="text-xs text-gray-600 mt-0.5">{stage.desc}</p>
+                  <div className="flex items-center justify-between mt-0.5">
+                    <p className="text-xs text-gray-600">{stage.desc}</p>
+                    {stageRev > 0 && (
+                      <span className="text-xs text-green-500 font-mono">${stageRev.toLocaleString()}</span>
+                    )}
+                  </div>
                 </div>
                 <div className="flex-1 p-2 space-y-2 overflow-y-auto">
                   {stageClients.map(client => {
                     const cStats = getClientStats(client.id)
+                    const workflow = getClientWorkflow(client.id)
                     return (
                       <div key={client.id} className="bg-gray-900 border border-gray-800 rounded-lg p-2 sm:p-3 hover:border-gray-700 transition-colors">
                         <Link to={`/clients/${client.id}`} className="text-xs sm:text-sm font-medium text-white hover:text-blue-400">{client.name}</Link>
+                        {client.companyName && (
+                          <p className="text-xs text-gray-500 mt-0.5">{client.companyName}</p>
+                        )}
                         <div className="flex items-center gap-2 mt-1">
                           {client.source && (
                             <span className="text-xs text-gray-500">{SOURCE_ICONS[client.source] || '📋'} {client.source}</span>
@@ -159,6 +297,21 @@ export default function Pipeline() {
                             ))}
                           </div>
                         )}
+                        {/* Workflow trail */}
+                        <div className="flex gap-1 mt-2">
+                          {WORKFLOW_STEPS.map(step => (
+                            <span
+                              key={step.key}
+                              className={`px-1.5 py-0.5 rounded text-xs font-medium ${
+                                workflow[step.key]
+                                  ? 'bg-green-600/20 text-green-400'
+                                  : 'bg-gray-800 text-gray-600'
+                              }`}
+                            >
+                              {step.label} {workflow[step.key] ? '✓' : '–'}
+                            </span>
+                          ))}
+                        </div>
                         {/* Properties & quotes info */}
                         {(() => {
                           const props = getClientProperties(client.id)
@@ -224,18 +377,23 @@ export default function Pipeline() {
             <thead>
               <tr className="text-xs text-gray-500 uppercase tracking-wider border-b border-gray-800">
                 <th className="px-5 py-3 text-left">Client</th>
+                <th className="px-3 py-3 text-left">Company</th>
                 <th className="px-3 py-3 text-left">Contact</th>
                 <th className="px-3 py-3 text-left">Source</th>
                 <th className="px-3 py-3 text-left">Type</th>
                 <th className="px-3 py-3 text-center">Stage</th>
+                <th className="px-3 py-3 text-center">Workflow</th>
                 <th className="px-3 py-3 text-right">Revenue</th>
+                <th className="px-3 py-3 text-left">Last Activity</th>
                 <th className="px-3 py-3 text-left">Age</th>
                 <th className="px-5 py-3 text-right">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-800/50">
-              {clients.map(client => {
+              {filteredClients.map(client => {
                 const cStats = getClientStats(client.id)
+                const workflow = getClientWorkflow(client.id)
+                const lastActivity = getClientLastActivity(client.id)
                 const ageInDays = client.createdAt ? Math.floor((Date.now() - new Date(client.createdAt)) / 86400000) : 0
                 return (
                   <tr key={client.id} className="text-gray-300 hover:bg-gray-800/30">
@@ -247,6 +405,7 @@ export default function Pipeline() {
                         </div>
                       )}
                     </td>
+                    <td className="px-3 py-3 text-xs text-gray-500">{client.companyName || '-'}</td>
                     <td className="px-3 py-3 text-xs">
                       {client.email && <p>{client.email}</p>}
                       {client.phone && <p className="text-gray-500">{client.phone}</p>}
@@ -262,8 +421,28 @@ export default function Pipeline() {
                         <option value="inactive">Inactive</option>
                       </select>
                     </td>
+                    <td className="px-3 py-3">
+                      <div className="flex gap-0.5 justify-center">
+                        {WORKFLOW_STEPS.map(step => (
+                          <span
+                            key={step.key}
+                            title={step.label}
+                            className={`w-5 h-5 flex items-center justify-center rounded text-xs ${
+                              workflow[step.key]
+                                ? 'bg-green-600/20 text-green-400'
+                                : 'bg-gray-800 text-gray-600'
+                            }`}
+                          >
+                            {workflow[step.key] ? '✓' : '–'}
+                          </span>
+                        ))}
+                      </div>
+                    </td>
                     <td className="px-3 py-3 text-right font-mono text-xs">
                       {cStats.revenue > 0 ? `$${cStats.revenue.toFixed(0)}` : '-'}
+                    </td>
+                    <td className="px-3 py-3 text-xs text-gray-500">
+                      {lastActivity ? lastActivity.toLocaleDateString() : '-'}
                     </td>
                     <td className="px-3 py-3 text-xs text-gray-500">{ageInDays}d</td>
                     <td className="px-5 py-3 text-right">

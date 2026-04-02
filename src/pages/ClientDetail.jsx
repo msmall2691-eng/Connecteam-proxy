@@ -124,6 +124,7 @@ export default function ClientDetail() {
         <div>
           <Link to="/clients" className="text-xs text-gray-500 hover:text-gray-300 transition-colors">&larr; Back to Clients</Link>
           <h1 className="text-2xl font-bold text-white mt-1">{client.name}</h1>
+          {client.companyName && <p className="text-sm text-gray-400 mt-0.5">{client.companyName}</p>}
           <div className="flex items-center gap-3 mt-1 text-sm text-gray-400">
             {client.email && <span>{client.email}</span>}
             {client.phone && <span>{client.phone}</span>}
@@ -163,11 +164,11 @@ export default function ClientDetail() {
         ))}
       </div>
 
-      {tab === 'overview' && <OverviewTab client={client} convos={convos} jobs={jobs} invoices={invoices} properties={properties} quotes={quotes} />}
+      {tab === 'overview' && <OverviewTab client={client} convos={convos} jobs={jobs} invoices={invoices} properties={properties} quotes={quotes} onSwitchTab={setTab} clientId={id} />}
       {tab === 'properties' && <PropertiesTab clientId={id} properties={properties} onReload={reload} />}
-      {tab === 'quotes' && <QuotesTab client={client} properties={properties} quotes={quotes} onReload={reload} onSwitchTab={setTab} />}
+      {tab === 'quotes' && <QuotesTab client={client} properties={properties} quotes={quotes} jobs={jobs} onReload={reload} onSwitchTab={setTab} />}
       {tab === 'conversations' && <ConversationsTab clientId={id} convos={convos} onReload={reload} />}
-      {tab === 'jobs' && <JobsTab clientId={id} clientName={client.name} clientAddress={client.address} jobs={jobs} properties={properties} onReload={reload} onToast={showToast} />}
+      {tab === 'jobs' && <JobsTab clientId={id} clientName={client.name} clientAddress={client.address} jobs={jobs} properties={properties} invoices={invoices} onReload={reload} onToast={showToast} onSwitchTab={setTab} />}
       {tab === 'invoices' && <InvoicesTab clientId={id} clientName={client.name} jobs={jobs} invoices={invoices} onReload={reload} />}
       {tab === 'documents' && <DocumentsTab clientName={client.name} />}
       {tab === 'notes' && <NotesTab client={client} onSave={reload} />}
@@ -182,16 +183,101 @@ export default function ClientDetail() {
   )
 }
 
-function OverviewTab({ client, convos, jobs, invoices, properties, quotes }) {
+function OverviewTab({ client, convos, jobs, invoices, properties, quotes, onSwitchTab, clientId }) {
   const completedJobs = jobs.filter(j => j.status === 'completed').length
+  const scheduledJobs = jobs.filter(j => j.status === 'scheduled').length
   const totalRevenue = invoices.filter(i => i.status === 'paid').reduce((s, i) => s + (i.total || 0), 0)
   const outstanding = invoices.filter(i => i.status === 'sent' || i.status === 'overdue').reduce((s, i) => s + (i.total || 0), 0)
+  const invoiceTotal = invoices.reduce((s, i) => s + (i.total || 0), 0)
+  const paidInvoices = invoices.filter(i => i.status === 'paid').length
+  const outstandingInvoices = invoices.filter(i => i.status === 'sent' || i.status === 'overdue').length
+
+  // Journey step calculations
+  const draftQuotes = quotes.filter(q => q.status === 'draft').length
+  const sentQuotes = quotes.filter(q => q.status === 'sent').length
+  const acceptedQuotes = quotes.filter(q => q.status === 'accepted').length
+
+  // Determine which steps are "done"
+  const hasRequest = !!client.source || !!client.createdAt
+  const hasQuotes = quotes.length > 0
+  const hasScheduled = scheduledJobs > 0 || completedJobs > 0
+  const hasCompleted = completedJobs > 0
+  const hasInvoiced = invoices.length > 0
+
+  // Current step (rightmost completed + 1, capped)
+  const currentStep = hasInvoiced ? 5 : hasCompleted ? 4 : hasScheduled ? 3 : hasQuotes ? 2 : hasRequest ? 1 : 0
+
+  const journeySteps = [
+    { num: 1, label: 'Request', tab: 'overview', detail: `${client.source || 'Direct'}${client.createdAt ? ' · ' + new Date(client.createdAt).toLocaleDateString() : ''}`, done: hasRequest },
+    { num: 2, label: 'Quote', tab: 'quotes', detail: quotes.length === 0 ? 'None yet' : `${quotes.length} quote${quotes.length !== 1 ? 's' : ''}${draftQuotes ? ` · ${draftQuotes} draft` : ''}${sentQuotes ? ` · ${sentQuotes} sent` : ''}${acceptedQuotes ? ` · ${acceptedQuotes} accepted` : ''}`, done: hasQuotes },
+    { num: 3, label: 'Scheduled', tab: 'jobs', detail: scheduledJobs > 0 ? `${scheduledJobs} upcoming` : (completedJobs > 0 ? 'All completed' : 'None yet'), done: hasScheduled },
+    { num: 4, label: 'Completed', tab: 'jobs', detail: completedJobs > 0 ? `${completedJobs} job${completedJobs !== 1 ? 's' : ''} done` : 'None yet', done: hasCompleted },
+    { num: 5, label: 'Invoiced', tab: 'invoices', detail: invoices.length === 0 ? 'None yet' : `${invoices.length} invoice${invoices.length !== 1 ? 's' : ''} · $${invoiceTotal.toFixed(0)}${paidInvoices ? ` · ${paidInvoices} paid` : ''}${outstandingInvoices ? ` · ${outstandingInvoices} outstanding` : ''}`, done: hasInvoiced },
+  ]
 
   return (
+    <div className="space-y-6">
+      {/* Client Journey Timeline */}
+      <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
+        <h3 className="text-sm font-semibold text-white mb-4">Client Journey</h3>
+        <div className="flex items-start gap-0 overflow-x-auto">
+          {journeySteps.map((step, idx) => {
+            const isActive = step.num === currentStep
+            const isDone = step.done && step.num < currentStep
+            const isCurrent = step.num === currentStep
+            const isPending = step.num > currentStep
+            const bg = isDone ? 'bg-green-900/40 border-green-700/50' : isCurrent ? 'bg-blue-900/40 border-blue-700/50' : 'bg-gray-800/50 border-gray-700/50'
+            const numBg = isDone ? 'bg-green-600' : isCurrent ? 'bg-blue-600' : 'bg-gray-700'
+            const textColor = isDone ? 'text-green-400' : isCurrent ? 'text-blue-400' : 'text-gray-500'
+            return (
+              <div key={step.num} className="flex items-start shrink-0">
+                <button onClick={() => onSwitchTab && onSwitchTab(step.tab)}
+                  className={`flex flex-col items-center p-3 rounded-lg border ${bg} hover:brightness-110 transition-all min-w-[120px] cursor-pointer`}>
+                  <span className={`w-7 h-7 rounded-full ${numBg} text-white text-xs font-bold flex items-center justify-center mb-1.5`}>
+                    {isDone ? '\u2713' : step.num}
+                  </span>
+                  <span className={`text-xs font-semibold ${textColor}`}>{step.label}</span>
+                  <span className="text-[10px] text-gray-500 mt-1 text-center leading-tight max-w-[110px]">{step.detail}</span>
+                </button>
+                {idx < journeySteps.length - 1 && (
+                  <div className="flex items-center self-center pt-2">
+                    <span className={`text-lg ${step.done && journeySteps[idx + 1]?.done ? 'text-green-600' : step.done ? 'text-blue-600' : 'text-gray-700'}`}>&rarr;</span>
+                  </div>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      </div>
+
+      {/* Quick Actions */}
+      <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
+        <h3 className="text-sm font-semibold text-white mb-3">Quick Actions</h3>
+        <div className="flex flex-wrap gap-2">
+          <button onClick={() => onSwitchTab && onSwitchTab('quotes')}
+            className="px-4 py-2 bg-purple-600 hover:bg-purple-500 rounded-lg text-sm font-medium text-white transition-colors">Create Quote</button>
+          <button onClick={() => onSwitchTab && onSwitchTab('jobs')}
+            className="px-4 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg text-sm font-medium text-white transition-colors">Schedule Job</button>
+          <button onClick={() => onSwitchTab && onSwitchTab('invoices')}
+            className="px-4 py-2 bg-green-600 hover:bg-green-500 rounded-lg text-sm font-medium text-white transition-colors">Create Invoice</button>
+          <button onClick={() => {
+            const token = btoa(`${clientId}|${Date.now()}`).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+            navigator.clipboard.writeText(`${window.location.origin}/portal.html?token=${token}`)
+            alert('Portal link copied to clipboard!')
+          }}
+            className="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg text-sm text-gray-300 transition-colors">Send Portal Link</button>
+          {client.email && (
+            <a href={`mailto:${client.email}`}
+              className="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg text-sm text-gray-300 transition-colors inline-flex items-center">Email Client</a>
+          )}
+        </div>
+      </div>
+
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
       <div className="bg-gray-900 border border-gray-800 rounded-xl p-5 space-y-3">
         <h3 className="text-sm font-semibold text-white">Client Info</h3>
         <div className="space-y-2 text-sm">
+          {client.companyName && <InfoRow label="Company" value={client.companyName} />}
           <InfoRow label="Type" value={client.type} />
           <InfoRow label="Address" value={client.address} />
           <InfoRow label="Source" value={client.source} />
@@ -261,6 +347,7 @@ function OverviewTab({ client, convos, jobs, invoices, properties, quotes }) {
           )}
         </div>
       </div>
+    </div>
     </div>
   )
 }
@@ -347,7 +434,7 @@ function PropertiesTab({ clientId, properties, onReload }) {
 }
 
 // ── QUOTES TAB ──
-function QuotesTab({ client, properties, quotes, onReload, onSwitchTab }) {
+function QuotesTab({ client, properties, quotes, jobs, onReload, onSwitchTab }) {
   const [showCalculator, setShowCalculator] = useState(false)
   const [selectedProperty, setSelectedProperty] = useState(null)
   const [calcInputs, setCalcInputs] = useState({ sqft: '1500', serviceType: 'standard', frequency: 'biweekly', bathrooms: '2', petHair: 'none', condition: 'maintenance' })
@@ -731,11 +818,14 @@ function QuotesTab({ client, properties, quotes, onReload, onSwitchTab }) {
                 <th className="px-3 py-2.5 text-left">Frequency</th>
                 <th className="px-3 py-2.5 text-right">Price</th>
                 <th className="px-3 py-2.5 text-center">Status</th>
+                <th className="px-3 py-2.5 text-left">Linked Job</th>
                 <th className="px-5 py-2.5 text-right">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-800/50">
-              {quotes.map(q => (
+              {quotes.map(q => {
+                const linkedJob = (jobs || []).find(j => j.quoteId === q.id)
+                return (
                 <tr key={q.id} className="text-gray-300 hover:bg-gray-800/30">
                   <td className="px-5 py-2.5 font-mono text-xs text-white">{q.quoteNumber}</td>
                   <td className="px-3 py-2.5 text-xs capitalize">{q.serviceType}</td>
@@ -743,6 +833,15 @@ function QuotesTab({ client, properties, quotes, onReload, onSwitchTab }) {
                   <td className="px-3 py-2.5 text-right font-mono">${q.finalPrice || q.estimateMax || 0}</td>
                   <td className="px-3 py-2.5 text-center">
                     <span className={`px-2 py-0.5 rounded text-xs font-medium ${QUOTE_STATUS_COLORS[q.status] || 'bg-gray-800 text-gray-400'}`}>{q.status}</span>
+                  </td>
+                  <td className="px-3 py-2.5 text-xs">
+                    {linkedJob ? (
+                      <button onClick={() => onSwitchTab && onSwitchTab('jobs')} className="text-green-400 hover:text-green-300">
+                        {linkedJob.title} ({linkedJob.status})
+                      </button>
+                    ) : (
+                      <span className="text-gray-600">-</span>
+                    )}
                   </td>
                   <td className="px-5 py-2.5 text-right">
                     <div className="flex gap-2 justify-end">
@@ -766,7 +865,7 @@ function QuotesTab({ client, properties, quotes, onReload, onSwitchTab }) {
                     </div>
                   </td>
                 </tr>
-              ))}
+              )})}
             </tbody>
           </table>
         </div>
@@ -872,7 +971,7 @@ function ConversationsTab({ clientId, convos, onReload }) {
   )
 }
 
-function JobsTab({ clientId, clientName, clientAddress, jobs, properties, onReload, onToast }) {
+function JobsTab({ clientId, clientName, clientAddress, jobs, properties, invoices, onReload, onToast, onSwitchTab }) {
   const [showNew, setShowNew] = useState(false)
   const [pushingId, setPushingId] = useState(null)
   const [expandedJob, setExpandedJob] = useState(null)
@@ -1118,11 +1217,13 @@ function JobsTab({ clientId, clientName, clientAddress, jobs, properties, onRelo
               <th className="px-3 py-2.5 text-center">Status</th>
               <th className="px-3 py-2.5 text-center">Calendar</th>
               <th className="px-3 py-2.5 text-center">Connecteam</th>
+              <th className="px-3 py-2.5 text-left">Invoice</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-800/50">
             {jobs.map(j => {
               const jobProp = getJobProperty(j)
+              const linkedInvoice = (invoices || []).find(inv => (inv.items || []).some(item => item.jobId === j.id))
               return (<>
               <tr key={j.id} className="text-gray-300 hover:bg-gray-800/30 cursor-pointer" onClick={() => setExpandedJob(expandedJob === j.id ? null : j.id)}>
                 <td className="px-5 py-2.5">
@@ -1185,10 +1286,19 @@ function JobsTab({ clientId, clientName, clientAddress, jobs, properties, onRelo
                     </button>
                   )}
                 </td>
+                <td className="px-3 py-2.5 text-xs" onClick={e => e.stopPropagation()}>
+                  {linkedInvoice ? (
+                    <button onClick={() => onSwitchTab && onSwitchTab('invoices')} className={`hover:brightness-125 ${linkedInvoice.status === 'paid' ? 'text-green-400' : linkedInvoice.status === 'sent' ? 'text-blue-400' : 'text-gray-400'}`}>
+                      {linkedInvoice.invoiceNumber} ({linkedInvoice.status})
+                    </button>
+                  ) : (
+                    <span className="text-gray-600">-</span>
+                  )}
+                </td>
               </tr>
               {/* Expanded job details */}
               {expandedJob === j.id && (
-                <tr><td colSpan={8} className="px-5 py-3 bg-gray-800/30 border-b border-gray-800">
+                <tr><td colSpan={9} className="px-5 py-3 bg-gray-800/30 border-b border-gray-800">
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
                     {jobProp && (
                       <>
@@ -1205,7 +1315,7 @@ function JobsTab({ clientId, clientName, clientAddress, jobs, properties, onRelo
               )}
             </>)
             })}
-            {jobs.length === 0 && <tr><td colSpan={8} className="px-5 py-8 text-center text-gray-500">No jobs yet.</td></tr>}
+            {jobs.length === 0 && <tr><td colSpan={9} className="px-5 py-8 text-center text-gray-500">No jobs yet.</td></tr>}
           </tbody>
         </table>
         </div>
@@ -1341,11 +1451,15 @@ function InvoicesTab({ clientId, clientName, jobs, invoices, onReload }) {
               <th className="px-3 py-2.5 text-left">Date</th>
               <th className="px-3 py-2.5 text-right">Amount</th>
               <th className="px-3 py-2.5 text-center">Status</th>
+              <th className="px-3 py-2.5 text-left">Linked Job</th>
               <th className="px-5 py-2.5 text-right">Actions</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-800/50">
-            {invoices.map(inv => (
+            {invoices.map(inv => {
+              const linkedJobIds = (inv.items || []).map(item => item.jobId).filter(Boolean)
+              const linkedJobs = linkedJobIds.map(jid => jobs.find(j => j.id === jid)).filter(Boolean)
+              return (
               <tr key={inv.id} className="text-gray-300 hover:bg-gray-800/30">
                 <td className="px-5 py-2.5 font-mono text-white text-xs">{inv.invoiceNumber}</td>
                 <td className="px-3 py-2.5">{inv.issueDate}</td>
@@ -1357,6 +1471,14 @@ function InvoicesTab({ clientId, clientName, jobs, invoices, onReload }) {
                     inv.status === 'sent' ? 'bg-blue-900/40 text-blue-400' :
                     'bg-gray-800 text-gray-400'
                   }`}>{inv.status}</span>
+                </td>
+                <td className="px-3 py-2.5 text-xs">
+                  {linkedJobs.length > 0 ? linkedJobs.map((lj, i) => (
+                    <span key={lj.id}>
+                      {i > 0 && ', '}
+                      <span className="text-gray-300">{lj.title} ({lj.date})</span>
+                    </span>
+                  )) : <span className="text-gray-600">-</span>}
                 </td>
                 <td className="px-5 py-2.5 text-right">
                   <div className="flex gap-2 justify-end">
@@ -1372,8 +1494,8 @@ function InvoicesTab({ clientId, clientName, jobs, invoices, onReload }) {
                   </div>
                 </td>
               </tr>
-            ))}
-            {invoices.length === 0 && <tr><td colSpan={5} className="px-5 py-8 text-center text-gray-500">No invoices yet.</td></tr>}
+            )})}
+            {invoices.length === 0 && <tr><td colSpan={6} className="px-5 py-8 text-center text-gray-500">No invoices yet.</td></tr>}
           </tbody>
         </table>
       </div>

@@ -1,6 +1,8 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Link } from 'react-router-dom'
 import { getApiKey } from '../lib/api'
+import { getClients, getClientsAsync, getJobs, getJobsAsync } from '../lib/store'
+import { isSupabaseConfigured } from '../lib/supabase'
 
 // Rental calendar config (localStorage)
 const RENTAL_CAL_KEY = 'workflowhq_rental_calendars'
@@ -26,8 +28,10 @@ export default function Schedule() {
   const [calendarConnected, setCalendarConnected] = useState(false)
   const [showCalendarFilter, setShowCalendarFilter] = useState(false)
   const [showNewEvent, setShowNewEvent] = useState(false)
-  const [newEvent, setNewEvent] = useState({ title: '', date: '', startTime: '09:00', endTime: '12:00', location: '', description: '', clientEmail: '' })
+  const [newEvent, setNewEvent] = useState({ title: '', date: '', startTime: '09:00', endTime: '12:00', location: '', description: '', clientEmail: '', clientId: '' })
   const [creatingEvent, setCreatingEvent] = useState(false)
+  const [allClients, setAllClients] = useState([])
+  const [crmJobs, setCrmJobs] = useState([])
 
   // New state for improvements
   const [toast, setToast] = useState(null) // { type: 'success'|'error'|'info', message, details }
@@ -48,7 +52,18 @@ export default function Schedule() {
   useEffect(() => {
     loadCalendars()
     loadTurnovers()
+    loadCrmData()
   }, [])
+
+  async function loadCrmData() {
+    try {
+      const [cls, jbs] = isSupabaseConfigured()
+        ? await Promise.all([getClientsAsync(), getJobsAsync()])
+        : [getClients(), getJobs()]
+      setAllClients(cls || [])
+      setCrmJobs(jbs || [])
+    } catch {}
+  }
 
   async function loadCalendars() {
     try {
@@ -486,10 +501,19 @@ export default function Schedule() {
                 className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-sm text-white placeholder-gray-500" />
             </div>
             <div>
-              <label className="block text-xs text-gray-500 mb-1">Client Email (optional)</label>
-              <input type="email" value={newEvent.clientEmail} onChange={e => setNewEvent({ ...newEvent, clientEmail: e.target.value })}
-                placeholder="client@email.com"
-                className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-sm text-white placeholder-gray-500" />
+              <label className="block text-xs text-gray-500 mb-1">Link to Client (optional)</label>
+              <select value={newEvent.clientId} onChange={e => {
+                const cl = allClients.find(c => c.id === e.target.value)
+                setNewEvent({
+                  ...newEvent,
+                  clientId: e.target.value,
+                  clientEmail: cl?.email || newEvent.clientEmail,
+                  location: cl?.address || newEvent.location,
+                })
+              }} className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-sm text-white">
+                <option value="">Select client...</option>
+                {allClients.map(c => <option key={c.id} value={c.id}>{c.name}{c.companyName ? ` (${c.companyName})` : ''}</option>)}
+              </select>
             </div>
             <div className="md:col-span-2">
               <label className="block text-xs text-gray-500 mb-1">Notes</label>
@@ -672,6 +696,46 @@ export default function Schedule() {
           <p className="text-gray-500">Google Calendar not connected.</p>
           <p className="text-xs text-gray-600">Add Gmail OAuth credentials to Vercel env vars (GMAIL_CLIENT_ID, GMAIL_CLIENT_SECRET, GMAIL_REFRESH_TOKEN) to enable calendar integration.</p>
           <Link to="/settings" className="text-sm text-blue-400 hover:text-blue-300">Go to Settings</Link>
+        </div>
+      )}
+
+      {/* CRM Scheduled Jobs */}
+      {crmJobs.filter(j => j.status === 'scheduled' && j.date >= new Date().toISOString().split('T')[0]).length > 0 && (
+        <div className="bg-gray-900 border border-gray-800 rounded-xl p-4">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-sm font-semibold text-white">Upcoming CRM Jobs</h3>
+            <span className="text-xs text-gray-500">{crmJobs.filter(j => j.status === 'scheduled' && j.date >= new Date().toISOString().split('T')[0]).length} scheduled</span>
+          </div>
+          <div className="space-y-1.5">
+            {crmJobs
+              .filter(j => j.status === 'scheduled' && j.date >= new Date().toISOString().split('T')[0])
+              .sort((a, b) => (a.date || '').localeCompare(b.date || ''))
+              .slice(0, 15)
+              .map(j => (
+                <div key={j.id} className="flex items-center justify-between bg-gray-800/50 rounded-lg px-3 py-2">
+                  <div className="min-w-0">
+                    <p className="text-sm text-white truncate">{j.title}</p>
+                    <p className="text-xs text-gray-500">
+                      {new Date(j.date).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
+                      {j.startTime && ` @ ${j.startTime}`}
+                      {j.clientName && <span className="text-gray-600"> &middot; {j.clientName}</span>}
+                      {j.assignee && <span className="text-gray-600"> &middot; {j.assignee}</span>}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    {!j.googleEventId && (
+                      <span className="text-xs text-yellow-500">Not on calendar</span>
+                    )}
+                    {j.googleEventId && (
+                      <span className="text-xs text-green-500">On calendar</span>
+                    )}
+                    {j.clientId && (
+                      <Link to={`/clients/${j.clientId}?tab=jobs`} className="text-xs text-blue-400 hover:text-blue-300">View</Link>
+                    )}
+                  </div>
+                </div>
+              ))}
+          </div>
         </div>
       )}
 
