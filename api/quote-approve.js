@@ -187,6 +187,22 @@ export default async function handler(req, res) {
         recurrence_day: preferredDay || quote.preferred_day || 1,
       }
 
+      // Look up service_type_id from service_types table
+      let serviceTypeId = null
+      try {
+        const stName = isDeep ? 'Deep Clean' : 'Standard Clean'
+        const stRes = await fetch(`${supabaseUrl}/rest/v1/service_types?name=eq.${encodeURIComponent(stName)}&select=id`, { headers: sbHeaders })
+        const stData = await stRes.json()
+        serviceTypeId = stData?.[0]?.id || null
+      } catch {}
+
+      jobPayload.service_type_id = serviceTypeId
+      jobPayload.source = 'quote'
+      jobPayload.is_active = true
+      jobPayload.recurrence_start_date = jobDate
+      jobPayload.preferred_start_time = startTime
+      jobPayload.preferred_end_time = endTime
+
       const jobRes = await fetch(`${supabaseUrl}/rest/v1/jobs`, {
         method: 'POST',
         headers: { ...sbHeaders, 'Content-Type': 'application/json', 'Prefer': 'return=representation' },
@@ -194,6 +210,32 @@ export default async function handler(req, res) {
       })
       const jobs = await jobRes.json()
       const job = jobs?.[0]
+
+      // 3b. Create the first visit from this job
+      let visitId = null
+      if (job?.id) {
+        try {
+          const visitRes = await fetch(`${supabaseUrl}/rest/v1/visits`, {
+            method: 'POST',
+            headers: { ...sbHeaders, 'Content-Type': 'application/json', 'Prefer': 'return=representation' },
+            body: JSON.stringify({
+              job_id: job.id,
+              client_id: clientId,
+              property_id: quote.property_id,
+              scheduled_date: jobDate,
+              scheduled_start_time: startTime,
+              scheduled_end_time: endTime,
+              status: 'scheduled',
+              source: 'recurring',
+              service_type_id: serviceTypeId,
+              address: property?.address_line1 || client?.address || '',
+              client_visible: true,
+            }),
+          })
+          const visits = await visitRes.json()
+          visitId = visits?.[0]?.id
+        } catch {}
+      }
 
       // 4. Push to Google Calendar
       let calendarEventId = null
@@ -224,7 +266,27 @@ export default async function handler(req, res) {
             const calData = await calRes.json()
             calendarEventId = calData.id
 
-            // Update job with calendar event ID
+            // Update visit with calendar event ID (visits are source of truth)
+            if (visitId && calendarEventId) {
+              await fetch(`${supabaseUrl}/rest/v1/visits?id=eq.${visitId}`, {
+                method: 'PATCH',
+                headers: { ...sbHeaders, 'Content-Type': 'application/json' },
+                body: JSON.stringify({ google_event_id: calendarEventId }),
+              })
+              // Log to calendar_sync_log
+              await fetch(`${supabaseUrl}/rest/v1/calendar_sync_log`, {
+                method: 'POST',
+                headers: { ...sbHeaders, 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  visit_id: visitId,
+                  provider: 'google_calendar',
+                  external_id: calendarEventId,
+                  direction: 'outbound',
+                  sync_status: 'synced',
+                }),
+              }).catch(() => {})
+            }
+            // Also keep on job for backward compat
             if (job?.id && calendarEventId) {
               await fetch(`${supabaseUrl}/rest/v1/jobs?id=eq.${job.id}`, {
                 method: 'PATCH',

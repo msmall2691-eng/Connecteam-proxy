@@ -1,5 +1,5 @@
 // Vercel serverless: Auto-generate turnover cleanings from rental iCal feeds
-// GET /api/auto-turnovers?action=scan — scans all rental properties and creates jobs
+// GET /api/auto-turnovers?action=scan — scans all rental properties and creates visits
 // GET /api/auto-turnovers?action=preview — shows what would be created without creating
 
 export default async function handler(req, res) {
@@ -57,12 +57,21 @@ export default async function handler(req, res) {
       })
     }
 
-    // Fetch existing jobs to avoid duplicates
+    // Fetch existing visits (not jobs) to avoid duplicates
     const today = new Date().toISOString().split('T')[0]
     const futureDate = new Date(Date.now() + daysAhead * 86400000).toISOString().split('T')[0]
-    const jobsRes = await fetch(`${supabaseUrl}/rest/v1/jobs?date=gte.${today}&date=lte.${futureDate}&service_type=eq.turnover&select=date,property_id`, { headers: sbHeaders })
-    const existingJobs = await jobsRes.json() || []
-    const existingSet = new Set(existingJobs.map(j => `${j.property_id}|${j.date}`))
+    const visitsRes = await fetch(
+      `${supabaseUrl}/rest/v1/visits?scheduled_date=gte.${today}&scheduled_date=lte.${futureDate}&source=in.(ical_sync,turno)&select=scheduled_date,property_id,ical_event_uid`,
+      { headers: sbHeaders }
+    )
+    const existingVisits = await visitsRes.json() || []
+    const existingSet = new Set(existingVisits.map(v => `${v.property_id}|${v.scheduled_date}`))
+    const existingUids = new Set(existingVisits.map(v => v.ical_event_uid).filter(Boolean))
+
+    // Fetch turnover service_type id
+    const stRes = await fetch(`${supabaseUrl}/rest/v1/service_types?name=eq.Turnover&select=id`, { headers: sbHeaders })
+    const stData = await stRes.json()
+    const turnoverServiceTypeId = stData?.[0]?.id || null
 
     const turnovers = []
     const created = []
@@ -70,11 +79,46 @@ export default async function handler(req, res) {
     for (const prop of properties) {
       if (!prop.ical_url) continue
 
-      // Try to read iCal via Google Calendar (if subscribed)
-      // OR fetch the iCal URL directly and parse it
+      // Find or create a standing "Turnover Service" job for this property
+      let turnoverJobId = null
+      const jobRes = await fetch(
+        `${supabaseUrl}/rest/v1/jobs?property_id=eq.${prop.id}&source=eq.ical_sync&is_active=eq.true&select=id`,
+        { headers: sbHeaders }
+      )
+      const existingJobs = await jobRes.json()
+
+      if (existingJobs?.length) {
+        turnoverJobId = existingJobs[0].id
+      } else if (action === 'scan') {
+        // Create the standing turnover job for this property
+        const newJobRes = await fetch(`${supabaseUrl}/rest/v1/jobs`, {
+          method: 'POST',
+          headers: { ...sbHeaders, 'Content-Type': 'application/json', 'Prefer': 'return=representation' },
+          body: JSON.stringify({
+            client_id: prop.client_id,
+            client_name: 'Rental Owner',
+            property_id: prop.id,
+            title: `Turnover Service — ${prop.name || prop.address_line1?.split(',')[0]}`,
+            date: today,
+            start_time: prop.cleaning_time || '11:00',
+            end_time: '14:00',
+            status: 'scheduled',
+            service_type: 'turnover',
+            service_type_id: turnoverServiceTypeId,
+            is_recurring: false,
+            is_active: true,
+            source: 'ical_sync',
+            address: prop.address_line1,
+          }),
+        })
+        const newJobs = await newJobRes.json()
+        turnoverJobId = newJobs?.[0]?.id
+      }
+
+      // Read iCal via Google Calendar or direct fetch
       let checkoutDates = []
 
-      // Method 1: If we have a Google Calendar ID for this iCal
+      // Method 1: Google Calendar API
       if (accessToken && prop.google_calendar_id) {
         try {
           const calRes = await fetch(
@@ -85,11 +129,11 @@ export default async function handler(req, res) {
             const calData = await calRes.json()
             for (const ev of calData.items || []) {
               if (ev.start?.date && ev.end?.date) {
-                // All-day event: end.date is the checkout day
                 checkoutDates.push({
                   date: ev.end.date,
                   guest: ev.summary || 'Guest',
                   checkIn: ev.start.date,
+                  uid: ev.iCalUID || ev.id,
                 })
               }
             }
@@ -97,18 +141,18 @@ export default async function handler(req, res) {
         } catch {}
       }
 
-      // Method 2: Fetch iCal directly and parse
+      // Method 2: Direct iCal fetch
       if (checkoutDates.length === 0) {
         try {
           const icalRes = await fetch(prop.ical_url)
           if (icalRes.ok) {
             const icalText = await icalRes.text()
-            // Simple iCal parser for VEVENT blocks
             const events = icalText.split('BEGIN:VEVENT')
             for (const ev of events.slice(1)) {
               const dtstart = ev.match(/DTSTART;VALUE=DATE:(\d{4})(\d{2})(\d{2})/)?.[0]
               const dtend = ev.match(/DTEND;VALUE=DATE:(\d{4})(\d{2})(\d{2})/)?.[0]
               const summary = ev.match(/SUMMARY:(.*)/)?.[1]?.trim()
+              const uid = ev.match(/UID:(.*)/)?.[1]?.trim()
 
               if (dtend) {
                 const endMatch = dtend.match(/(\d{4})(\d{2})(\d{2})/)
@@ -117,9 +161,8 @@ export default async function handler(req, res) {
                   const startMatch = dtstart?.match(/(\d{4})(\d{2})(\d{2})/)
                   const checkIn = startMatch ? `${startMatch[1]}-${startMatch[2]}-${startMatch[3]}` : null
 
-                  // Only future dates
                   if (date >= today && date <= futureDate) {
-                    checkoutDates.push({ date, guest: summary || 'Guest', checkIn })
+                    checkoutDates.push({ date, guest: summary || 'Guest', checkIn, uid })
                   }
                 }
               }
@@ -128,7 +171,7 @@ export default async function handler(req, res) {
         } catch {}
       }
 
-      // Get client info for this property
+      // Get client info
       let client = null
       if (prop.client_id) {
         try {
@@ -138,11 +181,12 @@ export default async function handler(req, res) {
         } catch {}
       }
 
-      // Process each checkout
+      // Process each checkout — create visits (not jobs)
       for (const checkout of checkoutDates) {
         const key = `${prop.id}|${checkout.date}`
         const cleaningTime = prop.cleaning_time || '11:00'
         const checkoutTime = prop.checkout_time || '10:00'
+        const alreadyScheduled = existingSet.has(key) || (checkout.uid && existingUids.has(checkout.uid))
 
         const turnover = {
           propertyId: prop.id,
@@ -155,45 +199,47 @@ export default async function handler(req, res) {
           cleaningTime,
           guest: checkout.guest,
           checkIn: checkout.checkIn,
-          alreadyScheduled: existingSet.has(key),
+          alreadyScheduled,
         }
 
         turnovers.push(turnover)
 
-        // Create job if action=scan and not already scheduled
-        if (action === 'scan' && !existingSet.has(key)) {
+        // Create visit if scanning and not already scheduled
+        if (action === 'scan' && !alreadyScheduled && turnoverJobId) {
           try {
-            // Calculate end time (3 hours after start)
             const [h, m] = cleaningTime.split(':').map(Number)
             const endH = String(Math.min(h + 3, 23)).padStart(2, '0')
             const endTime = `${endH}:${m.toString().padStart(2, '0')}`
 
-            const jobRes = await fetch(`${supabaseUrl}/rest/v1/jobs`, {
+            const visitRes = await fetch(`${supabaseUrl}/rest/v1/visits`, {
               method: 'POST',
               headers: { ...sbHeaders, 'Content-Type': 'application/json', 'Prefer': 'return=representation' },
               body: JSON.stringify({
+                job_id: turnoverJobId,
                 client_id: prop.client_id,
-                client_name: client?.name || 'Rental Owner',
                 property_id: prop.id,
-                title: `Turnover Clean — ${prop.name || prop.address_line1?.split(',')[0]}`,
-                date: checkout.date,
-                start_time: cleaningTime,
-                end_time: endTime,
+                scheduled_date: checkout.date,
+                scheduled_start_time: cleaningTime,
+                scheduled_end_time: endTime,
                 status: 'scheduled',
-                service_type: 'turnover',
+                source: 'ical_sync',
+                service_type_id: turnoverServiceTypeId,
+                ical_event_uid: checkout.uid || null,
+                instructions: `Guest: ${checkout.guest}\nCheckout: ${checkoutTime}\nCheck-in: ${checkout.checkIn || 'same day'}`,
                 address: prop.address_line1,
-                notes: `Guest: ${checkout.guest}\nCheckout: ${checkoutTime}\nCheck-in: ${checkout.checkIn || 'same day'}`,
+                client_visible: true,
               }),
             })
 
-            if (jobRes.ok) {
-              const job = await jobRes.json()
-              created.push({ ...turnover, jobId: job[0]?.id })
+            if (visitRes.ok) {
+              const visit = await visitRes.json()
+              const visitId = visit[0]?.id
+              created.push({ ...turnover, visitId })
 
-              // Also push to Google Calendar if connected
-              if (accessToken) {
+              // Sync to Google Calendar and log it
+              if (accessToken && visitId) {
                 try {
-                  await fetch('https://www.googleapis.com/calendar/v3/calendars/primary/events', {
+                  const calRes = await fetch('https://www.googleapis.com/calendar/v3/calendars/primary/events', {
                     method: 'POST',
                     headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
                     body: JSON.stringify({
@@ -204,13 +250,43 @@ export default async function handler(req, res) {
                       location: prop.address_line1,
                     }),
                   })
+                  if (calRes.ok) {
+                    const calData = await calRes.json()
+                    // Update visit with google_event_id
+                    await fetch(`${supabaseUrl}/rest/v1/visits?id=eq.${visitId}`, {
+                      method: 'PATCH',
+                      headers: { ...sbHeaders, 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ google_event_id: calData.id }),
+                    })
+                    // Log to calendar_sync_log
+                    await fetch(`${supabaseUrl}/rest/v1/calendar_sync_log`, {
+                      method: 'POST',
+                      headers: { ...sbHeaders, 'Content-Type': 'application/json' },
+                      body: JSON.stringify({
+                        visit_id: visitId,
+                        provider: 'google_calendar',
+                        external_id: calData.id,
+                        direction: 'outbound',
+                        sync_status: 'synced',
+                      }),
+                    })
+                  }
                 } catch {}
               }
             }
           } catch (e) {
-            console.error('Failed to create turnover job:', e)
+            console.error('Failed to create turnover visit:', e)
           }
         }
+      }
+
+      // Update last iCal sync timestamp
+      if (action === 'scan') {
+        await fetch(`${supabaseUrl}/rest/v1/properties?id=eq.${prop.id}`, {
+          method: 'PATCH',
+          headers: { ...sbHeaders, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ last_ical_sync_at: new Date().toISOString() }),
+        }).catch(() => {})
       }
     }
 

@@ -895,16 +895,89 @@ export async function generateVisitsForJob(job, weeksAhead = 8) {
       propertyId: job.propertyId,
       visitNumber: existing.length + generated.length + 1,
       scheduledDate: dateStr,
-      scheduledStartTime: job.startTime,
-      scheduledEndTime: job.endTime,
+      scheduledStartTime: job.preferredStartTime || job.startTime,
+      scheduledEndTime: job.preferredEndTime || job.endTime,
       status: 'scheduled',
       assignedEmployeeId: job.assignedEmployeeId,
       assignedTeamId: job.assignedTeamId,
+      source: 'recurring',
+      serviceTypeId: job.serviceTypeId,
+      instructions: job.instructions,
+      clientVisible: true,
     })
     generated.push(visit)
   }
 
   return generated
+}
+
+// ══════════════════════════════════════════
+// SCHEDULE (visits-first queries)
+// ══════════════════════════════════════════
+export async function getScheduleAsync({ startDate, endDate, employeeId, status } = {}) {
+  const sb = getSupabase()
+  if (!sb) return []
+  let q = sb.from('visits').select(`
+    *,
+    job:jobs(id, title, price, service_type, service_type_id, is_recurring, recurrence_rule),
+    client:clients(id, name, email, phone),
+    property:properties(id, name, address_line1, city, type)
+  `).order('scheduled_date', { ascending: true })
+  if (startDate) q = q.gte('scheduled_date', startDate)
+  if (endDate) q = q.lte('scheduled_date', endDate)
+  if (employeeId) q = q.eq('assigned_employee_id', employeeId)
+  if (status) q = q.in('status', Array.isArray(status) ? status : [status])
+  else q = q.not('status', 'in', '(cancelled,skipped)')
+  const { data } = await q
+  return (data || []).map(normalizeVisit)
+}
+
+// ══════════════════════════════════════════
+// CALENDAR SYNC LOG
+// ══════════════════════════════════════════
+export async function getCalendarSyncAsync(visitId) {
+  const sb = getSupabase()
+  if (!sb) return []
+  const { data } = await sb.from('calendar_sync_log').select('*').eq('visit_id', visitId)
+  return data || []
+}
+
+export async function saveCalendarSyncAsync(syncEntry) {
+  const sb = getSupabase()
+  if (!sb) return syncEntry
+  const { data } = await sb.from('calendar_sync_log').upsert({
+    visit_id: syncEntry.visitId,
+    provider: syncEntry.provider,
+    external_id: syncEntry.externalId,
+    direction: syncEntry.direction || 'outbound',
+    sync_status: syncEntry.syncStatus || 'synced',
+    error_message: syncEntry.error || null,
+  }, { onConflict: 'visit_id,provider' }).select().single()
+  return data
+}
+
+// ══════════════════════════════════════════
+// CLIENT SCHEDULE TOKENS
+// ══════════════════════════════════════════
+export async function getClientScheduleTokenAsync(clientId) {
+  const sb = getSupabase()
+  if (!sb) return null
+  const { data } = await sb.from('client_schedule_tokens')
+    .select('*').eq('client_id', clientId).eq('is_active', true).single()
+  return data
+}
+
+export async function createClientScheduleTokenAsync(clientId) {
+  const sb = getSupabase()
+  if (!sb) return null
+  // Generate URL-safe token
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'
+  let token = ''
+  for (let i = 0; i < 32; i++) token += chars[Math.floor(Math.random() * chars.length)]
+  const { data } = await sb.from('client_schedule_tokens')
+    .upsert({ client_id: clientId, token, is_active: true }, { onConflict: 'client_id' })
+    .select().single()
+  return data
 }
 
 // IMPORT / EXPORT
@@ -1000,6 +1073,15 @@ function normalizeJob(row) {
     extras: row.extras || [],
     checklistTemplateId: row.checklist_template_id,
     instructions: row.instructions,
+    // v6 fields — service agreement
+    recurrenceStartDate: row.recurrence_start_date,
+    recurrenceEndDate: row.recurrence_end_date,
+    preferredStartTime: row.preferred_start_time,
+    preferredEndTime: row.preferred_end_time,
+    visitGenerationHorizonWeeks: row.visit_generation_horizon_weeks,
+    lastVisitGeneratedDate: row.last_visit_generated_date,
+    source: row.source,
+    isActive: row.is_active,
     createdAt: row.created_at, updatedAt: row.updated_at,
   }
 }
@@ -1026,6 +1108,15 @@ function jobToSnake(job) {
     extras: job.extras || [],
     checklist_template_id: job.checklistTemplateId || null,
     instructions: job.instructions || null,
+    // v6 fields — service agreement
+    recurrence_start_date: job.recurrenceStartDate || null,
+    recurrence_end_date: job.recurrenceEndDate || null,
+    preferred_start_time: job.preferredStartTime || null,
+    preferred_end_time: job.preferredEndTime || null,
+    visit_generation_horizon_weeks: job.visitGenerationHorizonWeeks || 8,
+    last_visit_generated_date: job.lastVisitGeneratedDate || null,
+    source: job.source || 'manual',
+    is_active: job.isActive !== false,
   }
 }
 
@@ -1376,6 +1467,20 @@ function normalizeVisit(row) {
     invoiceId: row.invoice_id,
     googleEventId: row.google_event_id,
     connecteamShiftId: row.connecteam_shift_id,
+    // v6 fields
+    source: row.source,
+    serviceTypeId: row.service_type_id,
+    clientVisible: row.client_visible,
+    reminderSentAt: row.reminder_sent_at,
+    confirmedAt: row.confirmed_at,
+    icalEventUid: row.ical_event_uid,
+    turnoTaskId: row.turno_task_id,
+    instructions: row.instructions,
+    address: row.address,
+    // joined data (when using select with joins)
+    job: row.job || null,
+    client: row.client || null,
+    property: row.property || null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   }
@@ -1410,5 +1515,15 @@ function visitToSnake(v) {
     invoice_id: v.invoiceId || null,
     google_event_id: v.googleEventId || null,
     connecteam_shift_id: v.connecteamShiftId || null,
+    // v6 fields
+    source: v.source || 'manual',
+    service_type_id: v.serviceTypeId || null,
+    client_visible: v.clientVisible !== false,
+    reminder_sent_at: v.reminderSentAt || null,
+    confirmed_at: v.confirmedAt || null,
+    ical_event_uid: v.icalEventUid || null,
+    turno_task_id: v.turnoTaskId || null,
+    instructions: v.instructions || null,
+    address: v.address || null,
   }
 }
