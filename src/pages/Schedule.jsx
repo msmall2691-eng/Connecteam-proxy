@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Link } from 'react-router-dom'
 import { getApiKey } from '../lib/api'
-import { getClients, getClientsAsync, getJobs, getJobsAsync, getVisitsAsync, getScheduleAsync, getEmployeesAsync, saveVisitAsync, saveJobAsync } from '../lib/store'
+import { getClients, getClientsAsync, getJobs, getJobsAsync, getVisitsAsync, getScheduleAsync, getEmployeesAsync, saveVisitAsync, saveJobAsync, getPropertiesAsync } from '../lib/store'
 import { isSupabaseConfigured } from '../lib/supabase'
 
 // Rental calendar config (localStorage)
@@ -43,6 +43,8 @@ export default function Schedule() {
   const [pushingToConnecteam, setPushingToConnecteam] = useState(null)
   const [pushingVisitToCal, setPushingVisitToCal] = useState(null)
   const [pushingVisitToCT, setPushingVisitToCT] = useState(null)
+  const [rentalStays, setRentalStays] = useState([])
+  const [showStays, setShowStays] = useState(true)
 
   // Auto-dismiss toast after 6s
   useEffect(() => {
@@ -56,6 +58,7 @@ export default function Schedule() {
     loadCalendars()
     loadTurnovers()
     loadCrmData()
+    loadRentalStays()
   }, [])
 
   async function loadCrmData() {
@@ -72,6 +75,44 @@ export default function Schedule() {
       setAllClients(cls || [])
       setCrmJobs(jbs || [])
       setCrmVisits(visits || [])
+    } catch {}
+  }
+
+  async function loadRentalStays() {
+    try {
+      const allProps = isSupabaseConfigured() ? await getPropertiesAsync() : []
+      const rentalProps = allProps.filter(p => p.type === 'rental' && p.googleCalendarId)
+      if (rentalProps.length === 0) return
+
+      const now = new Date()
+      const future = new Date(now.getTime() + 60 * 86400000)
+      const stays = []
+
+      // Fetch events from each rental property's Google Calendar
+      const promises = rentalProps.map(async (prop) => {
+        try {
+          const calParam = `${prop.googleCalendarId}|${prop.name || prop.addressLine1}`
+          const res = await fetch(`/api/google?action=turnovers&calendars=${encodeURIComponent(calParam)}&timeMin=${now.toISOString()}&timeMax=${future.toISOString()}`)
+          if (res.ok) {
+            const data = await res.json()
+            for (const t of (data.turnovers || [])) {
+              stays.push({
+                propertyId: prop.id,
+                propertyName: prop.name || prop.addressLine1,
+                address: prop.addressLine1,
+                guest: t.guestName || 'Guest',
+                checkIn: t.checkIn,
+                checkOut: t.checkOut,
+                clientId: prop.clientId,
+              })
+            }
+          }
+        } catch {}
+      })
+
+      await Promise.all(promises)
+      stays.sort((a, b) => (a.checkOut || '').localeCompare(b.checkOut || ''))
+      setRentalStays(stays)
     } catch {}
   }
 
@@ -522,6 +563,14 @@ export default function Schedule() {
             Turnovers {mergedTurnovers.length > 0 ? `(${mergedTurnovers.length})` : ''}
           </button>
 
+          {/* Guest Stays toggle */}
+          <button onClick={() => setShowStays(!showStays)}
+            className={`px-3 py-1.5 rounded-lg text-xs border transition-colors ${
+              showStays ? 'bg-teal-600/20 border-teal-800/50 text-teal-400' : 'bg-gray-800 border-gray-700 text-gray-400'
+            }`}>
+            Guest Stays {rentalStays.length > 0 ? `(${rentalStays.length})` : ''}
+          </button>
+
           {/* Connecteam shifts */}
           <button onClick={() => { if (!showShifts) loadConnecteamShifts(); else setShowShifts(false) }}
             disabled={loadingShifts}
@@ -744,6 +793,69 @@ export default function Schedule() {
         </div>
       )}
 
+      {/* Guest Stays — cross-reference reservations with scheduled cleanings */}
+      {showStays && rentalStays.length > 0 && (
+        <div className="bg-teal-900/10 border border-teal-800/50 rounded-xl p-4">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-sm font-semibold text-teal-400">Guest Stays (Next 60 Days)</h3>
+            <button onClick={loadRentalStays} className="text-xs text-teal-400 hover:text-teal-300">Refresh</button>
+          </div>
+          <div className="space-y-1.5">
+            {rentalStays.map((stay, i) => {
+              // Cross-reference: find a matching turnover visit for checkout day
+              const hasCleaningVisit = crmVisits.some(v =>
+                v.propertyId === stay.propertyId &&
+                v.scheduledDate === stay.checkOut &&
+                !['cancelled', 'skipped'].includes(v.status)
+              )
+              const hasTurnover = mergedTurnovers.some(t =>
+                t.checkOut === stay.checkOut && (t.property === stay.propertyName || t.address === stay.address)
+              )
+              return (
+                <div key={`stay-${i}`} className="flex flex-col sm:flex-row sm:items-center justify-between bg-gray-900/50 rounded-lg px-3 py-2.5 gap-2">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <p className="text-sm text-white font-medium truncate">{stay.propertyName}</p>
+                      {hasCleaningVisit ? (
+                        <span className="text-[10px] px-1.5 py-0.5 bg-green-600/20 text-green-400 rounded">cleaning scheduled</span>
+                      ) : hasTurnover ? (
+                        <span className="text-[10px] px-1.5 py-0.5 bg-orange-600/20 text-orange-400 rounded">turnover detected</span>
+                      ) : (
+                        <span className="text-[10px] px-1.5 py-0.5 bg-red-600/20 text-red-400 rounded">no cleaning</span>
+                      )}
+                    </div>
+                    <p className="text-xs text-gray-500">
+                      {stay.guest}
+                      {stay.checkIn && <> &middot; Check-in {new Date(stay.checkIn + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</>}
+                      {stay.checkOut && <> &middot; Checkout <span className="text-white">{new Date(stay.checkOut + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}</span></>}
+                      {stay.address && <span className="text-gray-600"> &middot; {stay.address.split(',')[0]}</span>}
+                    </p>
+                  </div>
+                  {!hasCleaningVisit && (
+                    <div className="shrink-0">
+                      {stay.clientId ? (
+                        <Link to={`/clients/${stay.clientId}?tab=properties`}
+                          className="px-2.5 py-1.5 bg-teal-600 hover:bg-teal-500 rounded-lg text-xs text-white font-medium inline-block">
+                          Schedule Cleaning
+                        </Link>
+                      ) : (
+                        <span className="text-xs text-gray-600">No client linked</span>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
+      {showStays && rentalStays.length === 0 && (
+        <div className="bg-teal-900/10 border border-teal-800/50 rounded-xl p-4 text-center">
+          <p className="text-xs text-gray-500">No guest stays found. Add rental properties with a Google Calendar ID to see upcoming reservations.</p>
+        </div>
+      )}
+
       {/* Connecteam shifts panel */}
       {showShifts && connecteamShifts.length > 0 && (
         <div className="bg-purple-900/10 border border-purple-800/50 rounded-xl p-4">
@@ -908,6 +1020,7 @@ export default function Schedule() {
         <div className="flex items-center justify-between">
           <div className="flex gap-3 text-xs">
             <span className="flex items-center gap-1.5 text-gray-500"><span className="w-2.5 h-2.5 rounded bg-orange-600" /> Turnover cleaning</span>
+            <span className="flex items-center gap-1.5 text-gray-500"><span className="w-2.5 h-2.5 rounded bg-teal-600" /> Guest stay</span>
             <span className="flex items-center gap-1.5 text-gray-500"><span className="w-2.5 h-2.5 rounded bg-purple-600" /> Connecteam shift</span>
             <span className="flex items-center gap-1.5 text-gray-500"><span className="w-2.5 h-2.5 rounded bg-blue-600" /> Calendar event</span>
           </div>
