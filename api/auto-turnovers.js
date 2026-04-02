@@ -344,6 +344,16 @@ export default async function handler(req, res) {
       }
     }
 
+    // Build diagnostic info for preview/debug
+    const diagnostics = properties.map(p => ({
+      name: p.name || p.address_line1,
+      type: p.type,
+      hasGoogleCalId: !!p.google_calendar_id,
+      hasIcalUrl: !!p.ical_url,
+      gcalEventsFound: gcalEvents[p.id]?.length || 0,
+      source: gcalEvents[p.id]?.length > 0 ? 'google_calendar' : (p.ical_url ? 'ical_feed' : 'none'),
+    }))
+
     return res.status(200).json({
       action,
       daysAhead,
@@ -354,6 +364,7 @@ export default async function handler(req, res) {
       created: created.length,
       errors: errors.length,
       turnovers,
+      diagnostics,
       ...(errors.length > 0 ? { errorDetails: errors } : {}),
     })
   } catch (err) {
