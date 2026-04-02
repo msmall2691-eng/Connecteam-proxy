@@ -1,466 +1,537 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useCallback } from 'react'
 import { Link } from 'react-router-dom'
 import {
-  getClients, getClientsAsync, saveClient, saveClientAsync,
-  getJobs, getJobsAsync, getInvoices, getInvoicesAsync,
-  getProperties, getPropertiesAsync, getQuotes, getQuotesAsync,
+  getClientsAsync, saveClientAsync,
+  getJobsAsync, getInvoicesAsync,
+  getPropertiesAsync, getQuotesAsync, saveQuoteAsync, saveJobAsync,
+  savePropertyAsync, generateQuoteNumber,
 } from '../lib/store'
-import { isSupabaseConfigured } from '../lib/supabase'
+import { isSupabaseConfigured, getSupabase } from '../lib/supabase'
 
+// Linear workflow: Request → Quote Sent → Approved → Scheduled
 const STAGES = [
-  { id: 'lead', label: 'Leads', color: 'blue', desc: 'New inquiries' },
-  { id: 'prospect', label: 'Quoted', color: 'purple', desc: 'Quote sent' },
-  { id: 'active', label: 'Active', color: 'green', desc: 'Paying clients' },
-  { id: 'inactive', label: 'Inactive', color: 'gray', desc: 'Past clients' },
-]
-
-const SOURCE_ICONS = {
-  'Website': '🌐', 'Facebook': '📘', 'Facebook Lead Ad': '📘', 'Google': '🔍',
-  'Referral': '🤝', 'Email': '📧', 'SMS': '💬', 'Phone': '📞', 'Direct': '📋',
-}
-
-const CLIENT_TYPES = ['all', 'residential', 'commercial', 'rental', 'marina']
-
-const WORKFLOW_STEPS = [
-  { key: 'request', label: 'Request' },
-  { key: 'quote', label: 'Quote' },
-  { key: 'schedule', label: 'Schedule' },
-  { key: 'invoice', label: 'Invoice' },
+  { id: 'new_request', label: 'New Requests', color: 'blue', desc: 'Needs quote' },
+  { id: 'quote_sent', label: 'Quote Sent', color: 'purple', desc: 'Awaiting approval' },
+  { id: 'approved', label: 'Approved', color: 'amber', desc: 'Needs scheduling' },
+  { id: 'scheduled', label: 'Scheduled', color: 'green', desc: 'Active clients' },
 ]
 
 export default function Pipeline() {
   const [clients, setClients] = useState([])
-  const [jobs, setJobs] = useState([])
-  const [invoices, setInvoices] = useState([])
-  const [allProperties, setAllProperties] = useState([])
   const [allQuotes, setAllQuotes] = useState([])
-  const [view, setView] = useState('kanban')
-  const [searchTerm, setSearchTerm] = useState('')
-  const [sourceFilter, setSourceFilter] = useState('all')
-  const [typeFilter, setTypeFilter] = useState('all')
+  const [allJobs, setAllJobs] = useState([])
+  const [allProperties, setAllProperties] = useState([])
+  const [invoices, setInvoices] = useState([])
+  const [requests, setRequests] = useState([])
+  const [bookings, setBookings] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [search, setSearch] = useState('')
+  const [acting, setActing] = useState(null)
+  const [toast, setToast] = useState(null)
 
   useEffect(() => { reload() }, [])
+  useEffect(() => { if (toast) { const t = setTimeout(() => setToast(null), 5000); return () => clearTimeout(t) } }, [toast])
 
-  async function reload() {
-    if (isSupabaseConfigured()) {
-      const [c, j, inv, p, q] = await Promise.all([
-        getClientsAsync(), getJobsAsync(), getInvoicesAsync(),
-        getPropertiesAsync(), getQuotesAsync(),
+  const reload = useCallback(async () => {
+    setLoading(true)
+    try {
+      const [c, q, j, p, inv] = await Promise.all([
+        getClientsAsync(), getQuotesAsync(), getJobsAsync(),
+        getPropertiesAsync(), getInvoicesAsync(),
       ])
-      setClients(c); setJobs(j); setInvoices(inv)
-      setAllProperties(p); setAllQuotes(q)
-    } else {
-      setClients(getClients()); setJobs(getJobs()); setInvoices(getInvoices())
-      setAllProperties(getProperties()); setAllQuotes(getQuotes())
+      setClients(c); setAllQuotes(q); setAllJobs(j)
+      setAllProperties(p); setInvoices(inv)
+
+      // Fetch website requests + bookings
+      try {
+        const [reqRes, bookRes] = await Promise.all([
+          fetch('/api/leads?action=list'),
+          fetch('/api/leads?action=booking-list'),
+        ])
+        if (reqRes.ok) { const d = await reqRes.json(); setRequests(d.requests || []) }
+        if (bookRes.ok) { const d = await bookRes.json(); setBookings(d.bookings || []) }
+      } catch {}
+    } catch {}
+    setLoading(false)
+  }, [])
+
+  // ── Classify each client into a linear stage ──
+  function getStage(client) {
+    const quotes = allQuotes.filter(q => q.clientId === client.id)
+    const jobs = allJobs.filter(j => j.clientId === client.id)
+
+    // Has a scheduled/active job → Scheduled
+    if (jobs.some(j => j.status === 'scheduled' || j.status === 'in-progress' || j.status === 'completed')) {
+      return 'scheduled'
     }
-  }
-
-  function getClientProperties(clientId) {
-    return allProperties.filter(p => p.clientId === clientId)
-  }
-
-  function getClientQuotes(clientId) {
-    return allQuotes.filter(q => q.clientId === clientId)
-  }
-
-  async function moveClient(clientId, newStatus) {
-    if (isSupabaseConfigured()) {
-      await saveClientAsync({ id: clientId, status: newStatus })
-    } else {
-      saveClient({ id: clientId, status: newStatus })
+    // Has an accepted quote but no job → Approved (needs scheduling)
+    if (quotes.some(q => q.status === 'accepted')) {
+      return 'approved'
     }
+    // Has a sent/viewed quote → Quote Sent
+    if (quotes.some(q => q.status === 'sent' || q.status === 'viewed')) {
+      return 'quote_sent'
+    }
+    // Everything else (lead/prospect with no sent quote) → New Request
+    return 'new_request'
+  }
+
+  // ── Unconverted website requests (not yet in CRM) ──
+  const unconvertedRequests = useMemo(() => {
+    return requests.filter(r =>
+      r.status !== 'converted' && r.status !== 'lost'
+    )
+  }, [requests])
+
+  // ── Build pipeline cards ──
+  const pipelineCards = useMemo(() => {
+    const cards = { new_request: [], quote_sent: [], approved: [], scheduled: [] }
+
+    // Add unconverted website requests as cards in "New Requests"
+    unconvertedRequests.forEach(req => {
+      cards.new_request.push({
+        type: 'request',
+        id: req.id,
+        name: req.name || 'Unknown',
+        email: req.email,
+        phone: req.phone,
+        address: req.address,
+        serviceType: req.service || req.service_type || 'Standard Clean',
+        frequency: req.frequency,
+        estimateMin: req.estimate_min,
+        estimateMax: req.estimate_max,
+        source: req.source || 'Website',
+        createdAt: req.created_at,
+        raw: req,
+      })
+    })
+
+    // Add CRM clients in their appropriate stage
+    clients.forEach(client => {
+      if (client.status === 'inactive') return // skip archived
+      const stage = getStage(client)
+      const quotes = allQuotes.filter(q => q.clientId === client.id)
+      const jobs = allJobs.filter(j => j.clientId === client.id)
+      const props = allProperties.filter(p => p.clientId === client.id)
+      const latestQuote = quotes[0]
+      const revenue = invoices
+        .filter(i => i.clientId === client.id && i.status === 'paid')
+        .reduce((s, i) => s + (i.total || 0), 0)
+
+      cards[stage].push({
+        type: 'client',
+        id: client.id,
+        name: client.name,
+        email: client.email,
+        phone: client.phone,
+        address: props[0]?.addressLine1 || client.address,
+        serviceType: latestQuote?.serviceType || jobs[0]?.serviceType || '',
+        frequency: latestQuote?.frequency || '',
+        estimateMin: latestQuote?.estimateMin,
+        estimateMax: latestQuote?.estimateMax,
+        finalPrice: latestQuote?.finalPrice,
+        quoteStatus: latestQuote?.status,
+        quoteId: latestQuote?.id,
+        jobCount: jobs.length,
+        revenue,
+        source: client.source,
+        createdAt: client.createdAt,
+        client,
+        latestQuote,
+      })
+    })
+
+    // Sort each column by newest first
+    Object.values(cards).forEach(arr => arr.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0)))
+    return cards
+  }, [clients, allQuotes, allJobs, allProperties, invoices, unconvertedRequests])
+
+  // ── Filter by search ──
+  const filtered = useMemo(() => {
+    if (!search) return pipelineCards
+    const term = search.toLowerCase()
+    const result = {}
+    for (const [stage, cards] of Object.entries(pipelineCards)) {
+      result[stage] = cards.filter(c =>
+        (c.name || '').toLowerCase().includes(term) ||
+        (c.email || '').toLowerCase().includes(term) ||
+        (c.address || '').toLowerCase().includes(term)
+      )
+    }
+    return result
+  }, [pipelineCards, search])
+
+  // ── ACTIONS ──
+
+  // Stage 1: New Request → Send Quote (creates client + property + quote, sends it)
+  async function sendQuote(card) {
+    setActing(card.id)
+    try {
+      if (card.type === 'request') {
+        // Convert request to client + property + quote, then send
+        const req = card.raw
+        const clientData = {
+          name: req.name || 'Unknown',
+          email: req.email || '',
+          phone: req.phone || '',
+          address: req.address || '',
+          status: 'prospect',
+          type: req.property_type || 'residential',
+          source: req.source || 'Website',
+          tags: [req.service, req.frequency, 'Website'].filter(Boolean),
+        }
+        const client = await saveClientAsync(clientData)
+
+        // Create property
+        if (req.address) {
+          try {
+            await savePropertyAsync({
+              clientId: client.id,
+              name: req.address.split(',')[0] || 'Primary',
+              addressLine1: req.address,
+              type: req.property_type || 'residential',
+              sqft: req.sqft ? parseInt(req.sqft) : null,
+              bathrooms: req.bathrooms ? parseInt(req.bathrooms) : null,
+              bedrooms: req.bedrooms ? parseInt(req.bedrooms) : null,
+              petHair: req.pet_hair || 'none',
+              condition: req.condition || 'maintenance',
+              isPrimary: true,
+            })
+          } catch {}
+        }
+
+        // Create and send quote
+        const quote = await saveQuoteAsync({
+          quoteNumber: generateQuoteNumber(),
+          clientId: client.id,
+          serviceType: req.service || 'standard',
+          frequency: req.frequency || 'one-time',
+          estimateMin: parseFloat(req.estimate_min) || 0,
+          estimateMax: parseFloat(req.estimate_max) || 0,
+          status: 'sent',
+          sentAt: new Date().toISOString(),
+          calcInputs: { sqft: req.sqft, bathrooms: req.bathrooms, bedrooms: req.bedrooms },
+        })
+
+        // Mark request as converted
+        try {
+          const sb = getSupabase()
+          if (sb) {
+            await sb.from('website_requests').update({ status: 'converted', client_id: client.id }).eq('id', req.id)
+          }
+        } catch {}
+
+        // Send quote email if client has email
+        if (client.email) {
+          try {
+            await fetch('/api/google', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                action: 'gmail-send',
+                to: client.email,
+                subject: `Your cleaning estimate — ${quote.quoteNumber}`,
+                body: `Hi ${client.name.split(' ')[0]},\n\nThank you for your interest! Based on the details you provided, your estimated price is $${quote.estimateMin}–$${quote.estimateMax}.\n\nPlease review and approve your quote here:\nhttps://connecteam-proxy.vercel.app/quote.html?id=${quote.id}\n\nQuestions? Just reply to this email.\n\n— The Maine Cleaning Co.`,
+              }),
+            })
+          } catch {}
+        }
+
+        setToast({ type: 'success', message: `Quote sent to ${client.name}` })
+      } else {
+        // Existing client — create quote if needed, then send
+        const quote = card.latestQuote
+        if (quote && quote.status === 'draft') {
+          await saveQuoteAsync({ ...quote, status: 'sent', sentAt: new Date().toISOString() })
+
+          if (card.email) {
+            try {
+              await fetch('/api/google', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  action: 'gmail-send',
+                  to: card.email,
+                  subject: `Your cleaning estimate — ${quote.quoteNumber}`,
+                  body: `Hi ${card.name.split(' ')[0]},\n\nYour quote is ready for review:\nhttps://connecteam-proxy.vercel.app/quote.html?id=${quote.id}\n\n— The Maine Cleaning Co.`,
+                }),
+              })
+            } catch {}
+          }
+          setToast({ type: 'success', message: `Quote sent to ${card.name}` })
+        } else {
+          // No quote yet — go to detail page to build one
+          window.location.hash = `/clients/${card.id}?tab=quotes`
+          return
+        }
+      }
+    } catch (e) {
+      console.error('Failed to send quote:', e)
+      setToast({ type: 'error', message: 'Failed to send quote' })
+    }
+    setActing(null)
     reload()
   }
 
-  function getClientStats(clientId) {
-    const clientJobs = jobs.filter(j => j.clientId === clientId)
-    const clientInvoices = invoices.filter(i => i.clientId === clientId)
-    return {
-      jobCount: clientJobs.length,
-      completedJobs: clientJobs.filter(j => j.status === 'completed').length,
-      revenue: clientInvoices.filter(i => i.status === 'paid').reduce((s, i) => s + (i.total || 0), 0),
-      outstanding: clientInvoices.filter(i => i.status === 'sent' || i.status === 'overdue').reduce((s, i) => s + (i.total || 0), 0),
+  // Stage 3: Approved → Create Job
+  async function createJob(card) {
+    setActing(card.id)
+    try {
+      const quote = card.latestQuote
+      await saveJobAsync({
+        clientId: card.id,
+        clientName: card.name,
+        title: `${card.serviceType || 'Cleaning'} — ${card.name}`,
+        date: new Date().toISOString().split('T')[0],
+        startTime: '09:00',
+        endTime: '12:00',
+        status: 'scheduled',
+        price: quote?.finalPrice || quote?.estimateMax || quote?.estimateMin || null,
+        serviceType: card.serviceType,
+        address: card.address,
+        isRecurring: card.frequency && card.frequency !== 'one-time',
+        recurrenceRule: card.frequency === 'weekly' ? 'weekly' : card.frequency === 'biweekly' ? 'biweekly' : card.frequency === 'monthly' ? 'monthly' : null,
+      })
+      await saveClientAsync({ id: card.id, status: 'active' })
+      setToast({ type: 'success', message: `Job created for ${card.name}` })
+    } catch (e) {
+      console.error('Failed to create job:', e)
+      setToast({ type: 'error', message: 'Failed to create job' })
     }
+    setActing(null)
+    reload()
   }
 
-  function getClientWorkflow(clientId) {
-    const hasQuotes = allQuotes.some(q => q.clientId === clientId)
-    const clientJobs = jobs.filter(j => j.clientId === clientId)
-    const hasJobs = clientJobs.length > 0
-    const clientInvoices = invoices.filter(i => i.clientId === clientId)
-    const hasInvoices = clientInvoices.length > 0
-    return {
-      request: true, // they are in the pipeline, so request exists
-      quote: hasQuotes,
-      schedule: hasJobs,
-      invoice: hasInvoices,
+  // Dismiss / mark lost
+  async function dismissCard(card) {
+    setActing(card.id)
+    if (card.type === 'request') {
+      try {
+        const sb = getSupabase()
+        if (sb) await sb.from('website_requests').update({ status: 'lost' }).eq('id', card.raw.id)
+      } catch {}
+    } else {
+      await saveClientAsync({ id: card.id, status: 'inactive' })
     }
+    setActing(null)
+    reload()
   }
 
-  function getClientLastActivity(clientId) {
-    const dates = []
-    allQuotes.filter(q => q.clientId === clientId).forEach(q => {
-      if (q.createdAt) dates.push(new Date(q.createdAt))
-      if (q.updatedAt) dates.push(new Date(q.updatedAt))
-    })
-    jobs.filter(j => j.clientId === clientId).forEach(j => {
-      if (j.date) dates.push(new Date(j.date))
-      if (j.createdAt) dates.push(new Date(j.createdAt))
-      if (j.updatedAt) dates.push(new Date(j.updatedAt))
-    })
-    invoices.filter(i => i.clientId === clientId).forEach(i => {
-      if (i.date) dates.push(new Date(i.date))
-      if (i.createdAt) dates.push(new Date(i.createdAt))
-      if (i.updatedAt) dates.push(new Date(i.updatedAt))
-    })
-    const valid = dates.filter(d => !isNaN(d.getTime()))
-    if (valid.length === 0) return null
-    return new Date(Math.max(...valid.map(d => d.getTime())))
-  }
-
-  // Get unique sources for filter dropdown
-  const availableSources = useMemo(() => {
-    const sources = new Set(clients.map(c => c.source).filter(Boolean))
-    return ['all', ...Array.from(sources).sort()]
-  }, [clients])
-
-  // Filter clients
-  const filteredClients = useMemo(() => {
-    let result = clients
-    if (searchTerm) {
-      const term = searchTerm.toLowerCase()
-      result = result.filter(c =>
-        (c.name || '').toLowerCase().includes(term) ||
-        (c.email || '').toLowerCase().includes(term) ||
-        (c.phone || '').toLowerCase().includes(term) ||
-        (c.companyName || '').toLowerCase().includes(term)
-      )
-    }
-    if (sourceFilter !== 'all') {
-      result = result.filter(c => c.source === sourceFilter)
-    }
-    if (typeFilter !== 'all') {
-      result = result.filter(c => c.type === typeFilter)
-    }
-    return result
-  }, [clients, searchTerm, sourceFilter, typeFilter])
-
-  // Compute stage revenue from filtered clients
-  function getStageRevenue(stageId) {
-    const stageClientIds = new Set(filteredClients.filter(c => c.status === stageId).map(c => c.id))
-    return invoices
-      .filter(i => stageClientIds.has(i.clientId) && i.status === 'paid')
-      .reduce((s, i) => s + (i.total || 0), 0)
-  }
-
-  // Pipeline stats
+  // Stats
   const stats = {
-    leads: clients.filter(c => c.status === 'lead').length,
-    quoted: clients.filter(c => c.status === 'prospect').length,
-    active: clients.filter(c => c.status === 'active').length,
-    totalRevenue: invoices.filter(i => i.status === 'paid').reduce((s, i) => s + (i.total || 0), 0),
+    newRequests: (filtered.new_request || []).length,
+    quoteSent: (filtered.quote_sent || []).length,
+    approved: (filtered.approved || []).length,
+    scheduled: (filtered.scheduled || []).length,
+  }
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="animate-spin w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full" />
+      </div>
+    )
   }
 
   return (
-    <div className="p-6 max-w-full mx-auto space-y-6">
+    <div className="p-4 sm:p-6 max-w-full mx-auto space-y-4">
+      {/* Header */}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-white">Pipeline</h1>
           <p className="text-sm text-gray-500 mt-1">
-            {stats.leads} leads &middot; {stats.quoted} quoted &middot; {stats.active} active &middot; ${stats.totalRevenue.toFixed(0)} revenue
+            {stats.newRequests} new &middot; {stats.quoteSent} quoted &middot; {stats.approved} approved &middot; {stats.scheduled} active
           </p>
         </div>
-        <div className="flex items-center gap-3">
-          <div className="flex rounded-lg overflow-hidden border border-gray-700">
-            <button onClick={() => setView('kanban')} className={`px-3 py-1.5 text-xs ${view === 'kanban' ? 'bg-blue-600 text-white' : 'bg-gray-800 text-gray-400'}`}>Board</button>
-            <button onClick={() => setView('list')} className={`px-3 py-1.5 text-xs ${view === 'list' ? 'bg-blue-600 text-white' : 'bg-gray-800 text-gray-400'}`}>List</button>
-          </div>
-          <Link to="/clients" className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 rounded-lg text-sm font-medium text-white">+ New Lead</Link>
-        </div>
-      </div>
-
-      {/* Filters */}
-      <div className="flex flex-wrap items-center gap-3">
-        <div className="relative flex-1 min-w-[200px] max-w-sm">
+        <div className="relative w-64">
           <input
             type="text"
-            placeholder="Search name, email, phone, company..."
-            value={searchTerm}
-            onChange={e => setSearchTerm(e.target.value)}
+            placeholder="Search..."
+            value={search}
+            onChange={e => setSearch(e.target.value)}
             className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 pl-9 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-blue-600"
           />
           <svg className="absolute left-3 top-2.5 w-4 h-4 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
           </svg>
         </div>
-        <select
-          value={sourceFilter}
-          onChange={e => setSourceFilter(e.target.value)}
-          className="bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-600"
-        >
-          {availableSources.map(src => (
-            <option key={src} value={src}>
-              {src === 'all' ? 'All Sources' : `${SOURCE_ICONS[src] || ''} ${src}`}
-            </option>
-          ))}
-        </select>
-        <div className="flex rounded-lg overflow-hidden border border-gray-700">
-          {CLIENT_TYPES.map(t => (
-            <button
-              key={t}
-              onClick={() => setTypeFilter(t)}
-              className={`px-3 py-1.5 text-xs capitalize ${typeFilter === t ? 'bg-blue-600 text-white' : 'bg-gray-800 text-gray-400 hover:text-gray-300'}`}
-            >
-              {t === 'all' ? 'All Types' : t}
-            </button>
-          ))}
-        </div>
-        {(searchTerm || sourceFilter !== 'all' || typeFilter !== 'all') && (
-          <button
-            onClick={() => { setSearchTerm(''); setSourceFilter('all'); setTypeFilter('all') }}
-            className="text-xs text-gray-500 hover:text-gray-300"
-          >
-            Clear filters
-          </button>
-        )}
       </div>
 
-      {/* Webhook info */}
-      <div className="bg-gray-900 border border-gray-800 rounded-xl p-4">
-        <details>
-          <summary className="text-xs text-gray-500 cursor-pointer hover:text-gray-300">Lead intake endpoints (for website, Facebook, etc.)</summary>
-          <div className="mt-3 space-y-2 text-xs">
-            <div className="bg-gray-800 rounded-lg p-3">
-              <p className="text-gray-400 font-medium">Website Form:</p>
-              <code className="text-blue-400">POST https://connecteam-proxy.vercel.app/api/leads</code>
-              <p className="text-gray-500 mt-1">Body: {`{ name, email, phone, address, service, message, propertyType, frequency }`}</p>
-            </div>
-            <div className="bg-gray-800 rounded-lg p-3">
-              <p className="text-gray-400 font-medium">Facebook Lead Ads Webhook:</p>
-              <code className="text-blue-400">POST https://connecteam-proxy.vercel.app/api/leads?action=facebook</code>
-              <p className="text-gray-500 mt-1">Set as webhook URL in Facebook Developer App → Webhooks → Page → leadgen</p>
-            </div>
-          </div>
-        </details>
-      </div>
-
-      {view === 'kanban' ? (
-        /* ── KANBAN BOARD ── */
-        <div className="flex md:grid md:grid-cols-2 xl:grid-cols-4 gap-2 sm:gap-4 min-h-[500px] overflow-x-auto pb-2">
-          {STAGES.map(stage => {
-            const stageClients = filteredClients.filter(c => c.status === stage.id)
-            const stageRev = getStageRevenue(stage.id)
-            return (
-              <div key={stage.id} className="bg-gray-900/50 border border-gray-800 rounded-xl flex flex-col min-w-[240px] md:min-w-0 shrink-0 md:shrink">
-                <div className="px-4 py-3 border-b border-gray-800">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <span className={`w-2 h-2 rounded-full ${
-                        stage.color === 'blue' ? 'bg-blue-500' :
-                        stage.color === 'purple' ? 'bg-purple-500' :
-                        stage.color === 'green' ? 'bg-green-500' : 'bg-gray-500'
-                      }`} />
-                      <span className="text-sm font-semibold text-white">{stage.label}</span>
-                    </div>
-                    <span className="text-xs text-gray-500 bg-gray-800 rounded-full px-2 py-0.5">{stageClients.length}</span>
-                  </div>
-                  <div className="flex items-center justify-between mt-0.5">
-                    <p className="text-xs text-gray-600">{stage.desc}</p>
-                    {stageRev > 0 && (
-                      <span className="text-xs text-green-500 font-mono">${stageRev.toLocaleString()}</span>
-                    )}
-                  </div>
-                </div>
-                <div className="flex-1 p-2 space-y-2 overflow-y-auto">
-                  {stageClients.map(client => {
-                    const cStats = getClientStats(client.id)
-                    const workflow = getClientWorkflow(client.id)
-                    return (
-                      <div key={client.id} className="bg-gray-900 border border-gray-800 rounded-lg p-2 sm:p-3 hover:border-gray-700 transition-colors">
-                        <Link to={`/clients/${client.id}`} className="text-xs sm:text-sm font-medium text-white hover:text-blue-400">{client.name}</Link>
-                        {client.companyName && (
-                          <p className="text-xs text-gray-500 mt-0.5">{client.companyName}</p>
-                        )}
-                        <div className="flex items-center gap-2 mt-1">
-                          {client.source && (
-                            <span className="text-xs text-gray-500">{SOURCE_ICONS[client.source] || '📋'} {client.source}</span>
-                          )}
-                          <span className="text-xs capitalize text-gray-600">{client.type}</span>
-                        </div>
-                        {(client.email || client.phone) && (
-                          <p className="text-xs text-gray-600 mt-1 truncate">{client.email || client.phone}</p>
-                        )}
-                        {client.tags?.length > 0 && (
-                          <div className="flex gap-1 mt-1.5 flex-wrap">
-                            {client.tags.slice(0, 3).map(t => (
-                              <span key={t} className="px-1.5 py-0.5 bg-gray-800 rounded text-xs text-gray-500">{t}</span>
-                            ))}
-                          </div>
-                        )}
-                        {/* Workflow trail */}
-                        <div className="flex gap-1 mt-2">
-                          {WORKFLOW_STEPS.map(step => (
-                            <span
-                              key={step.key}
-                              className={`px-1.5 py-0.5 rounded text-xs font-medium ${
-                                workflow[step.key]
-                                  ? 'bg-green-600/20 text-green-400'
-                                  : 'bg-gray-800 text-gray-600'
-                              }`}
-                            >
-                              {step.label} {workflow[step.key] ? '✓' : '–'}
-                            </span>
-                          ))}
-                        </div>
-                        {/* Properties & quotes info */}
-                        {(() => {
-                          const props = getClientProperties(client.id)
-                          const quots = getClientQuotes(client.id)
-                          const latestQuote = quots[0]
-                          return (
-                            <>
-                              {props.length > 0 && (
-                                <p className="text-xs text-gray-600 mt-1">{props.length} propert{props.length === 1 ? 'y' : 'ies'}: {props.map(p => p.name || p.addressLine1?.split(',')[0]).join(', ')}</p>
-                              )}
-                              {latestQuote && (
-                                <p className="text-xs text-blue-400 mt-0.5">${latestQuote.estimateMin}–${latestQuote.estimateMax} ({latestQuote.status})</p>
-                              )}
-                            </>
-                          )
-                        })()}
-                        {cStats.revenue > 0 && (
-                          <p className="text-xs text-green-500 mt-1">${cStats.revenue.toFixed(0)} earned</p>
-                        )}
-                        {/* Stage actions */}
-                        <div className="flex gap-1 mt-2">
-                          {stage.id === 'lead' && (
-                            <>
-                              <Link to={`/clients/${client.id}?tab=quotes`}
-                                className="px-2 py-0.5 bg-purple-600/20 text-purple-400 rounded text-xs hover:bg-purple-600/30">Send Quote</Link>
-                              <button onClick={() => moveClient(client.id, 'active')}
-                                className="px-2 py-0.5 bg-green-600/20 text-green-400 rounded text-xs hover:bg-green-600/30">Activate</button>
-                            </>
-                          )}
-                          {stage.id === 'prospect' && (
-                            <>
-                              <button onClick={() => moveClient(client.id, 'active')}
-                                className="px-2 py-0.5 bg-green-600/20 text-green-400 rounded text-xs hover:bg-green-600/30">Won</button>
-                              <button onClick={() => moveClient(client.id, 'inactive')}
-                                className="px-2 py-0.5 bg-gray-700 text-gray-400 rounded text-xs hover:bg-gray-600">Lost</button>
-                            </>
-                          )}
-                          {stage.id === 'active' && (
-                            <Link to={`/clients/${client.id}?tab=jobs`}
-                              className="px-2 py-0.5 bg-blue-600/20 text-blue-400 rounded text-xs hover:bg-blue-600/30">Schedule</Link>
-                          )}
-                        </div>
-                        {/* Time in stage */}
-                        <p className="text-xs text-gray-700 mt-1.5">
-                          {client.createdAt ? `${Math.floor((Date.now() - new Date(client.createdAt)) / 86400000)}d ago` : ''}
-                        </p>
-                      </div>
-                    )
-                  })}
-                  {stageClients.length === 0 && (
-                    <p className="text-xs text-gray-700 text-center py-8">No {stage.label.toLowerCase()}</p>
-                  )}
-                </div>
-              </div>
-            )
-          })}
-        </div>
-      ) : (
-        /* ── LIST VIEW ── */
-        <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
-          <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="text-xs text-gray-500 uppercase tracking-wider border-b border-gray-800">
-                <th className="px-5 py-3 text-left">Client</th>
-                <th className="px-3 py-3 text-left">Company</th>
-                <th className="px-3 py-3 text-left">Contact</th>
-                <th className="px-3 py-3 text-left">Source</th>
-                <th className="px-3 py-3 text-left">Type</th>
-                <th className="px-3 py-3 text-center">Stage</th>
-                <th className="px-3 py-3 text-center">Workflow</th>
-                <th className="px-3 py-3 text-right">Revenue</th>
-                <th className="px-3 py-3 text-left">Last Activity</th>
-                <th className="px-3 py-3 text-left">Age</th>
-                <th className="px-5 py-3 text-right">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-800/50">
-              {filteredClients.map(client => {
-                const cStats = getClientStats(client.id)
-                const workflow = getClientWorkflow(client.id)
-                const lastActivity = getClientLastActivity(client.id)
-                const ageInDays = client.createdAt ? Math.floor((Date.now() - new Date(client.createdAt)) / 86400000) : 0
-                return (
-                  <tr key={client.id} className="text-gray-300 hover:bg-gray-800/30">
-                    <td className="px-5 py-3">
-                      <Link to={`/clients/${client.id}`} className="font-medium text-white hover:text-blue-400">{client.name}</Link>
-                      {client.tags?.length > 0 && (
-                        <div className="flex gap-1 mt-0.5">
-                          {client.tags.slice(0, 2).map(t => <span key={t} className="px-1 py-0.5 bg-gray-800 rounded text-xs text-gray-500">{t}</span>)}
-                        </div>
-                      )}
-                    </td>
-                    <td className="px-3 py-3 text-xs text-gray-500">{client.companyName || '-'}</td>
-                    <td className="px-3 py-3 text-xs">
-                      {client.email && <p>{client.email}</p>}
-                      {client.phone && <p className="text-gray-500">{client.phone}</p>}
-                    </td>
-                    <td className="px-3 py-3 text-xs">{SOURCE_ICONS[client.source] || ''} {client.source || '-'}</td>
-                    <td className="px-3 py-3 text-xs capitalize">{client.type}</td>
-                    <td className="px-3 py-3 text-center">
-                      <select value={client.status} onChange={e => moveClient(client.id, e.target.value)}
-                        className="px-2 py-0.5 bg-gray-800 border border-gray-700 rounded text-xs text-white">
-                        <option value="lead">Lead</option>
-                        <option value="prospect">Quoted</option>
-                        <option value="active">Active</option>
-                        <option value="inactive">Inactive</option>
-                      </select>
-                    </td>
-                    <td className="px-3 py-3">
-                      <div className="flex gap-0.5 justify-center">
-                        {WORKFLOW_STEPS.map(step => (
-                          <span
-                            key={step.key}
-                            title={step.label}
-                            className={`w-5 h-5 flex items-center justify-center rounded text-xs ${
-                              workflow[step.key]
-                                ? 'bg-green-600/20 text-green-400'
-                                : 'bg-gray-800 text-gray-600'
-                            }`}
-                          >
-                            {workflow[step.key] ? '✓' : '–'}
-                          </span>
-                        ))}
-                      </div>
-                    </td>
-                    <td className="px-3 py-3 text-right font-mono text-xs">
-                      {cStats.revenue > 0 ? `$${cStats.revenue.toFixed(0)}` : '-'}
-                    </td>
-                    <td className="px-3 py-3 text-xs text-gray-500">
-                      {lastActivity ? lastActivity.toLocaleDateString() : '-'}
-                    </td>
-                    <td className="px-3 py-3 text-xs text-gray-500">{ageInDays}d</td>
-                    <td className="px-5 py-3 text-right">
-                      <div className="flex gap-2 justify-end">
-                        {client.status === 'lead' && (
-                          <Link to={`/clients/${client.id}?tab=quotes`} className="text-xs text-purple-400 hover:text-purple-300">Quote</Link>
-                        )}
-                        <Link to={`/clients/${client.id}`} className="text-xs text-gray-500 hover:text-blue-400">View</Link>
-                      </div>
-                    </td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
-          </div>
+      {/* Toast */}
+      {toast && (
+        <div className={`p-3 rounded-lg text-sm ${
+          toast.type === 'success' ? 'bg-green-900/30 border border-green-800 text-green-300' :
+          'bg-red-900/30 border border-red-800 text-red-300'
+        }`}>
+          {toast.message}
         </div>
       )}
+
+      {/* Linear progress bar */}
+      <div className="flex items-center gap-1">
+        {STAGES.map((stage, i) => {
+          const count = (filtered[stage.id] || []).length
+          return (
+            <div key={stage.id} className="flex items-center flex-1">
+              <div className={`flex-1 h-1.5 rounded-full ${
+                stage.color === 'blue' ? 'bg-blue-500/40' :
+                stage.color === 'purple' ? 'bg-purple-500/40' :
+                stage.color === 'amber' ? 'bg-amber-500/40' : 'bg-green-500/40'
+              }`}>
+                <div className={`h-full rounded-full transition-all ${
+                  stage.color === 'blue' ? 'bg-blue-500' :
+                  stage.color === 'purple' ? 'bg-purple-500' :
+                  stage.color === 'amber' ? 'bg-amber-500' : 'bg-green-500'
+                }`} style={{ width: count > 0 ? '100%' : '0%' }} />
+              </div>
+              {i < STAGES.length - 1 && (
+                <svg className="w-4 h-4 text-gray-700 mx-1 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                </svg>
+              )}
+            </div>
+          )
+        })}
+      </div>
+
+      {/* Kanban columns */}
+      <div className="flex md:grid md:grid-cols-2 xl:grid-cols-4 gap-2 sm:gap-3 min-h-[500px] overflow-x-auto pb-2">
+        {STAGES.map(stage => {
+          const cards = filtered[stage.id] || []
+          return (
+            <div key={stage.id} className="bg-gray-900/50 border border-gray-800 rounded-xl flex flex-col min-w-[260px] md:min-w-0 shrink-0 md:shrink">
+              {/* Column header */}
+              <div className="px-4 py-3 border-b border-gray-800">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className={`w-2 h-2 rounded-full ${
+                      stage.color === 'blue' ? 'bg-blue-500' :
+                      stage.color === 'purple' ? 'bg-purple-500' :
+                      stage.color === 'amber' ? 'bg-amber-500' : 'bg-green-500'
+                    }`} />
+                    <span className="text-sm font-semibold text-white">{stage.label}</span>
+                  </div>
+                  <span className="text-xs text-gray-500 bg-gray-800 rounded-full px-2 py-0.5">{cards.length}</span>
+                </div>
+                <p className="text-xs text-gray-600 mt-0.5">{stage.desc}</p>
+              </div>
+
+              {/* Cards */}
+              <div className="flex-1 p-2 space-y-2 overflow-y-auto">
+                {cards.map(card => (
+                  <div key={card.id} className="bg-gray-900 border border-gray-800 rounded-lg p-3 hover:border-gray-700 transition-colors">
+                    {/* Name + link */}
+                    {card.type === 'client' ? (
+                      <Link to={`/clients/${card.id}`} className="text-sm font-medium text-white hover:text-blue-400 block">{card.name}</Link>
+                    ) : (
+                      <span className="text-sm font-medium text-white block">{card.name}</span>
+                    )}
+
+                    {/* Contact */}
+                    {(card.email || card.phone) && (
+                      <p className="text-xs text-gray-500 mt-0.5 truncate">{card.email || card.phone}</p>
+                    )}
+
+                    {/* Service + address */}
+                    {card.serviceType && (
+                      <p className="text-xs text-gray-400 mt-1">{card.serviceType}{card.frequency && card.frequency !== 'one-time' ? ` · ${card.frequency}` : ''}</p>
+                    )}
+                    {card.address && (
+                      <p className="text-xs text-gray-600 mt-0.5 truncate">{card.address}</p>
+                    )}
+
+                    {/* Price */}
+                    {(card.finalPrice || card.estimateMin) && (
+                      <p className="text-xs font-mono mt-1.5">
+                        <span className={stage.id === 'scheduled' ? 'text-green-400' : 'text-blue-400'}>
+                          {card.finalPrice ? `$${card.finalPrice}` : `$${card.estimateMin}–$${card.estimateMax}`}
+                        </span>
+                        {card.frequency && card.frequency !== 'one-time' && (
+                          <span className="text-gray-600 ml-1">/{card.frequency}</span>
+                        )}
+                      </p>
+                    )}
+
+                    {/* Revenue for scheduled */}
+                    {card.revenue > 0 && (
+                      <p className="text-xs text-green-500/70 mt-0.5">${card.revenue.toFixed(0)} earned</p>
+                    )}
+
+                    {/* Source + age */}
+                    <div className="flex items-center justify-between mt-2">
+                      <span className="text-xs text-gray-700">{card.source || ''}</span>
+                      <span className="text-xs text-gray-700">
+                        {card.createdAt ? `${Math.floor((Date.now() - new Date(card.createdAt)) / 86400000)}d` : ''}
+                      </span>
+                    </div>
+
+                    {/* ONE action per stage */}
+                    <div className="mt-2 flex gap-1.5">
+                      {stage.id === 'new_request' && (
+                        <>
+                          <button
+                            onClick={() => sendQuote(card)}
+                            disabled={acting === card.id}
+                            className="flex-1 px-2.5 py-1.5 bg-purple-600 hover:bg-purple-500 disabled:opacity-50 rounded-lg text-xs font-medium text-white transition-colors"
+                          >
+                            {acting === card.id ? 'Sending...' : 'Send Quote'}
+                          </button>
+                          <button onClick={() => dismissCard(card)}
+                            className="px-2 py-1.5 text-gray-600 hover:text-red-400 text-xs">
+                            Dismiss
+                          </button>
+                        </>
+                      )}
+                      {stage.id === 'quote_sent' && (
+                        <span className="text-xs text-purple-400/60 italic">Waiting for approval...</span>
+                      )}
+                      {stage.id === 'approved' && (
+                        <button
+                          onClick={() => createJob(card)}
+                          disabled={acting === card.id}
+                          className="flex-1 px-2.5 py-1.5 bg-green-600 hover:bg-green-500 disabled:opacity-50 rounded-lg text-xs font-medium text-white transition-colors"
+                        >
+                          {acting === card.id ? 'Creating...' : 'Create Job'}
+                        </button>
+                      )}
+                      {stage.id === 'scheduled' && card.type === 'client' && (
+                        <Link to={`/clients/${card.id}`}
+                          className="px-2.5 py-1.5 bg-gray-800 hover:bg-gray-700 rounded-lg text-xs text-gray-300 transition-colors">
+                          View Client
+                        </Link>
+                      )}
+                    </div>
+                  </div>
+                ))}
+
+                {cards.length === 0 && (
+                  <div className="flex flex-col items-center justify-center py-12 text-gray-700">
+                    <svg className="w-8 h-8 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4" />
+                    </svg>
+                    <p className="text-xs">No {stage.label.toLowerCase()}</p>
+                  </div>
+                )}
+              </div>
+            </div>
+          )
+        })}
+      </div>
+
+      {/* Webhook info (collapsed) */}
+      <details className="bg-gray-900 border border-gray-800 rounded-xl p-4">
+        <summary className="text-xs text-gray-500 cursor-pointer hover:text-gray-300">Lead intake endpoints</summary>
+        <div className="mt-3 space-y-2 text-xs">
+          <div className="bg-gray-800 rounded-lg p-3">
+            <p className="text-gray-400 font-medium">Website Form:</p>
+            <code className="text-blue-400">POST https://connecteam-proxy.vercel.app/api/leads</code>
+          </div>
+          <div className="bg-gray-800 rounded-lg p-3">
+            <p className="text-gray-400 font-medium">Self-Booking Form:</p>
+            <code className="text-blue-400">POST https://connecteam-proxy.vercel.app/api/leads?action=booking</code>
+          </div>
+        </div>
+      </details>
     </div>
   )
 }
