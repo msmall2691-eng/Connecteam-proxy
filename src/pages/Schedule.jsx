@@ -653,22 +653,28 @@ export default function Schedule() {
               Calendars ({selectedCals.length})
             </button>
             {showCalendarFilter && (
-              <div className="absolute right-0 top-full mt-1 bg-gray-900 border border-gray-800 rounded-lg p-3 z-20 w-72 shadow-xl">
-                <p className="text-xs text-gray-500 uppercase tracking-wider mb-2">Show/Hide Calendars</p>
-                {allCalendars.map(cal => (
-                  <label key={cal.id} className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-gray-800 cursor-pointer">
-                    <input type="checkbox" checked={selectedCals.includes(cal.id)}
-                      onChange={e => {
-                        if (e.target.checked) setSelectedCals(prev => [...prev, cal.id])
-                        else setSelectedCals(prev => prev.filter(id => id !== cal.id))
-                      }}
-                      className="rounded border-gray-600" />
-                    <span className="w-2.5 h-2.5 rounded" style={{ backgroundColor: cal.backgroundColor || '#4285f4' }} />
-                    <span className="text-xs text-gray-300 truncate">{cal.summaryOverride || cal.summary}</span>
-                    {cal.primary && <span className="text-xs text-gray-600">(primary)</span>}
-                  </label>
-                ))}
-              </div>
+              <>
+                <div className="fixed inset-0 z-10" onClick={() => setShowCalendarFilter(false)} />
+                <div className="absolute right-0 top-full mt-1 bg-gray-900 border border-gray-800 rounded-lg p-3 z-20 w-72 shadow-xl">
+                  <div className="flex items-center justify-between mb-2">
+                    <p className="text-xs text-gray-500 uppercase tracking-wider">Show/Hide Calendars</p>
+                    <button onClick={() => setShowCalendarFilter(false)} className="text-xs text-gray-500 hover:text-white">Close</button>
+                  </div>
+                  {allCalendars.map(cal => (
+                    <label key={cal.id} className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-gray-800 cursor-pointer">
+                      <input type="checkbox" checked={selectedCals.includes(cal.id)}
+                        onChange={e => {
+                          if (e.target.checked) setSelectedCals(prev => [...prev, cal.id])
+                          else setSelectedCals(prev => prev.filter(id => id !== cal.id))
+                        }}
+                        className="rounded border-gray-600" />
+                      <span className="w-2.5 h-2.5 rounded" style={{ backgroundColor: cal.backgroundColor || '#4285f4' }} />
+                      <span className="text-xs text-gray-300 truncate">{cal.summaryOverride || cal.summary}</span>
+                      {cal.primary && <span className="text-xs text-gray-600">(primary)</span>}
+                    </label>
+                  ))}
+                </div>
+              </>
             )}
           </div>
 
