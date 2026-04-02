@@ -1,11 +1,15 @@
 import { useState, useEffect } from 'react'
+import { Link } from 'react-router-dom'
 import { getInvoices, getInvoicesAsync, getJobs, getJobsAsync, getClients, getClientsAsync, getQuotes, getQuotesAsync } from '../lib/store'
 import { isSupabaseConfigured } from '../lib/supabase'
+import { CardSkeleton, ProgressBar } from '../components/ui'
 
 export default function Revenue() {
   const [months, setMonths] = useState([])
   const [totals, setTotals] = useState({})
   const [topClients, setTopClients] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [hoveredMonth, setHoveredMonth] = useState(null)
 
   useEffect(() => { loadData() }, [])
 
@@ -80,47 +84,105 @@ export default function Revenue() {
       }
     }
     setTopClients(Object.values(clientRevenue).sort((a, b) => b.revenue - a.revenue).slice(0, 10))
+    setLoading(false)
   }
 
-  const maxRevenue = Math.max(...months.map(m => m.revenue), 1)
+  const maxRevenue = Math.max(...months.map(m => m.revenue + m.outstanding), 1)
+
+  if (loading) return (
+    <div className="p-6 max-w-6xl mx-auto space-y-6 animate-fade-in">
+      <h1 className="text-2xl font-bold text-white">Revenue</h1>
+      <CardSkeleton count={4} />
+    </div>
+  )
+
+  // SVG chart dimensions
+  const chartW = 720, chartH = 200, padL = 50, padR = 10, padT = 10, padB = 30
+  const plotW = chartW - padL - padR, plotH = chartH - padT - padB
+  const yScale = (v) => padT + plotH - (v / maxRevenue) * plotH
+  const xScale = (i) => padL + (i / (months.length - 1 || 1)) * plotW
+
+  // Build SVG path for revenue line
+  const revPath = months.map((m, i) => `${i === 0 ? 'M' : 'L'}${xScale(i).toFixed(1)},${yScale(m.revenue).toFixed(1)}`).join(' ')
+  const revArea = revPath + ` L${xScale(months.length - 1).toFixed(1)},${yScale(0).toFixed(1)} L${xScale(0).toFixed(1)},${yScale(0).toFixed(1)} Z`
+
+  // Y-axis labels
+  const yTicks = [0, 0.25, 0.5, 0.75, 1].map(f => Math.round(maxRevenue * f))
 
   return (
-    <div className="p-6 max-w-6xl mx-auto space-y-6">
+    <div className="p-6 max-w-6xl mx-auto space-y-6 animate-fade-in">
       <h1 className="text-2xl font-bold text-white">Revenue</h1>
 
       {/* KPI cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <KPI label="All-Time Revenue" value={`$${totals.allTimeRevenue?.toFixed(0) || 0}`} color="text-green-400" />
-        <KPI label="Outstanding" value={`$${totals.allTimeOutstanding?.toFixed(0) || 0}`} color="text-yellow-400" />
-        <KPI label="This Month" value={`$${totals.thisMonthRevenue?.toFixed(0) || 0}`} sub={`${totals.thisMonthJobs || 0} jobs`} color="text-blue-400" />
-        <KPI label="Avg Invoice" value={`$${totals.avgJobValue?.toFixed(0) || 0}`} sub={`${totals.conversionRate || 0}% conversion`} color="text-purple-400" />
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <KPI label="All-Time Revenue" value={`$${(totals.allTimeRevenue || 0).toLocaleString()}`} color="text-green-400" />
+        <KPI label="Outstanding" value={`$${(totals.allTimeOutstanding || 0).toLocaleString()}`} color={totals.allTimeOutstanding > 0 ? 'text-amber-400' : 'text-gray-500'} />
+        <KPI label="This Month" value={`$${(totals.thisMonthRevenue || 0).toLocaleString()}`} sub={`${totals.thisMonthJobs || 0} jobs`} color="text-blue-400" />
+        <KPI label="Avg Invoice" value={`$${(totals.avgJobValue || 0).toFixed(0)}`} sub={`${totals.conversionRate || 0}% lead conversion`} color="text-purple-400" />
       </div>
 
-      {/* Revenue chart (bar chart using divs) */}
+      {/* Revenue chart — SVG */}
       <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
-        <h2 className="text-sm font-semibold text-white mb-4">Monthly Revenue (12 months)</h2>
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-sm font-semibold text-white">Monthly Revenue</h2>
+          <div className="flex gap-4 text-xs">
+            <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-green-500" /> Revenue</span>
+            <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-amber-500/40" /> Outstanding</span>
+          </div>
+        </div>
         <div className="overflow-x-auto">
-        <div className="flex items-end gap-1.5" style={{ height: '200px', minWidth: '600px' }}>
-          {months.map(m => (
-            <div key={m.key} className="flex-1 flex flex-col items-center justify-end h-full">
-              {/* Outstanding bar */}
-              {m.outstanding > 0 && (
-                <div className="w-full bg-yellow-600/30 rounded-t"
-                  style={{ height: `${Math.max(2, (m.outstanding / maxRevenue) * 100)}%` }}
-                  title={`$${m.outstanding.toFixed(0)} outstanding`} />
-              )}
-              {/* Revenue bar */}
-              <div className="w-full bg-green-500 rounded-t"
-                style={{ height: `${Math.max(2, (m.revenue / maxRevenue) * 100)}%`, minHeight: m.revenue > 0 ? '4px' : '0' }}
-                title={`$${m.revenue.toFixed(0)} revenue`} />
-              <span className="text-xs text-gray-600 mt-1 block truncate w-full text-center">{m.label}</span>
-            </div>
-          ))}
-        </div>
-        </div>
-        <div className="flex gap-4 mt-3 text-xs">
-          <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded bg-green-500" /> Revenue</span>
-          <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded bg-yellow-600/30" /> Outstanding</span>
+          <svg viewBox={`0 0 ${chartW} ${chartH}`} className="w-full" style={{ minWidth: '500px' }}>
+            {/* Grid lines */}
+            {yTicks.map(v => (
+              <g key={v}>
+                <line x1={padL} x2={chartW - padR} y1={yScale(v)} y2={yScale(v)} stroke="#1f2937" strokeWidth="1" />
+                <text x={padL - 8} y={yScale(v) + 4} textAnchor="end" fill="#4b5563" fontSize="10" fontFamily="monospace">
+                  ${v >= 1000 ? `${(v / 1000).toFixed(0)}k` : v}
+                </text>
+              </g>
+            ))}
+
+            {/* Revenue area fill */}
+            <path d={revArea} fill="url(#revGradient)" opacity="0.3" />
+
+            {/* Revenue line */}
+            <path d={revPath} fill="none" stroke="#22c55e" strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round" />
+
+            {/* Outstanding bars */}
+            {months.map((m, i) => m.outstanding > 0 && (
+              <rect key={`out-${i}`} x={xScale(i) - 8} y={yScale(m.outstanding)} width="16"
+                height={yScale(0) - yScale(m.outstanding)} fill="#f59e0b" opacity="0.25" rx="2" />
+            ))}
+
+            {/* Data points + hover targets */}
+            {months.map((m, i) => (
+              <g key={i} onMouseEnter={() => setHoveredMonth(i)} onMouseLeave={() => setHoveredMonth(null)} style={{ cursor: 'pointer' }}>
+                <rect x={xScale(i) - 20} y={padT} width="40" height={plotH} fill="transparent" />
+                <circle cx={xScale(i)} cy={yScale(m.revenue)} r={hoveredMonth === i ? 5 : 3}
+                  fill={hoveredMonth === i ? '#22c55e' : '#166534'} stroke="#22c55e" strokeWidth="2"
+                  className="transition-all duration-150" />
+                {/* X labels */}
+                <text x={xScale(i)} y={chartH - 5} textAnchor="middle" fill="#4b5563" fontSize="10">{m.label}</text>
+                {/* Hover tooltip */}
+                {hoveredMonth === i && (
+                  <g>
+                    <rect x={xScale(i) - 50} y={yScale(m.revenue) - 38} width="100" height="28" rx="6" fill="#111827" stroke="#374151" />
+                    <text x={xScale(i)} y={yScale(m.revenue) - 20} textAnchor="middle" fill="#22c55e" fontSize="12" fontWeight="600">
+                      ${m.revenue.toLocaleString()}
+                    </text>
+                  </g>
+                )}
+              </g>
+            ))}
+
+            {/* Gradient definition */}
+            <defs>
+              <linearGradient id="revGradient" x1="0" x2="0" y1="0" y2="1">
+                <stop offset="0%" stopColor="#22c55e" stopOpacity="0.4" />
+                <stop offset="100%" stopColor="#22c55e" stopOpacity="0" />
+              </linearGradient>
+            </defs>
+          </svg>
         </div>
       </div>
 
@@ -157,17 +219,20 @@ export default function Revenue() {
       {/* Top clients */}
       {topClients.length > 0 && (
         <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
-          <h2 className="text-sm font-semibold text-white mb-3">Top Clients by Revenue</h2>
-          <div className="space-y-2">
+          <h2 className="text-sm font-semibold text-white mb-4">Top Clients by Revenue</h2>
+          <div className="space-y-3">
             {topClients.map((c, i) => (
-              <div key={c.id} className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <span className="text-xs text-gray-600 w-5">{i + 1}</span>
-                  <span className="text-sm text-white">{c.name}</span>
-                  <span className="text-xs text-gray-600">{c.invoiceCount} invoices</span>
+              <Link key={c.id} to={`/clients/${c.id}`} className="flex items-center gap-3 group hover:bg-gray-800/30 rounded-lg -mx-2 px-2 py-1.5 transition-colors">
+                <span className="text-xs text-gray-600 w-5 font-mono">{i + 1}</span>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-sm text-white group-hover:text-blue-400 transition-colors truncate">{c.name}</span>
+                    <span className="font-mono text-sm text-green-400 tabular-nums shrink-0 ml-3">${c.revenue.toLocaleString()}</span>
+                  </div>
+                  <ProgressBar value={c.revenue} max={topClients[0]?.revenue || 1} color="green" size="xs" />
                 </div>
-                <span className="font-mono text-sm text-green-400">${c.revenue.toFixed(0)}</span>
-              </div>
+                <span className="text-[10px] text-gray-600 shrink-0">{c.invoiceCount} inv</span>
+              </Link>
             ))}
           </div>
         </div>
@@ -178,10 +243,10 @@ export default function Revenue() {
 
 function KPI({ label, value, sub, color = 'text-white' }) {
   return (
-    <div className="bg-gray-900 border border-gray-800 rounded-xl px-4 py-3">
-      <p className="text-xs text-gray-500">{label}</p>
-      <p className={`text-xl font-bold ${color}`}>{value}</p>
-      {sub && <p className="text-xs text-gray-600 mt-0.5">{sub}</p>}
+    <div className="bg-gray-900 border border-gray-800 rounded-xl px-4 py-3.5 hover:border-gray-700 transition-colors">
+      <p className="text-[11px] text-gray-500 uppercase tracking-wider">{label}</p>
+      <p className={`text-2xl font-bold tabular-nums mt-0.5 ${color}`}>{value}</p>
+      {sub && <p className="text-xs text-gray-600 mt-1">{sub}</p>}
     </div>
   )
 }

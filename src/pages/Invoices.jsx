@@ -196,6 +196,8 @@ export default function Invoices() {
   const [dateRange, setDateRange] = useState('all')
   const [sortBy, setSortBy] = useState('date-desc')
   const [loading, setLoading] = useState(true)
+  const [page, setPage] = useState(1)
+  const PAGE_SIZE = 20
 
   useEffect(() => { reload() }, [])
 
@@ -279,6 +281,12 @@ export default function Invoices() {
     }).reduce((s, i) => s + i.total, 0),
     draftCount: invoices.filter(i => i.status === 'draft').length,
   }
+
+  // Reset page when filters change
+  useEffect(() => { setPage(1) }, [filterStatus, filterClient, searchQuery, dateRange, sortBy])
+
+  const totalPages = Math.ceil(filtered.length / PAGE_SIZE)
+  const paginatedInvoices = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
 
   // Unique clients that have invoices, for the client filter dropdown
   const invoiceClients = useMemo(() => {
@@ -410,7 +418,7 @@ export default function Invoices() {
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-800/50">
-            {filtered.map(inv => (
+            {paginatedInvoices.map(inv => (
               <tr key={inv.id} className="text-gray-300 hover:bg-gray-800/30 transition-colors">
                 <td className="px-5 py-3 font-mono text-white">{inv.invoiceNumber}</td>
                 <td className="px-3 py-3">{inv.clientId ? <Link to={`/clients/${inv.clientId}`} className="hover:text-blue-400 transition-colors">{inv.clientName || '-'}</Link> : (inv.clientName || '-')}</td>
@@ -545,6 +553,34 @@ export default function Invoices() {
           )}
         </table>
         </div>
+
+        {/* Pagination */}
+        {totalPages > 1 && (
+          <div className="flex items-center justify-between px-5 py-3 border-t border-gray-800">
+            <p className="text-xs text-gray-500">
+              Showing {(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, filtered.length)} of {filtered.length}
+            </p>
+            <div className="flex items-center gap-1">
+              <button onClick={() => setPage(Math.max(1, page - 1))} disabled={page === 1}
+                className="px-2.5 py-1.5 bg-gray-800 hover:bg-gray-700 disabled:opacity-30 disabled:cursor-not-allowed rounded-lg text-xs text-gray-300 transition-colors">Prev</button>
+              {Array.from({ length: Math.min(totalPages, 7) }, (_, i) => {
+                let p
+                if (totalPages <= 7) p = i + 1
+                else if (page <= 4) p = i + 1
+                else if (page >= totalPages - 3) p = totalPages - 6 + i
+                else p = page - 3 + i
+                return (
+                  <button key={p} onClick={() => setPage(p)}
+                    className={`w-8 h-8 rounded-lg text-xs font-medium transition-colors ${
+                      p === page ? 'bg-blue-600 text-white' : 'bg-gray-800 text-gray-400 hover:bg-gray-700 hover:text-white'
+                    }`}>{p}</button>
+                )
+              })}
+              <button onClick={() => setPage(Math.min(totalPages, page + 1))} disabled={page === totalPages}
+                className="px-2.5 py-1.5 bg-gray-800 hover:bg-gray-700 disabled:opacity-30 disabled:cursor-not-allowed rounded-lg text-xs text-gray-300 transition-colors">Next</button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   )

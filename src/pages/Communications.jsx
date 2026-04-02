@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { Link } from 'react-router-dom'
 import { getConversations, getConversationsAsync, getClients, getClientsAsync, addMessage, addMessageAsync, saveConversation, saveConversationAsync, getMessagesAsync } from '../lib/store'
 import { isSupabaseConfigured } from '../lib/supabase'
+import { Skeleton } from '../components/ui'
 
 export default function Communications() {
   const [convos, setConvos] = useState([])
@@ -23,6 +24,7 @@ export default function Communications() {
   const [messagesLoading, setMessagesLoading] = useState(false)
   const [autoImporting, setAutoImporting] = useState(false)
   const [autoImportCount, setAutoImportCount] = useState(0)
+  const [loadingConvos, setLoadingConvos] = useState(true)
 
   useEffect(() => { reload(); fetchGmail() }, [])
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [activeMessages])
@@ -35,6 +37,7 @@ export default function Communications() {
       allConvos = getConversations(); allClients = getClients()
     }
     setConvos(allConvos)
+    setLoadingConvos(false)
     const cls = {}
     for (const c of allClients) cls[c.id] = c
     setClients(cls)
@@ -245,7 +248,7 @@ export default function Communications() {
   const CHANNEL_COLORS = { email: 'bg-blue-900/30 text-blue-400', text: 'bg-green-900/30 text-green-400', phone: 'bg-yellow-900/30 text-yellow-400', 'in-person': 'bg-gray-800 text-gray-400' }
 
   return (
-    <div className="flex flex-col md:flex-row h-full">
+    <div className="flex flex-col md:flex-row h-full animate-fade-in">
       {/* Left panel */}
       <div className="w-full md:w-80 border-b md:border-b-0 md:border-r border-gray-800 flex flex-col bg-gray-900/50 md:max-h-full max-h-[40vh]">
         {/* Header */}

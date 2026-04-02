@@ -49,17 +49,33 @@ export default function App() {
     }
   }, [user])
 
-  // Global Cmd+K keyboard shortcut
+  // Global keyboard shortcuts
   useEffect(() => {
     function handleKeyDown(e) {
+      // Don't trigger shortcuts when typing in inputs/textareas
+      const tag = document.activeElement?.tagName
+      const isTyping = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || document.activeElement?.contentEditable === 'true'
+
+      // Cmd+K — always works (search)
       if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
         e.preventDefault()
         setCmdKOpen(prev => !prev)
+        return
       }
+
+      // Skip other shortcuts when typing
+      if (isTyping || cmdKOpen) return
+
+      // G then D = go to Dashboard, G then P = Pipeline, etc.
+      // Simple single-key shortcuts:
+      if (e.key === '/' || e.key === 'f') { e.preventDefault(); setCmdKOpen(true) }
+      if (e.key === '?' && e.shiftKey) { e.preventDefault(); setShowShortcuts(prev => !prev) }
     }
     document.addEventListener('keydown', handleKeyDown)
     return () => document.removeEventListener('keydown', handleKeyDown)
-  }, [])
+  }, [cmdKOpen])
+
+  const [showShortcuts, setShowShortcuts] = useState(false)
 
   // Show loading while checking auth
   if (loading) {
@@ -211,6 +227,32 @@ export default function App() {
 
       {/* AI Agent panel */}
       {chatOpen && <AgentChat onClose={() => setChatOpen(false)} />}
+
+      {/* Keyboard shortcuts help */}
+      {showShortcuts && (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center" onClick={() => setShowShortcuts(false)}>
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm" />
+          <div className="relative bg-gray-900 border border-gray-700 rounded-2xl shadow-2xl w-full max-w-sm p-5" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-sm font-semibold text-white">Keyboard Shortcuts</h3>
+              <button onClick={() => setShowShortcuts(false)} className="text-xs text-gray-500 hover:text-white">Close</button>
+            </div>
+            <div className="space-y-2 text-sm">
+              {[
+                ['/', 'Search'],
+                ['\u2318K', 'Search (also Ctrl+K)'],
+                ['Shift+?', 'Show this help'],
+              ].map(([key, desc]) => (
+                <div key={key} className="flex items-center justify-between">
+                  <span className="text-gray-400">{desc}</span>
+                  <kbd className="px-2 py-0.5 bg-gray-800 rounded text-xs text-gray-300 font-mono">{key}</kbd>
+                </div>
+              ))}
+            </div>
+            <p className="text-xs text-gray-600 mt-4">More shortcuts coming soon. Shortcuts are disabled when typing in inputs.</p>
+          </div>
+        </div>
+      )}
     </div>
     </ToastProvider>
   )

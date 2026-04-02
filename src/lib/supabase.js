@@ -25,3 +25,15 @@ export function setSupabaseConfig(url, key) {
   // Force reload to reinitialize
   window.location.reload()
 }
+
+// Real-time subscription helper — subscribe to table changes
+export function subscribeToTable(table, callback, filter) {
+  const sb = getSupabase()
+  if (!sb) return null
+  let channel = sb.channel(`public:${table}`)
+    .on('postgres_changes', { event: '*', schema: 'public', table, ...filter }, (payload) => {
+      callback(payload)
+    })
+    .subscribe()
+  return () => { sb.removeChannel(channel) }
+}
