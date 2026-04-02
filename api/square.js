@@ -278,7 +278,91 @@ export default async function handler(req, res) {
       return res.status(200).json({ invoices: data.invoices || [] })
     }
 
-    return res.status(400).json({ error: 'Unknown action. Payroll: team, wages, export, adjustment. Invoice: location, create-customer, search-customer, create, send, list' })
+    // ── PAYMENT WEBHOOK — Square sends payment confirmation ──
+    if (action === 'payment-webhook' && req.method === 'POST') {
+      const event = req.body
+      const eventType = event?.type || ''
+
+      // Handle invoice.payment_made and payment.completed events
+      if (eventType.includes('invoice') || eventType.includes('payment')) {
+        const invoiceId = event?.data?.object?.invoice?.id || event?.data?.id
+        const supabaseUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL
+        const supabaseKey = process.env.SUPABASE_SERVICE_KEY || process.env.VITE_SUPABASE_ANON_KEY
+
+        if (supabaseUrl && supabaseKey && invoiceId) {
+          const sbH = { apikey: supabaseKey, Authorization: `Bearer ${supabaseKey}`, 'Content-Type': 'application/json' }
+          try {
+            // Find invoice by square_invoice_id
+            const invRes = await fetch(`${supabaseUrl}/rest/v1/invoices?square_invoice_id=eq.${invoiceId}&select=id,status`, { headers: sbH })
+            const invoices = await invRes.json()
+            if (invoices?.length) {
+              await fetch(`${supabaseUrl}/rest/v1/invoices?id=eq.${invoices[0].id}`, {
+                method: 'PATCH', headers: sbH,
+                body: JSON.stringify({ status: 'paid', paid_at: new Date().toISOString() }),
+              })
+              // Log payment
+              await fetch(`${supabaseUrl}/rest/v1/payment_transactions`, {
+                method: 'POST', headers: sbH,
+                body: JSON.stringify({
+                  invoice_id: invoices[0].id,
+                  provider: 'square',
+                  external_id: event?.data?.id || invoiceId,
+                  amount: event?.data?.object?.payment?.amount_money?.amount ? event.data.object.payment.amount_money.amount / 100 : null,
+                  status: 'completed',
+                  paid_at: new Date().toISOString(),
+                }),
+              }).catch(() => {})
+            }
+          } catch (e) { console.error('Payment webhook processing failed:', e) }
+        }
+      }
+
+      return res.status(200).json({ received: true })
+    }
+
+    // ── PAYROLL RUN — push payroll data to Square ──
+    if (action === 'payroll-run' && req.method === 'POST') {
+      const { employees, periodStart, periodEnd } = req.body
+      if (!employees?.length) return res.status(400).json({ error: 'employees array required' })
+
+      // Export CSV and store in Supabase for audit
+      const csvLines = ['Employee Name,Hours Worked,Hourly Rate,Gross Pay,Mileage Reimbursement,Total Compensation']
+      for (const emp of employees) {
+        csvLines.push([`"${emp.name}"`, emp.hours, emp.rate || '', emp.pay, emp.mileageReimbursement || 0, emp.totalComp || emp.pay].join(','))
+      }
+
+      const supabaseUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL
+      const supabaseKey = process.env.SUPABASE_SERVICE_KEY || process.env.VITE_SUPABASE_ANON_KEY
+      if (supabaseUrl && supabaseKey) {
+        try {
+          await fetch(`${supabaseUrl}/rest/v1/payroll_exports`, {
+            method: 'POST',
+            headers: { apikey: supabaseKey, Authorization: `Bearer ${supabaseKey}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              period_start: periodStart || new Date(Date.now() - 14 * 86400000).toISOString().split('T')[0],
+              period_end: periodEnd || new Date().toISOString().split('T')[0],
+              employee_count: employees.length,
+              total_hours: employees.reduce((s, e) => s + (e.hours || 0), 0),
+              total_pay: employees.reduce((s, e) => s + (e.pay || 0), 0),
+              total_mileage_reimbursement: employees.reduce((s, e) => s + (e.mileageReimbursement || 0), 0),
+              csv_data: csvLines.join('\n'),
+              status: 'exported',
+            }),
+          })
+        } catch (e) { console.error('Payroll export failed:', e) }
+      }
+
+      return res.status(200).json({
+        success: true,
+        employees: employees.length,
+        totalPay: employees.reduce((s, e) => s + (e.pay || 0), 0),
+        totalMileage: employees.reduce((s, e) => s + (e.mileageReimbursement || 0), 0),
+        csv: csvLines.join('\n'),
+        note: 'Payroll exported. Import the CSV into Square Payroll, or use Square Payroll API when your plan supports it.',
+      })
+    }
+
+    return res.status(400).json({ error: 'Unknown action. Payroll: team, wages, export, adjustment, payroll-run. Invoice: location, create-customer, search-customer, create, send, list. Webhook: payment-webhook' })
   } catch (err) {
     console.error('Square handler error:', err)
     return res.status(500).json({ error: err.message })

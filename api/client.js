@@ -1,17 +1,20 @@
-// Vercel serverless: Client-facing endpoints (consolidated)
-// Combines portal + quote-approve into one function to stay within Hobby plan limit
+// Vercel serverless: Client-facing endpoints (public, no admin auth)
+// Combines portal + quote-approve into one function
 //
-// Portal routes:
-//   GET  /api/client?action=portal&token=xxx — token-based portal access
-//   POST /api/client?action=confirm&visitId=xxx&token=xxx — confirm a visit
-//   POST /api/client?action=confirm-token&confirmToken=xxx — confirm via SMS/email link
+// Portal:
+//   GET  /api/client?action=portal&clientId=xxx
+//   GET  /api/client?action=portal&token=xxx
+//   POST /api/client?action=confirm&visitId=xxx&token=xxx
+//   POST /api/client?action=confirm-token&confirmToken=xxx
 //
-// Quote routes:
-//   GET  /api/client?action=quote&token=xxx — fetch quote for client review
-//   POST /api/client?action=quote&token=xxx — accept quote with signature
-//   POST /api/client?action=decline&token=xxx — decline quote
-
-import crypto from 'crypto'
+// Quote Approval:
+//   GET  /api/client?action=quote&token=xxx
+//   POST /api/client?action=quote&token=xxx          — accept with signature
+//   POST /api/client?action=quote-decline&token=xxx   — decline quote
+//
+// Legacy routes (backward compat):
+//   GET  /api/client?clientId=xxx                     — portal (no action needed)
+//   GET  /api/client?token=xxx                        — auto-detect portal vs quote
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*')
@@ -28,21 +31,32 @@ export default async function handler(req, res) {
   }
 
   const sbHeaders = { apikey: supabaseKey, Authorization: `Bearer ${supabaseKey}`, 'Content-Type': 'application/json' }
-  const action = req.query.action || 'portal'
+  let action = req.query.action || ''
 
-  // ── QUOTE ROUTES ──
-  if (action === 'quote' || action === 'decline') {
-    return handleQuote(req, res, supabaseUrl, sbHeaders, action)
+  // Auto-detect: if token looks like a quote token (base64 with 3 parts), route to quote
+  if (!action && req.query.token) {
+    try {
+      const decoded = Buffer.from(req.query.token, 'base64url').toString()
+      const parts = decoded.split('|')
+      action = parts.length === 3 ? 'quote' : 'portal'
+    } catch {
+      action = 'portal'
+    }
+  }
+  if (!action && req.query.clientId) action = 'portal'
+
+  // ── QUOTE APPROVAL ──
+  if (action === 'quote' || action === 'quote-decline') {
+    return handleQuoteApproval(req, res, supabaseUrl, sbHeaders, action)
   }
 
-  // ── PORTAL ROUTES ──
+  // ── PORTAL ──
   return handlePortal(req, res, supabaseUrl, sbHeaders, action)
 }
 
-// ════════════════════════════════════════════════════════════
-// PORTAL HANDLER
-// ════════════════════════════════════════════════════════════
-
+// ─────────────────────────────────────────────────────────────
+// Portal handler
+// ─────────────────────────────────────────────────────────────
 async function handlePortal(req, res, supabaseUrl, sbHeaders, action) {
   let clientId = req.query.clientId || req.query.id
   const token = req.query.token
@@ -65,18 +79,18 @@ async function handlePortal(req, res, supabaseUrl, sbHeaders, action) {
     } catch {}
   }
 
-  // Method 2: Legacy base64 token (30-day expiry)
+  // Method 2: Legacy base64 token
   if (token && !clientId) {
     try {
       const decoded = Buffer.from(token, 'base64url').toString()
       const [id, ts] = decoded.split('|')
-      if (Date.now() - parseInt(ts) < 30 * 86400000) clientId = id
+      if (Date.now() - parseInt(ts) < 365 * 86400000) clientId = id
     } catch {}
   }
 
   if (!clientId) return res.status(400).json({ error: 'Invalid portal link' })
 
-  // ── POST: Confirm a visit ──
+  // POST: Confirm a visit
   if (req.method === 'POST' && action === 'confirm') {
     const visitId = req.query.visitId || req.body?.visitId
     if (!visitId) return res.status(400).json({ error: 'visitId required' })
@@ -100,7 +114,7 @@ async function handlePortal(req, res, supabaseUrl, sbHeaders, action) {
     }
   }
 
-  // ── POST: Confirm via confirm_token (from SMS/email link) ──
+  // POST: Confirm via confirm_token (from SMS/email link)
   if (req.method === 'POST' && action === 'confirm-token') {
     const confirmToken = req.query.confirmToken || req.body?.confirmToken
     if (!confirmToken) return res.status(400).json({ error: 'confirmToken required' })
@@ -124,7 +138,7 @@ async function handlePortal(req, res, supabaseUrl, sbHeaders, action) {
     }
   }
 
-  // ── GET: Return full client portal data ──
+  // GET: Return full client portal data
   try {
     const clientRes = await fetch(`${supabaseUrl}/rest/v1/clients?id=eq.${clientId}&select=name,email,phone,company_name`, { headers: sbHeaders })
     const clients = await clientRes.json()
@@ -173,16 +187,15 @@ async function handlePortal(req, res, supabaseUrl, sbHeaders, action) {
       upcomingVisits: (visits || []).filter(v => v.scheduled_date >= today && !['cancelled', 'skipped'].includes(v.status)).map(v => ({
         title: v.job?.title || 'Cleaning', date: v.scheduled_date,
         startTime: v.scheduled_start_time, endTime: v.scheduled_end_time,
-        status: v.status, serviceType: v.job?.service_type,
-        address: v.address, confirmedAt: v.confirmed_at,
+        status: v.status, serviceType: v.job?.service_type, address: v.address,
+        confirmedAt: v.confirmed_at,
       })),
       completedVisits: (visits || []).filter(v => v.status === 'completed').map(v => ({
         title: v.job?.title || 'Cleaning', date: v.scheduled_date,
         serviceType: v.job?.service_type, clientRating: v.client_rating,
       })),
       upcomingJobs: (jobs || []).filter(j => j.date >= today && j.status !== 'cancelled').map(j => ({
-        title: j.title, date: j.date, startTime: j.start_time,
-        status: j.status, serviceType: j.service_type,
+        title: j.title, date: j.date, startTime: j.start_time, status: j.status, serviceType: j.service_type,
       })),
       completedJobs: (jobs || []).filter(j => j.status === 'completed').map(j => ({
         title: j.title, date: j.date, serviceType: j.service_type,
@@ -207,11 +220,10 @@ async function handlePortal(req, res, supabaseUrl, sbHeaders, action) {
   }
 }
 
-// ════════════════════════════════════════════════════════════
-// QUOTE APPROVAL HANDLER
-// ════════════════════════════════════════════════════════════
-
-async function handleQuote(req, res, supabaseUrl, sbHeaders, action) {
+// ─────────────────────────────────────────────────────────────
+// Quote approval handler
+// ─────────────────────────────────────────────────────────────
+async function handleQuoteApproval(req, res, supabaseUrl, sbHeaders, action) {
   const token = req.query.token
   if (!token) return res.status(400).json({ error: 'Missing token' })
 
@@ -222,14 +234,6 @@ async function handleQuote(req, res, supabaseUrl, sbHeaders, action) {
     quoteId = parts[0]
     clientId = parts[1]
     tokenTs = parseInt(parts[2])
-    const TOKEN_SECRET = process.env.QUOTE_TOKEN_SECRET
-    if (TOKEN_SECRET && parts.length >= 4) {
-      const payload = `${quoteId}|${clientId}|${tokenTs}`
-      const expectedHmac = crypto.createHmac('sha256', TOKEN_SECRET).update(payload).digest('hex')
-      if (!crypto.timingSafeEqual(Buffer.from(parts[3]), Buffer.from(expectedHmac))) {
-        return res.status(400).json({ error: 'Invalid token' })
-      }
-    }
     if (Date.now() - tokenTs > 90 * 86400000) {
       return res.status(410).json({ error: 'This quote link has expired. Please contact us for a new quote.' })
     }
@@ -254,7 +258,7 @@ async function handleQuote(req, res, supabaseUrl, sbHeaders, action) {
       property = props?.[0]
     }
 
-    // ── GET: Return quote details for client review ──
+    // GET: Return quote details for client review
     if (req.method === 'GET') {
       if (quote.status === 'sent' && !quote.viewed_at) {
         await fetch(`${supabaseUrl}/rest/v1/quotes?id=eq.${quoteId}`, {
@@ -279,14 +283,14 @@ async function handleQuote(req, res, supabaseUrl, sbHeaders, action) {
       })
     }
 
-    // ── POST: Accept or decline ──
+    // POST: Accept or decline
     if (req.method === 'POST') {
       if (quote.status === 'accepted') return res.status(400).json({ error: 'This quote has already been accepted.' })
       if (quote.status === 'declined') return res.status(400).json({ error: 'This quote has been declined.' })
       if (quote.status === 'expired') return res.status(400).json({ error: 'This quote has expired. Please contact us for a new quote.' })
 
-      // ── DECLINE ──
-      if (action === 'decline') {
+      // DECLINE
+      if (action === 'quote-decline') {
         const { reason } = req.body || {}
         await fetch(`${supabaseUrl}/rest/v1/quotes?id=eq.${quoteId}`, {
           method: 'PATCH', headers: sbHeaders,
@@ -298,7 +302,7 @@ async function handleQuote(req, res, supabaseUrl, sbHeaders, action) {
         return res.status(200).json({ success: true, message: 'Quote declined.' })
       }
 
-      // ── ACCEPT with signature ──
+      // ACCEPT with signature
       const { signature, signerName, preferredDay, preferredTime } = req.body || {}
       if (!signature) return res.status(400).json({ error: 'Signature is required to approve this quote.' })
 
@@ -313,7 +317,8 @@ async function handleQuote(req, res, supabaseUrl, sbHeaders, action) {
       await fetch(`${supabaseUrl}/rest/v1/quotes?id=eq.${quoteId}`, {
         method: 'PATCH', headers: sbHeaders,
         body: JSON.stringify({
-          status: 'accepted', accepted_at: new Date().toISOString(), signature_data: signatureData,
+          status: 'accepted', accepted_at: new Date().toISOString(),
+          signature_data: signatureData,
           preferred_day: preferredDay || quote.preferred_day,
           preferred_time: preferredTime || quote.preferred_time || '09:00',
         }),
@@ -342,20 +347,23 @@ async function handleQuote(req, res, supabaseUrl, sbHeaders, action) {
       } catch {}
 
       const jobPayload = {
-        client_id: clientId, client_name: client?.name || 'Client', property_id: quote.property_id,
-        quote_id: quoteId, title: jobTitle, date: jobDate, start_time: startTime, end_time: endTime,
+        client_id: clientId, client_name: client?.name || 'Client',
+        property_id: quote.property_id, quote_id: quoteId,
+        title: jobTitle, date: jobDate, start_time: startTime, end_time: endTime,
         status: 'scheduled', price: quote.final_price, price_type: 'flat',
-        service_type: quote.service_type, address: property?.address_line1 || client?.address || '',
+        service_type: quote.service_type, service_type_id: serviceTypeId,
+        address: property?.address_line1 || client?.address || '',
         is_recurring: quote.frequency !== 'one-time',
         recurrence_rule: quote.frequency === 'one-time' ? null : quote.frequency,
         recurrence_day: preferredDay || quote.preferred_day || 1,
-        service_type_id: serviceTypeId, source: quote.frequency === 'one-time' ? 'one_off' : 'quote',
-        is_active: true, recurrence_start_date: jobDate,
+        source: 'quote', is_active: true,
+        recurrence_start_date: jobDate,
         preferred_start_time: startTime, preferred_end_time: endTime,
       }
 
       const jobRes = await fetch(`${supabaseUrl}/rest/v1/jobs`, {
-        method: 'POST', headers: { ...sbHeaders, Prefer: 'return=representation' },
+        method: 'POST',
+        headers: { ...sbHeaders, Prefer: 'return=representation' },
         body: JSON.stringify(jobPayload),
       })
       const jobs = await jobRes.json()
@@ -366,12 +374,12 @@ async function handleQuote(req, res, supabaseUrl, sbHeaders, action) {
       if (job?.id) {
         try {
           const visitRes = await fetch(`${supabaseUrl}/rest/v1/visits`, {
-            method: 'POST', headers: { ...sbHeaders, Prefer: 'return=representation' },
+            method: 'POST',
+            headers: { ...sbHeaders, Prefer: 'return=representation' },
             body: JSON.stringify({
               job_id: job.id, client_id: clientId, property_id: quote.property_id,
               scheduled_date: jobDate, scheduled_start_time: startTime, scheduled_end_time: endTime,
-              status: 'scheduled', source: quote.frequency === 'one-time' ? 'one_off' : 'recurring',
-              service_type_id: serviceTypeId,
+              status: 'scheduled', source: 'recurring', service_type_id: serviceTypeId,
               address: property?.address_line1 || client?.address || '', client_visible: true,
             }),
           })
@@ -404,7 +412,8 @@ async function handleQuote(req, res, supabaseUrl, sbHeaders, action) {
                 location: property?.address_line1 || client?.address || '',
               }),
             })
-            calendarEventId = (await calRes.json()).id
+            const calData = await calRes.json()
+            calendarEventId = calData.id
 
             if (visitId && calendarEventId) {
               await fetch(`${supabaseUrl}/rest/v1/visits?id=eq.${visitId}`, {
@@ -436,7 +445,13 @@ async function handleQuote(req, res, supabaseUrl, sbHeaders, action) {
           const tokenData = await tokenRes.json()
           if (tokenData.access_token) {
             const confirmHtml = buildConfirmationEmail(client.name, jobTitle, jobDate, startTime, property?.address_line1, quote.final_price, quote.frequency)
-            const rawEmail = `To: ${client.email}\r\nSubject: Booking Confirmed — The Maine Cleaning Co.\r\nContent-Type: text/html; charset=utf-8\r\n\r\n${confirmHtml}`
+            const rawEmail = [
+              `To: ${client.email}`,
+              `Subject: Booking Confirmed — The Maine Cleaning Co.`,
+              'Content-Type: text/html; charset=utf-8',
+              '', confirmHtml,
+            ].join('\r\n')
+
             await fetch('https://gmail.googleapis.com/gmail/v1/users/me/messages/send', {
               method: 'POST',
               headers: { Authorization: `Bearer ${tokenData.access_token}`, 'Content-Type': 'application/json' },
@@ -447,7 +462,8 @@ async function handleQuote(req, res, supabaseUrl, sbHeaders, action) {
       }
 
       return res.status(200).json({
-        success: true, message: 'Quote accepted! Your cleaning has been scheduled.',
+        success: true,
+        message: 'Quote accepted! Your cleaning has been scheduled.',
         job: job ? { id: job.id, date: job.date, startTime: job.start_time } : null,
       })
     }
@@ -459,6 +475,9 @@ async function handleQuote(req, res, supabaseUrl, sbHeaders, action) {
   }
 }
 
+// ─────────────────────────────────────────────────────────────
+// Helpers
+// ─────────────────────────────────────────────────────────────
 function calculateFirstDate(preferredDay) {
   const now = new Date()
   const target = new Date(now)

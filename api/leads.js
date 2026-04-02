@@ -436,6 +436,85 @@ export default async function handler(req, res) {
     return res.status(200).json({ success: true, lead, note: 'Lead received. Add to CRM from the dashboard.' })
   }
 
+  // ── SEND QUOTE FOR APPROVAL ──
+  if (action === 'send-quote' && req.method === 'POST') {
+    const { quoteId, clientId } = req.body
+    if (!quoteId || !clientId) return res.status(400).json({ error: 'quoteId and clientId required' })
+
+    const supabaseUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL
+    const supabaseKey = process.env.SUPABASE_SERVICE_KEY || process.env.VITE_SUPABASE_ANON_KEY
+    if (!supabaseUrl || !supabaseKey) return res.status(500).json({ error: 'Supabase not configured' })
+    const sbHeaders = { apikey: supabaseKey, Authorization: `Bearer ${supabaseKey}`, 'Content-Type': 'application/json' }
+
+    try {
+      // Fetch quote + client
+      const [qRes, cRes] = await Promise.all([
+        fetch(`${supabaseUrl}/rest/v1/quotes?id=eq.${quoteId}&select=*`, { headers: sbHeaders }),
+        fetch(`${supabaseUrl}/rest/v1/clients?id=eq.${clientId}&select=*`, { headers: sbHeaders }),
+      ])
+      const quote = (await qRes.json())?.[0]
+      const client = (await cRes.json())?.[0]
+      if (!quote || !client) return res.status(404).json({ error: 'Quote or client not found' })
+
+      // Generate approval token
+      const approvalToken = Buffer.from(`${quoteId}|${clientId}|${Date.now()}`).toString('base64url')
+
+      // Update quote with sent status
+      await fetch(`${supabaseUrl}/rest/v1/quotes?id=eq.${quoteId}`, {
+        method: 'PATCH', headers: sbHeaders,
+        body: JSON.stringify({ status: 'sent', sent_at: new Date().toISOString(), approval_token: approvalToken }),
+      })
+
+      // Send approval email
+      const gmailClientId = process.env.GMAIL_CLIENT_ID
+      const gmailClientSecret = process.env.GMAIL_CLIENT_SECRET
+      const gmailRefreshToken = process.env.GMAIL_REFRESH_TOKEN
+      if (gmailClientId && gmailClientSecret && gmailRefreshToken) {
+        const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
+          method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: new URLSearchParams({ client_id: gmailClientId, client_secret: gmailClientSecret, refresh_token: gmailRefreshToken, grant_type: 'refresh_token' }),
+        })
+        const tokenData = await tokenRes.json()
+        if (tokenData.access_token) {
+          const firstName = (client.name || '').split(' ')[0] || 'there'
+          const price = quote.final_price || quote.estimate_min || 0
+          const approvalUrl = `https://connecteam-proxy.vercel.app/api/quote-approve?token=${approvalToken}`
+          const subject = `Your cleaning quote is ready — $${price}`
+          const html = `<!DOCTYPE html><html><body style="margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif;background:#f4f4f2;">` +
+            `<div style="max-width:560px;margin:32px auto;background:#fff;border-radius:16px;overflow:hidden;border:1px solid #e5e5e3;">` +
+            `<div style="background:#3a4f5c;padding:32px;text-align:center;"><h1 style="color:#fff;font-size:22px;margin:0;">Your Quote is Ready</h1><p style="color:rgba(255,255,255,0.6);font-size:13px;margin:4px 0 0;">The Maine Cleaning Co.</p></div>` +
+            `<div style="padding:32px;">` +
+            `<p style="font-size:16px;color:#1f2937;">Hi ${firstName}, we've prepared a quote for your cleaning service.</p>` +
+            `<div style="background:linear-gradient(135deg,#ecfdf5,#eff6ff);border:1px solid #bbf7d0;border-radius:12px;padding:20px;margin:24px 0;text-align:center;">` +
+            `<div style="font-size:11px;color:#15803d;font-weight:700;text-transform:uppercase;">Your Quote</div>` +
+            `<div style="font-size:36px;font-weight:800;color:#166534;">$${price}</div>` +
+            `<p style="font-size:13px;color:#6b7280;">${(quote.frequency || 'one-time')} &middot; ${quote.service_type || 'Standard Clean'}</p>` +
+            (quote.notes ? `<p style="font-size:12px;color:#6b7280;margin-top:8px;">${quote.notes}</p>` : '') +
+            `</div>` +
+            `<div style="text-align:center;margin:24px 0;"><a href="${approvalUrl}" style="display:inline-block;background:#16a34a;color:#fff;font-weight:700;padding:14px 32px;border-radius:8px;text-decoration:none;font-size:16px;">Review & Approve Quote</a></div>` +
+            `<p style="font-size:12px;color:#9ca3af;text-align:center;">Questions? Call us at (207) 572-0502</p>` +
+            `</div>` +
+            `<div style="padding:16px 32px;background:#f9fafb;border-top:1px solid #e5e5e3;text-align:center;"><p style="font-size:12px;color:#9ca3af;">The Maine Cleaning Co.</p></div>` +
+            `</div></body></html>`
+
+          const raw = Buffer.from(
+            `To: ${client.email}\r\nFrom: The Maine Cleaning Co. <office@mainecleaningco.com>\r\nReply-To: office@mainecleaningco.com\r\nSubject: =?UTF-8?B?${Buffer.from(subject).toString('base64')}?=\r\nMIME-Version: 1.0\r\nContent-Type: text/html; charset=UTF-8\r\nContent-Transfer-Encoding: base64\r\n\r\n${Buffer.from(html).toString('base64')}`
+          ).toString('base64url')
+
+          await fetch('https://gmail.googleapis.com/gmail/v1/users/me/messages/send', {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${tokenData.access_token}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ raw }),
+          })
+        }
+      }
+
+      return res.status(200).json({ success: true, quoteId, sent: true })
+    } catch (err) {
+      return res.status(500).json({ error: err.message })
+    }
+  }
+
   // ── FACEBOOK LEAD ADS WEBHOOK ──
   if (action === 'facebook' && req.method === 'POST') {
     // Facebook sends lead data in a specific format
@@ -743,6 +822,79 @@ export default async function handler(req, res) {
     }
 
     return res.status(400).json({ error: 'Unknown booking action. Use: booking-create, booking-list, booking-approve, booking-reject, booking-stats' })
+  }
+
+  // ── TWILIO INBOUND SMS WEBHOOK ──
+  // Set webhook URL in Twilio console: https://connecteam-proxy.vercel.app/api/leads?action=sms-webhook
+  if (action === 'sms-webhook' && req.method === 'POST') {
+    const { From, Body, MessageSid } = req.body || {}
+    if (!From || !Body) return res.status(200).send('<Response></Response>') // TwiML empty response
+
+    const phone = From.replace(/\D/g, '').slice(-10) // normalize to last 10 digits
+    const message = Body.trim().toLowerCase()
+
+    const supabaseUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL
+    const supabaseKey = process.env.SUPABASE_SERVICE_KEY || process.env.VITE_SUPABASE_ANON_KEY
+    let replyText = "Thanks for your message! We'll get back to you shortly. — The Maine Cleaning Co."
+
+    if (supabaseUrl && supabaseKey) {
+      const sbH = { apikey: supabaseKey, Authorization: `Bearer ${supabaseKey}`, 'Content-Type': 'application/json' }
+      try {
+        // Match phone to a client
+        const cRes = await fetch(`${supabaseUrl}/rest/v1/clients?phone=like.%25${phone}&select=id,name&limit=1`, { headers: sbH })
+        const clients = await cRes.json()
+        const client = clients?.[0]
+
+        if (client) {
+          // Check for common reply keywords
+          if (message === 'confirm' || message === 'yes' || message === 'y') {
+            // Find next upcoming visit and confirm it
+            const tomorrow = new Date(Date.now() + 86400000).toISOString().split('T')[0]
+            const vRes = await fetch(
+              `${supabaseUrl}/rest/v1/visits?client_id=eq.${client.id}&scheduled_date=gte.${tomorrow}&status=in.(scheduled)&order=scheduled_date.asc&limit=1&select=id,scheduled_date`,
+              { headers: sbH }
+            )
+            const visits = await vRes.json()
+            if (visits?.length) {
+              await fetch(`${supabaseUrl}/rest/v1/visits?id=eq.${visits[0].id}`, {
+                method: 'PATCH', headers: sbH,
+                body: JSON.stringify({ status: 'confirmed', confirmed_at: new Date().toISOString() }),
+              })
+              const dateStr = new Date(visits[0].scheduled_date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
+              replyText = `Confirmed! Your cleaning on ${dateStr} is all set. See you then!`
+            } else {
+              replyText = `Thanks ${client.name.split(' ')[0]}! We don't see an upcoming visit to confirm. Reply HELP to contact us.`
+            }
+          } else if (message === 'reschedule' || message === 'cancel') {
+            replyText = `Got it, ${client.name.split(' ')[0]}. We'll reach out to reschedule. If urgent, call (207) 572-0502.`
+            // Notify admin
+            try {
+              await fetch(`${supabaseUrl}/rest/v1/notifications`, {
+                method: 'POST', headers: sbH,
+                body: JSON.stringify({ type: 'sms_reschedule', title: `${client.name} wants to ${message}`, body: `Reply from ${From}: "${Body}"`, client_id: client.id }),
+              }).catch(() => {})
+            } catch {}
+          }
+
+          // Log message in conversations
+          try {
+            const convRes = await fetch(`${supabaseUrl}/rest/v1/conversations?client_id=eq.${client.id}&channel=eq.sms&select=id&limit=1`, { headers: sbH })
+            const convs = await convRes.json()
+            const convId = convs?.[0]?.id
+            if (convId) {
+              await fetch(`${supabaseUrl}/rest/v1/messages`, {
+                method: 'POST', headers: sbH,
+                body: JSON.stringify({ conversation_id: convId, sender: 'client', body: Body, channel: 'sms', external_id: MessageSid }),
+              }).catch(() => {})
+            }
+          } catch {}
+        }
+      } catch (e) { console.error('SMS webhook processing failed:', e) }
+    }
+
+    // Return TwiML response
+    res.setHeader('Content-Type', 'text/xml')
+    return res.status(200).send(`<Response><Message>${replyText}</Message></Response>`)
   }
 
   return res.status(400).json({ error: 'Unknown action. POST to /api/leads to create a lead.' })

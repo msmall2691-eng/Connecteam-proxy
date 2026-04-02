@@ -2,7 +2,7 @@ const PROXY_BASE = '/api/connecteam'
 
 // Use stored key or fall back to env
 export function getApiKey() {
-  return localStorage.getItem('connecteam_api_key') || ''
+  return localStorage.getItem('connecteam_api_key') || import.meta.env.VITE_CONNECTEAM_API_KEY || ''
 }
 
 export function setApiKey(key) {

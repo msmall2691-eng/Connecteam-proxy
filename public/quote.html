@@ -378,7 +378,7 @@ function submitDecline(token) {
   btn.disabled = true
   btn.textContent = 'Declining...'
 
-  fetch('/api/client?action=decline&token=' + encodeURIComponent(token), {
+  fetch('/api/client?action=quote-decline&token=' + encodeURIComponent(token), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ reason: '' }),

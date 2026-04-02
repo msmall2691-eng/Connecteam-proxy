@@ -43,6 +43,9 @@ export default function WebsiteRequests() {
   const [bookingAssignee, setBookingAssignee] = useState('')
   const [bookingStartTime, setBookingStartTime] = useState('09:00')
   const [bookingEndTime, setBookingEndTime] = useState('12:00')
+  // Quote editor state
+  const [editingQuote, setEditingQuote] = useState(null) // { reqId, price, frequency, service, notes }
+  const [sendingQuote, setSendingQuote] = useState(null)
 
   const fetchBookings = useCallback(async () => {
     try {
@@ -394,6 +397,62 @@ export default function WebsiteRequests() {
       console.error('Accept & Schedule failed:', e)
     }
     setConverting(null)
+  }
+
+  function startEditQuote(req) {
+    setEditingQuote({
+      reqId: req.id,
+      clientId: req.client_id,
+      price: req.estimate_min || '',
+      priceMax: req.estimate_max || '',
+      frequency: req.frequency || 'one-time',
+      service: req.service || 'standard',
+      notes: '',
+      extras: '',
+    })
+  }
+
+  async function sendQuoteForApproval() {
+    if (!editingQuote?.clientId) return
+    setSendingQuote(editingQuote.reqId)
+    try {
+      // Find or create the quote for this client
+      const quotes = isSupabaseConfigured() ? await getQuotesAsync(editingQuote.clientId) : []
+      const draftQuote = quotes.find(q => q.status === 'draft')
+
+      const quoteData = {
+        ...(draftQuote || {}),
+        clientId: editingQuote.clientId,
+        serviceType: editingQuote.service,
+        frequency: editingQuote.frequency,
+        finalPrice: parseFloat(editingQuote.price) || 0,
+        estimateMin: parseFloat(editingQuote.price) || 0,
+        estimateMax: parseFloat(editingQuote.priceMax) || parseFloat(editingQuote.price) || 0,
+        notes: [editingQuote.notes, editingQuote.extras].filter(Boolean).join('\n'),
+        status: 'sent',
+        sentAt: new Date().toISOString(),
+      }
+      if (!quoteData.quoteNumber) quoteData.quoteNumber = generateQuoteNumber()
+
+      const saved = isSupabaseConfigured() ? await saveQuoteAsync(quoteData) : saveQuote(quoteData)
+
+      // Send the approval email via /api/leads
+      if (saved?.id) {
+        try {
+          await fetch('/api/leads?action=send-quote', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ quoteId: saved.id, clientId: editingQuote.clientId }),
+          })
+        } catch {}
+      }
+
+      updateStatus(editingQuote.reqId, 'quoted', editingQuote.clientId)
+      setEditingQuote(null)
+      setSuccessMessage({ id: editingQuote.reqId, name: 'Quote', clientId: editingQuote.clientId, scheduled: false })
+      setTimeout(() => setSuccessMessage(null), 5000)
+    } catch (e) { console.error('Send quote failed:', e) }
+    setSendingQuote(null)
   }
 
   async function rejectBooking(bookingId) {
@@ -805,6 +864,71 @@ export default function WebsiteRequests() {
                       </div>
                     )}
 
+                    {/* Inline Quote Editor */}
+                    {editingQuote?.reqId === (r.id || r.created_at) && (
+                      <div className="mt-3 bg-blue-900/10 border border-blue-900/40 rounded-lg p-4">
+                        <div className="flex items-center gap-2 mb-3">
+                          <span className="text-sm font-semibold text-white">Edit & Send Quote</span>
+                          <span className="text-xs text-gray-500">Customer will receive an approval link</span>
+                        </div>
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
+                          <div>
+                            <label className="text-gray-500 block mb-1">Price ($)</label>
+                            <input type="number" value={editingQuote.price} onChange={e => setEditingQuote(q => ({ ...q, price: e.target.value }))}
+                              className="w-full px-2 py-1.5 bg-gray-800 border border-gray-700 rounded text-white text-sm" placeholder="180" />
+                          </div>
+                          <div>
+                            <label className="text-gray-500 block mb-1">Max ($)</label>
+                            <input type="number" value={editingQuote.priceMax} onChange={e => setEditingQuote(q => ({ ...q, priceMax: e.target.value }))}
+                              className="w-full px-2 py-1.5 bg-gray-800 border border-gray-700 rounded text-white text-sm" placeholder="220" />
+                          </div>
+                          <div>
+                            <label className="text-gray-500 block mb-1">Service</label>
+                            <select value={editingQuote.service} onChange={e => setEditingQuote(q => ({ ...q, service: e.target.value }))}
+                              className="w-full px-2 py-1.5 bg-gray-800 border border-gray-700 rounded text-white text-sm">
+                              <option value="standard">Standard Clean</option>
+                              <option value="deep">Deep Clean</option>
+                              <option value="move-in-out">Move In/Out</option>
+                              <option value="turnover">Turnover</option>
+                              <option value="one-time">One-Time</option>
+                            </select>
+                          </div>
+                          <div>
+                            <label className="text-gray-500 block mb-1">Frequency</label>
+                            <select value={editingQuote.frequency} onChange={e => setEditingQuote(q => ({ ...q, frequency: e.target.value }))}
+                              className="w-full px-2 py-1.5 bg-gray-800 border border-gray-700 rounded text-white text-sm">
+                              <option value="one-time">One-time</option>
+                              <option value="weekly">Weekly</option>
+                              <option value="biweekly">Biweekly</option>
+                              <option value="monthly">Monthly</option>
+                            </select>
+                          </div>
+                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-3">
+                          <div>
+                            <label className="text-xs text-gray-500 block mb-1">Add-ons / Extras</label>
+                            <input value={editingQuote.extras} onChange={e => setEditingQuote(q => ({ ...q, extras: e.target.value }))}
+                              className="w-full px-2 py-1.5 bg-gray-800 border border-gray-700 rounded text-white text-sm" placeholder="Inside oven $35, Laundry $25..." />
+                          </div>
+                          <div>
+                            <label className="text-xs text-gray-500 block mb-1">Notes for customer</label>
+                            <input value={editingQuote.notes} onChange={e => setEditingQuote(q => ({ ...q, notes: e.target.value }))}
+                              className="w-full px-2 py-1.5 bg-gray-800 border border-gray-700 rounded text-white text-sm" placeholder="First visit includes deep clean..." />
+                          </div>
+                        </div>
+                        <div className="flex gap-2 mt-3">
+                          <button onClick={sendQuoteForApproval} disabled={sendingQuote === editingQuote.reqId || !editingQuote.price}
+                            className="px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 rounded-lg text-xs font-semibold text-white transition-colors">
+                            {sendingQuote === editingQuote.reqId ? 'Sending...' : 'Send Quote for Approval'}
+                          </button>
+                          <button onClick={() => setEditingQuote(null)}
+                            className="px-3 py-1.5 bg-gray-800 border border-gray-700 rounded-lg text-xs text-gray-400 hover:bg-gray-700">
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
                     {/* Actions */}
                     <div className="flex gap-2 mt-4 flex-wrap">
                       {/* Primary: Accept as Lead OR Accept & Schedule */}
@@ -817,6 +941,18 @@ export default function WebsiteRequests() {
                             <path strokeLinecap="round" strokeLinejoin="round" d={bookingPending ? "M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0v-7.5" : "M12 4.5v15m7.5-7.5h-15"} />
                           </svg>
                           {isConverting ? 'Working...' : bookingPending ? 'Accept & Schedule' : 'Accept as Lead'}
+                        </button>
+                      )}
+
+                      {/* Review & Send Quote button */}
+                      {!isConverted && r.client_id && r.estimate_min && !editingQuote && (
+                        <button
+                          onClick={(e) => { e.stopPropagation(); startEditQuote(r) }}
+                          className="px-4 py-2 bg-blue-600/20 border border-blue-800 rounded-lg text-xs font-semibold text-blue-400 hover:bg-blue-600/30 transition-colors flex items-center gap-1.5">
+                          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h3.75M9 15h3.75M9 18h3.75m3 .75H18a2.25 2.25 0 002.25-2.25V6.108c0-1.135-.845-2.098-1.976-2.192a48.424 48.424 0 00-1.123-.08m-5.801 0c-.065.21-.1.433-.1.664 0 .414.336.75.75.75h4.5a.75.75 0 00.75-.75 2.25 2.25 0 00-.1-.664m-5.8 0A2.251 2.251 0 0113.5 2.25H15c1.012 0 1.867.668 2.15 1.586m-5.8 0c-.376.023-.75.05-1.124.08C9.095 4.01 8.25 4.973 8.25 6.108V8.25m0 0H4.875c-.621 0-1.125.504-1.125 1.125v11.25c0 .621.504 1.125 1.125 1.125h9.75c.621 0 1.125-.504 1.125-1.125V9.375c0-.621-.504-1.125-1.125-1.125H8.25zM6.75 12h.008v.008H6.75V12zm0 3h.008v.008H6.75V15zm0 3h.008v.008H6.75V18z" />
+                          </svg>
+                          Review & Send Quote
                         </button>
                       )}
 
