@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Link } from 'react-router-dom'
 import { getApiKey } from '../lib/api'
-import { getClients, getClientsAsync, getJobs, getJobsAsync, getVisitsAsync, getScheduleAsync, getEmployeesAsync, saveVisitAsync, saveJobAsync } from '../lib/store'
+import { getClients, getClientsAsync, getJobs, getJobsAsync, getVisitsAsync, getScheduleAsync, getEmployeesAsync, saveVisitAsync, saveJobAsync, getPropertiesAsync } from '../lib/store'
 import { isSupabaseConfigured } from '../lib/supabase'
 
 // Rental calendar config (localStorage)
@@ -43,6 +43,8 @@ export default function Schedule() {
   const [pushingToConnecteam, setPushingToConnecteam] = useState(null)
   const [pushingVisitToCal, setPushingVisitToCal] = useState(null)
   const [pushingVisitToCT, setPushingVisitToCT] = useState(null)
+  const [rentalStays, setRentalStays] = useState([])
+  const [showStays, setShowStays] = useState(true)
 
   // Auto-dismiss toast after 6s
   useEffect(() => {
@@ -56,6 +58,7 @@ export default function Schedule() {
     loadCalendars()
     loadTurnovers()
     loadCrmData()
+    loadRentalStays()
   }, [])
 
   async function loadCrmData() {
@@ -72,6 +75,44 @@ export default function Schedule() {
       setAllClients(cls || [])
       setCrmJobs(jbs || [])
       setCrmVisits(visits || [])
+    } catch {}
+  }
+
+  async function loadRentalStays() {
+    try {
+      const allProps = isSupabaseConfigured() ? await getPropertiesAsync() : []
+      const rentalProps = allProps.filter(p => p.type === 'rental' && p.googleCalendarId)
+      if (rentalProps.length === 0) return
+
+      const now = new Date()
+      const future = new Date(now.getTime() + 60 * 86400000)
+      const stays = []
+
+      // Fetch events from each rental property's Google Calendar
+      const promises = rentalProps.map(async (prop) => {
+        try {
+          const calParam = `${prop.googleCalendarId}|${prop.name || prop.addressLine1}`
+          const res = await fetch(`/api/google?action=turnovers&calendars=${encodeURIComponent(calParam)}&timeMin=${now.toISOString()}&timeMax=${future.toISOString()}`)
+          if (res.ok) {
+            const data = await res.json()
+            for (const t of (data.turnovers || [])) {
+              stays.push({
+                propertyId: prop.id,
+                propertyName: prop.name || prop.addressLine1,
+                address: prop.addressLine1,
+                guest: t.guestName || 'Guest',
+                checkIn: t.checkIn,
+                checkOut: t.checkOut,
+                clientId: prop.clientId,
+              })
+            }
+          }
+        } catch {}
+      })
+
+      await Promise.all(promises)
+      stays.sort((a, b) => (a.checkOut || '').localeCompare(b.checkOut || ''))
+      setRentalStays(stays)
     } catch {}
   }
 
@@ -94,15 +135,35 @@ export default function Schedule() {
   }
 
   async function loadTurnovers() {
-    if (rentalCals.length === 0) return
     try {
-      const calParam = rentalCals.map(c => `${c.calendarId}|${c.name}`).join(',')
+      // Primary: load from Supabase rental properties (persists across devices)
+      const allProps = isSupabaseConfigured() ? await getPropertiesAsync() : []
+      const rentalProps = allProps.filter(p => p.type === 'rental' && p.googleCalendarId)
+
+      // Fallback: also include legacy localStorage calendars
+      const legacyCals = rentalCals.filter(c =>
+        !rentalProps.some(p => p.googleCalendarId === c.calendarId)
+      )
+
+      const calEntries = [
+        ...rentalProps.map(p => ({ calendarId: p.googleCalendarId, name: p.name || p.addressLine1, clientId: p.clientId, propertyId: p.id, address: p.addressLine1 })),
+        ...legacyCals.map(c => ({ calendarId: c.calendarId, name: c.name, clientId: null, propertyId: null, address: '' })),
+      ]
+
+      if (calEntries.length === 0) return
+
+      const calParam = calEntries.map(c => `${c.calendarId}|${c.name}`).join(',')
       const now = new Date()
       const future = new Date(now.getTime() + 60 * 86400000)
       const res = await fetch(`/api/google?action=turnovers&calendars=${encodeURIComponent(calParam)}&timeMin=${now.toISOString()}&timeMax=${future.toISOString()}`)
       if (res.ok) {
         const data = await res.json()
-        setTurnovers(data.turnovers || [])
+        // Enrich turnovers with client/property linkage from Supabase properties
+        const enriched = (data.turnovers || []).map(t => {
+          const match = calEntries.find(c => c.calendarId === t.calendarId || c.name === t.property)
+          return { ...t, clientId: match?.clientId || null, propertyId: match?.propertyId || null, address: t.address || match?.address || '' }
+        })
+        setTurnovers(enriched)
       }
     } catch {}
   }
@@ -126,6 +187,8 @@ export default function Schedule() {
           cleaningTime: st.cleaningTime,
           address: st.address,
           clientName: st.clientName,
+          clientId: st.clientId,
+          propertyId: st.propertyId,
           fromScan: true,
         })
       }
@@ -155,7 +218,7 @@ export default function Schedule() {
           setToast({
             type: 'info',
             message: 'No rental properties found',
-            details: 'Add rental properties with iCal URLs in client Properties tab first.',
+            details: 'Add rental properties with a Google Calendar ID in client Properties tab first.',
           })
         } else if (createdCount > 0) {
           setToast({
@@ -177,8 +240,10 @@ export default function Schedule() {
           })
         }
 
-        // Refresh Google Calendar turnovers too
+        // Refresh all schedule data so new visits appear immediately
         loadTurnovers()
+        loadCrmData()
+        loadRentalStays()
       } else {
         const err = await res.json().catch(() => ({}))
         setToast({ type: 'error', message: 'Scan failed', details: err.error || 'Unknown error' })
@@ -522,6 +587,14 @@ export default function Schedule() {
             Turnovers {mergedTurnovers.length > 0 ? `(${mergedTurnovers.length})` : ''}
           </button>
 
+          {/* Guest Stays toggle */}
+          <button onClick={() => setShowStays(!showStays)}
+            className={`px-3 py-1.5 rounded-lg text-xs border transition-colors ${
+              showStays ? 'bg-teal-600/20 border-teal-800/50 text-teal-400' : 'bg-gray-800 border-gray-700 text-gray-400'
+            }`}>
+            Guest Stays {rentalStays.length > 0 ? `(${rentalStays.length})` : ''}
+          </button>
+
           {/* Connecteam shifts */}
           <button onClick={() => { if (!showShifts) loadConnecteamShifts(); else setShowShifts(false) }}
             disabled={loadingShifts}
@@ -704,7 +777,7 @@ export default function Schedule() {
             <div className="text-center py-4">
               <p className="text-xs text-gray-500">No upcoming turnovers detected.</p>
               <p className="text-xs text-gray-600 mt-1">
-                Add rental properties with iCal URLs in Settings or client Properties tab,
+                Add a Google Calendar ID to rental properties in client Properties tab,
                 then click <span className="text-orange-400">Auto-Scan</span> to detect checkouts.
               </p>
             </div>
@@ -737,10 +810,76 @@ export default function Schedule() {
                     title="Push to Connecteam Scheduler">
                     {pushingToConnecteam === t.eventId ? '...' : 'Connecteam'}
                   </button>
+                  {t.clientId && (
+                    <Link to={`/clients/${t.clientId}?tab=properties`} className="text-xs text-gray-500 hover:text-gray-300" title="View client & property">View</Link>
+                  )}
                 </div>
               </div>
             ))}
           </div>
+        </div>
+      )}
+
+      {/* Guest Stays — cross-reference reservations with scheduled cleanings */}
+      {showStays && rentalStays.length > 0 && (
+        <div className="bg-teal-900/10 border border-teal-800/50 rounded-xl p-4">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-sm font-semibold text-teal-400">Guest Stays (Next 60 Days)</h3>
+            <button onClick={loadRentalStays} className="text-xs text-teal-400 hover:text-teal-300">Refresh</button>
+          </div>
+          <div className="space-y-1.5">
+            {rentalStays.map((stay, i) => {
+              // Cross-reference: find a matching turnover visit for checkout day
+              const hasCleaningVisit = crmVisits.some(v =>
+                v.propertyId === stay.propertyId &&
+                v.scheduledDate === stay.checkOut &&
+                !['cancelled', 'skipped'].includes(v.status)
+              )
+              const hasTurnover = mergedTurnovers.some(t =>
+                t.checkOut === stay.checkOut && (t.property === stay.propertyName || t.address === stay.address)
+              )
+              return (
+                <div key={`stay-${i}`} className="flex flex-col sm:flex-row sm:items-center justify-between bg-gray-900/50 rounded-lg px-3 py-2.5 gap-2">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <p className="text-sm text-white font-medium truncate">{stay.propertyName}</p>
+                      {hasCleaningVisit ? (
+                        <span className="text-[10px] px-1.5 py-0.5 bg-green-600/20 text-green-400 rounded">cleaning scheduled</span>
+                      ) : hasTurnover ? (
+                        <span className="text-[10px] px-1.5 py-0.5 bg-orange-600/20 text-orange-400 rounded">turnover detected</span>
+                      ) : (
+                        <span className="text-[10px] px-1.5 py-0.5 bg-red-600/20 text-red-400 rounded">no cleaning</span>
+                      )}
+                    </div>
+                    <p className="text-xs text-gray-500">
+                      {stay.guest}
+                      {stay.checkIn && <> &middot; Check-in {new Date(stay.checkIn + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</>}
+                      {stay.checkOut && <> &middot; Checkout <span className="text-white">{new Date(stay.checkOut + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}</span></>}
+                      {stay.address && <span className="text-gray-600"> &middot; {stay.address.split(',')[0]}</span>}
+                    </p>
+                  </div>
+                  {!hasCleaningVisit && (
+                    <div className="shrink-0">
+                      {stay.clientId ? (
+                        <Link to={`/clients/${stay.clientId}?tab=properties`}
+                          className="px-2.5 py-1.5 bg-teal-600 hover:bg-teal-500 rounded-lg text-xs text-white font-medium inline-block">
+                          Schedule Cleaning
+                        </Link>
+                      ) : (
+                        <span className="text-xs text-gray-600">No client linked</span>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
+      {showStays && rentalStays.length === 0 && (
+        <div className="bg-teal-900/10 border border-teal-800/50 rounded-xl p-4 text-center">
+          <p className="text-xs text-gray-500">No guest stays found. Add rental properties with a Google Calendar ID to see upcoming reservations.</p>
         </div>
       )}
 
@@ -823,6 +962,8 @@ export default function Schedule() {
                 endTime: v.scheduledEndTime,
                 clientName: v.client?.name || '',
                 clientId: v.clientId,
+                propertyId: v.propertyId,
+                propertyName: v.property?.name || '',
                 address: v.address || v.property?.address_line1 || '',
                 googleEventId: v.googleEventId,
                 connecteamShiftId: v.connecteamShiftId,
@@ -841,6 +982,7 @@ export default function Schedule() {
                 title: j.title, date: j.date,
                 startTime: j.startTime, endTime: j.endTime,
                 clientName: j.clientName, clientId: j.clientId,
+                propertyId: j.propertyId,
                 address: j.address,
                 googleEventId: j.googleEventId,
                 connecteamShiftId: j.connecteamShiftId,
@@ -893,7 +1035,7 @@ export default function Schedule() {
                       <span className="text-xs text-purple-400 px-1.5">Synced</span>
                     )}
                     {item.clientId && (
-                      <Link to={`/clients/${item.clientId}?tab=jobs`} className="text-xs text-gray-500 hover:text-gray-300">View</Link>
+                      <Link to={`/clients/${item.clientId}?tab=${item.source === 'ical_sync' ? 'properties' : 'jobs'}`} className="text-xs text-gray-500 hover:text-gray-300">View</Link>
                     )}
                   </div>
                 </div>
@@ -908,6 +1050,7 @@ export default function Schedule() {
         <div className="flex items-center justify-between">
           <div className="flex gap-3 text-xs">
             <span className="flex items-center gap-1.5 text-gray-500"><span className="w-2.5 h-2.5 rounded bg-orange-600" /> Turnover cleaning</span>
+            <span className="flex items-center gap-1.5 text-gray-500"><span className="w-2.5 h-2.5 rounded bg-teal-600" /> Guest stay</span>
             <span className="flex items-center gap-1.5 text-gray-500"><span className="w-2.5 h-2.5 rounded bg-purple-600" /> Connecteam shift</span>
             <span className="flex items-center gap-1.5 text-gray-500"><span className="w-2.5 h-2.5 rounded bg-blue-600" /> Calendar event</span>
           </div>

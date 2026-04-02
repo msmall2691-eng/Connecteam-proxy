@@ -5,6 +5,8 @@
 // Turno can send webhooks for: task_created, task_updated, task_cancelled
 // Each task maps to a visit with source='turno' and turno_task_id set
 
+import crypto from 'crypto'
+
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*')
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
@@ -56,6 +58,17 @@ export default async function handler(req, res) {
 
   // ── WEBHOOK ──
   if (action === 'webhook' && req.method === 'POST') {
+    // Verify webhook secret if configured
+    const WEBHOOK_SECRET = process.env.TURNO_WEBHOOK_SECRET
+    if (WEBHOOK_SECRET) {
+      const providedSecret = req.headers['x-turno-signature'] || req.headers['x-webhook-secret']
+      if (!providedSecret || !crypto.timingSafeEqual(Buffer.from(providedSecret), Buffer.from(WEBHOOK_SECRET))) {
+        return res.status(401).json({ error: 'Invalid webhook signature' })
+      }
+    } else {
+      console.warn('TURNO_WEBHOOK_SECRET not set — webhook authentication skipped')
+    }
+
     const event = req.body
 
     if (!event || !event.type) {

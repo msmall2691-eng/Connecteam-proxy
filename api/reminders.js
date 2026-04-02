@@ -3,6 +3,8 @@
 // GET /api/reminders?action=send — sends reminders for tomorrow's visits
 // GET /api/reminders?action=preview — shows what would be sent
 
+import crypto from 'crypto'
+
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*')
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
@@ -115,9 +117,7 @@ export default async function handler(req, res) {
         // Generate a confirm token for this visit
         let confirmToken = null
         try {
-          const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'
-          confirmToken = ''
-          for (let i = 0; i < 24; i++) confirmToken += chars[Math.floor(Math.random() * chars.length)]
+          confirmToken = crypto.randomBytes(18).toString('base64url')
           await fetch(`${supabaseUrl}/rest/v1/visits?id=eq.${r.visitId}`, {
             method: 'PATCH', headers: { ...sbHeaders, 'Content-Type': 'application/json' },
             body: JSON.stringify({ confirm_token: confirmToken }),

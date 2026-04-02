@@ -137,6 +137,18 @@
     })
   })
 
+  function escapeHtml(str) {
+    var div = document.createElement('div')
+    div.textContent = str
+    return div.innerHTML
+  }
+
+  function sanitizeUrl(url) {
+    // Only allow https URLs for payment links
+    if (!url || typeof url !== 'string') return ''
+    try { var u = new URL(url); return (u.protocol === 'https:') ? url : '' } catch { return '' }
+  }
+
   var portalUrl = token ? '/api/portal?token=' + token : '/api/portal?clientId=' + clientId
   fetch(portalUrl)
     .then(function(r) { return r.json() })
@@ -174,7 +186,7 @@
       } else {
         upcoming.forEach(function(j) {
           var date = new Date(j.date + 'T12:00:00')
-          jobsDiv.innerHTML += '<div class="item"><div><div class="item-title">' + j.title + '</div><div class="item-sub">' + date.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' }) + (j.startTime ? ' at ' + j.startTime : '') + (j.serviceType ? ' &middot; ' + j.serviceType : '') + '</div></div><span class="badge badge-' + j.status + '">' + j.status + '</span></div>'
+          jobsDiv.innerHTML += '<div class="item"><div><div class="item-title">' + escapeHtml(j.title || '') + '</div><div class="item-sub">' + escapeHtml(date.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })) + (j.startTime ? ' at ' + escapeHtml(j.startTime) : '') + (j.serviceType ? ' &middot; ' + escapeHtml(j.serviceType) : '') + '</div></div><span class="badge badge-' + escapeHtml(j.status || '') + '">' + escapeHtml(j.status || '') + '</span></div>'
         })
       }
 
@@ -188,7 +200,7 @@
         quotes.forEach(function(q) {
           var price = q.finalPrice > 0 ? '$' + q.finalPrice.toFixed(0) : ('$' + q.estimateMin + ' – $' + q.estimateMax)
           var freq = { 'one-time': 'One-Time', 'weekly': 'Weekly', 'biweekly': 'Every 2 Weeks', 'monthly': 'Monthly' }[q.frequency] || q.frequency || ''
-          quotesDiv.innerHTML += '<div class="item"><div><div class="item-title">' + (q.quoteNumber || 'Quote') + '</div><div class="item-sub">' + (q.serviceType || '') + (freq ? ' &middot; ' + freq : '') + '</div></div><div style="text-align:right"><div class="amount">' + price + '</div><span class="badge badge-' + q.status + '">' + q.status + '</span></div></div>'
+          quotesDiv.innerHTML += '<div class="item"><div><div class="item-title">' + escapeHtml(q.quoteNumber || 'Quote') + '</div><div class="item-sub">' + escapeHtml(q.serviceType || '') + (freq ? ' &middot; ' + escapeHtml(freq) : '') + '</div></div><div style="text-align:right"><div class="amount">' + escapeHtml(price) + '</div><span class="badge badge-' + escapeHtml(q.status || '') + '">' + escapeHtml(q.status || '') + '</span></div></div>'
         })
       }
 
@@ -201,7 +213,7 @@
       } else {
         completed.forEach(function(j) {
           var date = new Date(j.date + 'T12:00:00')
-          completedDiv.innerHTML += '<div class="item"><div><div class="item-title">' + j.title + '</div><div class="item-sub">' + date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) + (j.serviceType ? ' &middot; ' + j.serviceType : '') + '</div></div><span class="badge badge-completed">Completed</span></div>'
+          completedDiv.innerHTML += '<div class="item"><div><div class="item-title">' + escapeHtml(j.title || '') + '</div><div class="item-sub">' + escapeHtml(date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })) + (j.serviceType ? ' &middot; ' + escapeHtml(j.serviceType) : '') + '</div></div><span class="badge badge-completed">Completed</span></div>'
         })
       }
 
@@ -213,11 +225,13 @@
         invDiv.innerHTML = '<p class="empty">No invoices.</p>'
       } else {
         invoices.forEach(function(i) {
-          var actions = '<span class="badge badge-' + i.status + '">' + i.status + '</span>'
-          if (i.paymentUrl && (i.status === 'sent' || i.status === 'overdue')) {
-            actions = '<a href="' + i.paymentUrl + '" class="pay-btn" target="_blank">Pay $' + i.total.toFixed(2) + '</a>'
+          var safeStatus = escapeHtml(i.status || '')
+          var actions = '<span class="badge badge-' + safeStatus + '">' + safeStatus + '</span>'
+          var safePaymentUrl = sanitizeUrl(i.paymentUrl)
+          if (safePaymentUrl && (i.status === 'sent' || i.status === 'overdue')) {
+            actions = '<a href="' + escapeHtml(safePaymentUrl) + '" class="pay-btn" target="_blank" rel="noopener">Pay $' + i.total.toFixed(2) + '</a>'
           }
-          invDiv.innerHTML += '<div class="item"><div><div class="item-title">' + i.invoiceNumber + '</div><div class="item-sub">' + i.issueDate + (i.dueDate ? ' &middot; Due ' + i.dueDate : '') + (i.paidAt ? ' &middot; Paid' : '') + '</div></div><div style="text-align:right"><div class="amount">$' + i.total.toFixed(2) + '</div>' + actions + '</div></div>'
+          invDiv.innerHTML += '<div class="item"><div><div class="item-title">' + escapeHtml(i.invoiceNumber || '') + '</div><div class="item-sub">' + escapeHtml(i.issueDate || '') + (i.dueDate ? ' &middot; Due ' + escapeHtml(i.dueDate) : '') + (i.paidAt ? ' &middot; Paid' : '') + '</div></div><div style="text-align:right"><div class="amount">$' + i.total.toFixed(2) + '</div>' + actions + '</div></div>'
         })
       }
     })

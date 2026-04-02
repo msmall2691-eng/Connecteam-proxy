@@ -4,6 +4,8 @@
 //   body: { signature, signerName, preferredDay, preferredTime }
 // POST /api/quote-approve?token=xxx&action=decline  — decline quote
 
+import crypto from 'crypto'
+
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*')
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
@@ -24,7 +26,8 @@ export default async function handler(req, res) {
 
   if (!token) return res.status(400).json({ error: 'Missing token' })
 
-  // Decode token: base64url(quoteId|clientId|timestamp)
+  // Decode token: base64url(quoteId|clientId|timestamp|hmac)
+  // If QUOTE_TOKEN_SECRET is set, verify HMAC signature on the token
   let quoteId, clientId, tokenTs
   try {
     const decoded = Buffer.from(token, 'base64url').toString()
@@ -32,6 +35,15 @@ export default async function handler(req, res) {
     quoteId = parts[0]
     clientId = parts[1]
     tokenTs = parseInt(parts[2])
+    // Verify HMAC if secret is configured
+    const TOKEN_SECRET = process.env.QUOTE_TOKEN_SECRET
+    if (TOKEN_SECRET && parts.length >= 4) {
+      const payload = `${quoteId}|${clientId}|${tokenTs}`
+      const expectedHmac = crypto.createHmac('sha256', TOKEN_SECRET).update(payload).digest('hex')
+      if (!crypto.timingSafeEqual(Buffer.from(parts[3]), Buffer.from(expectedHmac))) {
+        return res.status(400).json({ error: 'Invalid token' })
+      }
+    }
     // Token valid for 90 days
     if (Date.now() - tokenTs > 90 * 86400000) {
       return res.status(410).json({ error: 'This quote link has expired. Please contact us for a new quote.' })

@@ -1,4 +1,6 @@
-// Vercel serverless: Auto-generate turnover cleanings from rental iCal feeds
+// Vercel serverless: Auto-generate turnover cleanings from rental calendars
+// Primary: reads Google Calendar (fast, reliable, scales to 100+ properties)
+// Fallback: direct iCal fetch (for properties not yet imported into Google Calendar)
 // GET /api/auto-turnovers?action=scan — scans all rental properties and creates visits
 // GET /api/auto-turnovers?action=preview — shows what would be created without creating
 
@@ -39,8 +41,11 @@ export default async function handler(req, res) {
   }
 
   try {
-    // Fetch all rental properties with iCal URLs
-    const propsRes = await fetch(`${supabaseUrl}/rest/v1/properties?type=eq.rental&ical_url=not.is.null&select=*`, { headers: sbHeaders })
+    // Fetch all rental properties that have EITHER a Google Calendar ID or iCal URL
+    const propsRes = await fetch(
+      `${supabaseUrl}/rest/v1/properties?type=eq.rental&or=(google_calendar_id.not.is.null,ical_url.not.is.null)&select=*`,
+      { headers: sbHeaders }
+    )
     const properties = await propsRes.json()
 
     if (!properties?.length) {
@@ -53,7 +58,7 @@ export default async function handler(req, res) {
         newTurnovers: 0,
         created: 0,
         turnovers: [],
-        message: 'No rental properties with iCal URLs found',
+        message: 'No rental properties with Google Calendar IDs or iCal URLs found. Add a Google Calendar ID to your rental properties for automatic turnover detection.',
       })
     }
 
@@ -75,9 +80,53 @@ export default async function handler(req, res) {
 
     const turnovers = []
     const created = []
+    const errors = []
+
+    // ── PHASE 1: Batch-read all Google Calendars (fast, one API call each) ──
+    // Group properties by source: Google Calendar vs iCal fallback
+    const gcalProps = properties.filter(p => p.google_calendar_id && accessToken)
+    const icalFallbackProps = properties.filter(p => !p.google_calendar_id || !accessToken)
+
+    // Pre-fetch all Google Calendar events in parallel (fast — ~100ms each)
+    const gcalEvents = {}
+    if (gcalProps.length > 0) {
+      const timeMin = new Date().toISOString()
+      const timeMax = new Date(Date.now() + daysAhead * 86400000).toISOString()
+
+      const gcalPromises = gcalProps.map(async (prop) => {
+        try {
+          const calRes = await fetch(
+            `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(prop.google_calendar_id)}/events?singleEvents=true&orderBy=startTime&timeMin=${timeMin}&timeMax=${timeMax}&timeZone=America/New_York`,
+            { headers: { Authorization: `Bearer ${accessToken}` } }
+          )
+          if (calRes.ok) {
+            const calData = await calRes.json()
+            // Google Calendar all-day events use EXCLUSIVE end dates (RFC 5545).
+            // A reservation Apr 16-18 has end.date = "2026-04-19" (the checkout day).
+            // This is correct — we schedule the cleaning ON end.date (checkout day).
+            gcalEvents[prop.id] = (calData.items || [])
+              .filter(ev => ev.start?.date && ev.end?.date)
+              .map(ev => ({
+                date: ev.end.date,    // Checkout day = cleaning day
+                guest: ev.summary || 'Guest',
+                checkIn: ev.start.date,
+                uid: ev.iCalUID || ev.id,
+              }))
+          } else {
+            console.error(`Google Calendar fetch failed for ${prop.name || prop.id}: ${calRes.status}`)
+            gcalEvents[prop.id] = []
+          }
+        } catch (e) {
+          console.error(`Google Calendar error for ${prop.name || prop.id}:`, e.message)
+          gcalEvents[prop.id] = []
+        }
+      })
+
+      await Promise.all(gcalPromises)
+    }
 
     for (const prop of properties) {
-      if (!prop.ical_url) continue
+      if (!prop.ical_url && !prop.google_calendar_id) continue
 
       // Find or create a standing "Turnover Service" job for this property
       let turnoverJobId = null
@@ -90,7 +139,6 @@ export default async function handler(req, res) {
       if (existingJobs?.length) {
         turnoverJobId = existingJobs[0].id
       } else if (action === 'scan') {
-        // Create the standing turnover job for this property
         const newJobRes = await fetch(`${supabaseUrl}/rest/v1/jobs`, {
           method: 'POST',
           headers: { ...sbHeaders, 'Content-Type': 'application/json', 'Prefer': 'return=representation' },
@@ -115,50 +163,39 @@ export default async function handler(req, res) {
         turnoverJobId = newJobs?.[0]?.id
       }
 
-      // Read iCal via Google Calendar or direct fetch
+      // Get checkout dates — prefer Google Calendar (already fetched), fall back to iCal
       let checkoutDates = []
 
-      // Method 1: Google Calendar API
-      if (accessToken && prop.google_calendar_id) {
-        try {
-          const calRes = await fetch(
-            `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(prop.google_calendar_id)}/events?singleEvents=true&orderBy=startTime&timeMin=${new Date().toISOString()}&timeMax=${new Date(Date.now() + daysAhead * 86400000).toISOString()}&timeZone=America/New_York`,
-            { headers: { Authorization: `Bearer ${accessToken}` } }
-          )
-          if (calRes.ok) {
-            const calData = await calRes.json()
-            for (const ev of calData.items || []) {
-              if (ev.start?.date && ev.end?.date) {
-                checkoutDates.push({
-                  date: ev.end.date,
-                  guest: ev.summary || 'Guest',
-                  checkIn: ev.start.date,
-                  uid: ev.iCalUID || ev.id,
-                })
-              }
-            }
-          }
-        } catch {}
+      // Primary: Google Calendar (already batch-fetched above)
+      if (gcalEvents[prop.id]?.length > 0) {
+        checkoutDates = gcalEvents[prop.id]
       }
 
-      // Method 2: Direct iCal fetch
-      if (checkoutDates.length === 0) {
+      // Fallback: Direct iCal fetch (only if no Google Calendar data)
+      if (checkoutDates.length === 0 && prop.ical_url) {
         try {
-          const icalRes = await fetch(prop.ical_url)
+          const icalRes = await fetch(prop.ical_url, { signal: AbortSignal.timeout(5000) })
           if (icalRes.ok) {
             const icalText = await icalRes.text()
+            // iCal all-day events use EXCLUSIVE DTEND (RFC 5545).
+            // DTEND 20260419 means guest checks out Apr 19 = cleaning day.
+            // Handle multiple DTSTART/DTEND formats:
+            //   DTSTART;VALUE=DATE:20260416
+            //   DTSTART:20260416
+            //   DTSTART;TZID=...:20260416T...
             const events = icalText.split('BEGIN:VEVENT')
             for (const ev of events.slice(1)) {
-              const dtstart = ev.match(/DTSTART;VALUE=DATE:(\d{4})(\d{2})(\d{2})/)?.[0]
-              const dtend = ev.match(/DTEND;VALUE=DATE:(\d{4})(\d{2})(\d{2})/)?.[0]
+              // Match DTEND in any format — extract 8-digit date
+              const dtendRaw = ev.match(/DTEND[^:]*:(\d{4})(\d{2})(\d{2})/)?.[0]
+              const dtstartRaw = ev.match(/DTSTART[^:]*:(\d{4})(\d{2})(\d{2})/)?.[0]
               const summary = ev.match(/SUMMARY:(.*)/)?.[1]?.trim()
               const uid = ev.match(/UID:(.*)/)?.[1]?.trim()
 
-              if (dtend) {
-                const endMatch = dtend.match(/(\d{4})(\d{2})(\d{2})/)
+              if (dtendRaw) {
+                const endMatch = dtendRaw.match(/(\d{4})(\d{2})(\d{2})/)
                 if (endMatch) {
                   const date = `${endMatch[1]}-${endMatch[2]}-${endMatch[3]}`
-                  const startMatch = dtstart?.match(/(\d{4})(\d{2})(\d{2})/)
+                  const startMatch = dtstartRaw?.match(/(\d{4})(\d{2})(\d{2})/)
                   const checkIn = startMatch ? `${startMatch[1]}-${startMatch[2]}-${startMatch[3]}` : null
 
                   if (date >= today && date <= futureDate) {
@@ -168,7 +205,9 @@ export default async function handler(req, res) {
               }
             }
           }
-        } catch {}
+        } catch (e) {
+          console.error(`iCal fetch failed for ${prop.name || prop.id}:`, e.message)
+        }
       }
 
       // Get client info
@@ -200,6 +239,7 @@ export default async function handler(req, res) {
           guest: checkout.guest,
           checkIn: checkout.checkIn,
           alreadyScheduled,
+          source: gcalEvents[prop.id]?.length > 0 ? 'google_calendar' : 'ical_feed',
         }
 
         turnovers.push(turnover)
@@ -207,9 +247,22 @@ export default async function handler(req, res) {
         // Create visit if scanning and not already scheduled
         if (action === 'scan' && !alreadyScheduled && turnoverJobId) {
           try {
+            // Use property-specific cleaning duration (default 3 hours)
+            const duration = parseInt(prop.cleaning_duration) || 3
             const [h, m] = cleaningTime.split(':').map(Number)
-            const endH = String(Math.min(h + 3, 23)).padStart(2, '0')
+            const endH = String(Math.min(h + duration, 23)).padStart(2, '0')
             const endTime = `${endH}:${m.toString().padStart(2, '0')}`
+
+            // Build instructions from guest info + property details
+            const instrLines = []
+            if (checkout.guest) instrLines.push(`Guest: ${checkout.guest}`)
+            instrLines.push(`Checkout: ${checkoutTime}`)
+            if (checkout.checkIn) instrLines.push(`Next check-in: ${checkout.checkIn}`)
+            if (prop.access_notes) instrLines.push(`Access: ${prop.access_notes}`)
+            if (prop.parking_instructions) instrLines.push(`Parking: ${prop.parking_instructions}`)
+            if (prop.pet_details) instrLines.push(`Pets: ${prop.pet_details}`)
+            if (prop.cleaning_notes) instrLines.push(`Notes: ${prop.cleaning_notes}`)
+            if (prop.do_not_areas) instrLines.push(`Do not clean: ${prop.do_not_areas}`)
 
             const visitRes = await fetch(`${supabaseUrl}/rest/v1/visits`, {
               method: 'POST',
@@ -225,7 +278,7 @@ export default async function handler(req, res) {
                 source: 'ical_sync',
                 service_type_id: turnoverServiceTypeId,
                 ical_event_uid: checkout.uid || null,
-                instructions: `Guest: ${checkout.guest}\nCheckout: ${checkoutTime}\nCheck-in: ${checkout.checkIn || 'same day'}`,
+                instructions: instrLines.join('\n'),
                 address: prop.address_line1,
                 client_visible: true,
               }),
@@ -276,6 +329,7 @@ export default async function handler(req, res) {
             }
           } catch (e) {
             console.error('Failed to create turnover visit:', e)
+            errors.push({ property: prop.name || prop.address_line1, date: checkout.date, error: e.message })
           }
         }
       }
@@ -298,7 +352,9 @@ export default async function handler(req, res) {
       alreadyScheduled: turnovers.filter(t => t.alreadyScheduled).length,
       newTurnovers: turnovers.filter(t => !t.alreadyScheduled).length,
       created: created.length,
+      errors: errors.length,
       turnovers,
+      ...(errors.length > 0 ? { errorDetails: errors } : {}),
     })
   } catch (err) {
     return res.status(500).json({ error: err.message })

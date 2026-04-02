@@ -1,7 +1,7 @@
 // Vercel serverless: Visit management
 // GET /api/visits?action=generate-recurring — generate visits for all active recurring jobs
 // GET /api/visits?action=generate-recurring&jobId=xxx — generate for one job
-// Called via weekly cron (Monday 7am) or manually
+// Called via daily cron (7am UTC) or manually
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*')
@@ -127,7 +127,7 @@ export default async function handler(req, res) {
             method: 'PATCH',
             headers: sbHeaders,
             body: JSON.stringify({ last_visit_generated_date: endDate }),
-          }).catch(() => {})
+          }).catch(err => console.error('Failed to update last_visit_generated_date:', err.message))
         }
 
         totalCreated += created

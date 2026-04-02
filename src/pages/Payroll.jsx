@@ -131,6 +131,19 @@ export default function Payroll() {
 
   async function exportToSquare() {
     if (!payrollData) return
+
+    const empCount = payrollData.employees.length
+    const totalHrs = payrollData.totals.hours
+    const totalPay = payrollData.totals.totalComp
+    const confirmed = window.confirm(
+      `Export payroll to Square CSV?\n\n` +
+      `Employees: ${empCount}\n` +
+      `Total Hours: ${totalHrs}\n` +
+      `Total Compensation: $${totalPay.toLocaleString()}\n\n` +
+      `Proceed with download?`
+    )
+    if (!confirmed) return
+
     setExporting(true)
     try {
       const res = await fetch('/api/square?action=export', {
@@ -219,6 +232,12 @@ export default function Payroll() {
       {loading && !payrollData && (
         <div className="flex items-center justify-center h-64">
           <div className="animate-spin w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full" />
+        </div>
+      )}
+
+      {payrollData && payrollData.employees.some(e => !e.approved) && (
+        <div className="p-4 bg-yellow-900/30 border border-yellow-700 rounded-lg text-sm text-yellow-300 flex items-center gap-2">
+          <span className="font-semibold">Warning:</span> {payrollData.employees.filter(e => !e.approved).length} timesheet(s) have not been approved. Review and approve in Connecteam before processing payroll.
         </div>
       )}
 
@@ -331,12 +350,6 @@ export default function Payroll() {
             <p className="text-xs text-gray-600 mt-2">First job: reimburse miles over {threshold}mi. Between jobs: all miles at ${mileRate}/mi.</p>
           </div>
 
-          {/* Unapproved warning */}
-          {payrollData.employees.some(e => !e.approved) && (
-            <div className="p-4 bg-yellow-900/20 border border-yellow-800 rounded-lg text-sm text-yellow-300">
-              Some timesheets are not approved yet. Approve in Connecteam before processing payroll.
-            </div>
-          )}
         </>
       )}
     </div>
