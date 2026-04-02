@@ -521,23 +521,65 @@ export default async function handler(req, res) {
       if (!requestedDate) return res.status(400).json({ error: 'Requested date required' })
 
       try {
+        // Find existing client — try email, then normalized phone, then name
         let clientId = null
+        const phoneDigits = (phone || '').replace(/\D/g, '')
+
         if (email) {
           const r = await fetch(`${supabaseUrl}/rest/v1/clients?email=eq.${encodeURIComponent(email)}&limit=1`, { headers: sbHeaders })
           const d = r.ok ? await r.json() : []
           if (d.length > 0) clientId = d[0].id
         }
-        if (!clientId && phone) {
-          const r = await fetch(`${supabaseUrl}/rest/v1/clients?phone=eq.${encodeURIComponent(phone)}&limit=1`, { headers: sbHeaders })
+        if (!clientId && phoneDigits.length >= 10) {
+          // Search by phone containing the digits (handles format differences)
+          const r = await fetch(`${supabaseUrl}/rest/v1/clients?or=(phone.eq.${phoneDigits},phone.eq.${phoneDigits.replace(/(\d{3})(\d{3})(\d{4})/, '$1-$2-$3')},phone.eq.${phoneDigits.replace(/(\d{3})(\d{3})(\d{4})/, '($1) $2-$3')},phone.like.*${phoneDigits.slice(-7)}*)&limit=1`, { headers: sbHeaders })
           const d = r.ok ? await r.json() : []
           if (d.length > 0) clientId = d[0].id
         }
-        if (!clientId) {
+        if (!clientId && name) {
+          // Fallback: search by name + address match
+          const r = await fetch(`${supabaseUrl}/rest/v1/clients?name=eq.${encodeURIComponent(name)}&limit=5`, { headers: sbHeaders })
+          const d = r.ok ? await r.json() : []
+          if (d.length === 1) {
+            clientId = d[0].id
+          } else if (d.length > 1 && address) {
+            // Multiple matches — pick the one with matching address
+            const match = d.find(c => c.address && address.includes(c.address.split(',')[0]))
+            if (match) clientId = match.id
+            else clientId = d[0].id
+          }
+        }
+
+        // Update existing client with booking tag, or create new
+        if (clientId) {
+          try {
+            await fetch(`${supabaseUrl}/rest/v1/clients?id=eq.${clientId}`, {
+              method: 'PATCH', headers: sbHeaders,
+              body: JSON.stringify({ status: 'prospect', updated_at: new Date().toISOString() }),
+            })
+          } catch (e) { /* ignore update failure */ }
+        } else {
           const r = await fetch(`${supabaseUrl}/rest/v1/clients`, {
             method: 'POST', headers: { ...sbHeaders, 'Prefer': 'return=representation' },
-            body: JSON.stringify({ name: name || 'Unknown', email: email || '', phone: phone || '', address: address || '', status: 'lead', type: 'residential', source: source || 'Website', tags: ['self-booking', serviceType, frequency].filter(Boolean) }),
+            body: JSON.stringify({ name: name || 'Unknown', email: email || '', phone: phone || '', address: address || '', status: 'prospect', type: 'residential', source: source || 'Website', tags: ['self-booking', serviceType, frequency].filter(Boolean) }),
           })
           if (r.ok) { const d = await r.json(); clientId = d[0]?.id }
+        }
+
+        // Also link to existing website_request if there is one
+        if (clientId) {
+          try {
+            const wrRes = await fetch(`${supabaseUrl}/rest/v1/website_requests?client_id=eq.${clientId}&order=created_at.desc&limit=1`, { headers: sbHeaders })
+            if (wrRes.ok) {
+              const wr = await wrRes.json()
+              if (wr.length > 0) {
+                await fetch(`${supabaseUrl}/rest/v1/website_requests?id=eq.${wr[0].id}`, {
+                  method: 'PATCH', headers: sbHeaders,
+                  body: JSON.stringify({ status: 'booked' }),
+                })
+              }
+            }
+          } catch (e) { /* ignore */ }
         }
 
         const bookingRes = await fetch(`${supabaseUrl}/rest/v1/booking_requests`, {
