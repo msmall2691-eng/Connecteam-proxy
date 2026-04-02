@@ -4,6 +4,21 @@ import { getApiKey } from '../lib/api'
 import { getClients, getClientsAsync, getJobs, getJobsAsync, getVisitsAsync, getScheduleAsync, getEmployeesAsync, saveVisitAsync, saveJobAsync, getPropertiesAsync } from '../lib/store'
 import { isSupabaseConfigured } from '../lib/supabase'
 
+// DST-safe timezone offset for America/New_York
+function easternOffset(dateStr) {
+  const d = new Date(dateStr + 'T12:00:00Z')
+  const fmt = new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', timeZoneName: 'shortOffset' })
+  const parts = fmt.formatToParts(d)
+  const tzPart = parts.find(p => p.type === 'timeZoneName')
+  // e.g. "GMT-4" or "GMT-5" → "-04:00" or "-05:00"
+  const m = tzPart?.value?.match(/GMT([+-]?\d+)/)
+  if (m) {
+    const h = parseInt(m[1], 10)
+    return `${h <= 0 ? '-' : '+'}${String(Math.abs(h)).padStart(2, '0')}:00`
+  }
+  return '-05:00' // fallback EST
+}
+
 // Rental calendar config (localStorage)
 const RENTAL_CAL_KEY = 'workflowhq_rental_calendars'
 function getRentalCalendars() {
@@ -45,6 +60,8 @@ export default function Schedule() {
   const [pushingVisitToCT, setPushingVisitToCT] = useState(null)
   const [rentalStays, setRentalStays] = useState([])
   const [showStays, setShowStays] = useState(true)
+  const [batchSyncing, setBatchSyncing] = useState(false)
+  const [completingVisit, setCompletingVisit] = useState(null)
 
   // Auto-dismiss toast after 6s
   useEffect(() => {
@@ -300,20 +317,16 @@ export default function Schedule() {
 
   async function pushTurnoverToConnecteam(turnover) {
     const apiKey = getApiKey()
-    if (!apiKey) {
-      setToast({ type: 'error', message: 'Connecteam API key not set', details: 'Go to Settings to add your Connecteam API key.' })
-      return
-    }
 
     setPushingToConnecteam(turnover.eventId)
     try {
       const startDateTime = `${turnover.checkOut}T${turnover.cleaningTime}:00`
-      const startUnix = Math.floor(new Date(startDateTime + '-04:00').getTime() / 1000)
+      const startUnix = Math.floor(new Date(startDateTime + easternOffset(turnover.checkOut)).getTime() / 1000)
       const endUnix = startUnix + 3 * 3600 // 3 hours
 
       const res = await fetch(`/api/connecteam?action=shift`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-API-KEY': apiKey },
+        headers: { 'Content-Type': 'application/json', ...(apiKey && { 'X-API-KEY': apiKey }) },
         body: JSON.stringify({
           title: `Turnover Clean — ${turnover.property}`,
           startTime: startUnix,
@@ -387,10 +400,6 @@ export default function Schedule() {
   // Push a visit/job to Connecteam
   async function pushVisitToConnecteam(item) {
     const apiKey = getApiKey()
-    if (!apiKey) {
-      setToast({ type: 'error', message: 'Connecteam API key not set' })
-      return
-    }
     setPushingVisitToCT(item.id)
     try {
       const date = item.scheduledDate || item.date
@@ -400,20 +409,22 @@ export default function Schedule() {
       const clientName = item.client?.name || item.clientName || ''
       const address = item.address || item.client?.address || ''
 
-      const startStr = `${date}T${startTime.replace(/:\d{2}$/, '')}:00-04:00`
+      const tzOff = easternOffset(date)
+      const startStr = `${date}T${startTime.replace(/:\d{2}$/, '')}:00${tzOff}`
       const startUnix = Math.floor(new Date(startStr).getTime() / 1000)
-      const endStr = `${date}T${endTime.replace(/:\d{2}$/, '')}:00-04:00`
+      const endStr = `${date}T${endTime.replace(/:\d{2}$/, '')}:00${tzOff}`
       const endUnix = Math.floor(new Date(endStr).getTime() / 1000)
 
       const res = await fetch('/api/connecteam?action=shift', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-API-KEY': apiKey },
+        headers: { 'Content-Type': 'application/json', ...(apiKey && { 'X-API-KEY': apiKey }) },
         body: JSON.stringify({
           title: `${title}${clientName ? ' — ' + clientName : ''}`,
           startTime: startUnix,
           endTime: endUnix,
           description: [clientName, address, item.instructions].filter(Boolean).join('\n'),
           location: address,
+          visitId: item.scheduledDate ? item.id : undefined,
         }),
       })
       if (res.ok) {
@@ -437,10 +448,6 @@ export default function Schedule() {
 
   async function loadConnecteamShifts() {
     const apiKey = getApiKey()
-    if (!apiKey) {
-      setToast({ type: 'error', message: 'Connecteam API key not set', details: 'Go to Settings to add your Connecteam API key.' })
-      return
-    }
 
     setLoadingShifts(true)
     try {
@@ -452,7 +459,7 @@ export default function Schedule() {
       const endTime = Math.floor(future.getTime() / 1000)
 
       const res = await fetch(`/api/connecteam?path=${encodeURIComponent(`scheduler/v1/schedulers/15248539/shifts?startTime=${startTime}&endTime=${endTime}`)}`, {
-        headers: { 'X-API-KEY': apiKey },
+        headers: { ...(apiKey && { 'X-API-KEY': apiKey }) },
       })
 
       if (res.ok) {
@@ -478,6 +485,46 @@ export default function Schedule() {
       setLoadingShifts(false)
     }
   }
+
+  // Batch sync all unsynced visits to Google Calendar + Connecteam
+  async function handleBatchSync() {
+    setBatchSyncing(true)
+    try {
+      const res = await fetch('/api/visits?action=sync-all', { method: 'POST' })
+      if (res.ok) {
+        const data = await res.json()
+        setToast({ type: 'success', message: `Synced ${data.synced} of ${data.total} visits`, details: 'Google Calendar + Connecteam' })
+        loadCrmData()
+      } else {
+        setToast({ type: 'error', message: 'Batch sync failed' })
+      }
+    } catch (err) {
+      setToast({ type: 'error', message: 'Batch sync failed', details: err.message })
+    } finally {
+      setBatchSyncing(false)
+    }
+  }
+
+  // Mark a visit as complete (triggers auto-invoice)
+  async function handleCompleteVisit(item) {
+    setCompletingVisit(item.id)
+    try {
+      const res = await fetch(`/api/visits?action=complete&visitId=${item.id}`, { method: 'POST' })
+      if (res.ok) {
+        const data = await res.json()
+        const msg = data.invoice ? `Completed + Invoice #${data.invoice.invoice_number} created` : 'Marked as completed'
+        setToast({ type: 'success', message: msg, details: item.title || 'Visit' })
+        loadCrmData()
+      } else {
+        setToast({ type: 'error', message: 'Failed to complete visit' })
+      }
+    } catch (err) {
+      setToast({ type: 'error', message: 'Failed to complete visit', details: err.message })
+    } finally {
+      setCompletingVisit(null)
+    }
+  }
+
 
   async function createCalendarEvent(e) {
     e.preventDefault()
@@ -995,7 +1042,13 @@ export default function Schedule() {
           <div className="bg-gray-900 border border-gray-800 rounded-xl p-4">
             <div className="flex items-center justify-between mb-3">
               <h3 className="text-sm font-semibold text-white">Upcoming Schedule</h3>
-              <span className="text-xs text-gray-500">{sorted.length} upcoming</span>
+              <div className="flex items-center gap-2">
+                <button onClick={handleBatchSync} disabled={batchSyncing}
+                  className="px-2.5 py-1 bg-indigo-600/20 border border-indigo-800 rounded text-xs text-indigo-400 hover:bg-indigo-600/30 disabled:opacity-50 flex items-center gap-1">
+                  {batchSyncing ? 'Syncing...' : 'Sync All'}
+                </button>
+                <span className="text-xs text-gray-500">{sorted.length} upcoming</span>
+              </div>
             </div>
             <div className="space-y-1.5">
               {sorted.map(item => (
@@ -1034,6 +1087,14 @@ export default function Schedule() {
                     {item.connecteamShiftId && (
                       <span className="text-xs text-purple-400 px-1.5">Synced</span>
                     )}
+                    {item.status === 'scheduled' || item.status === 'confirmed' || item.status === 'in_progress' ? (
+                      <button onClick={() => handleCompleteVisit(item)} disabled={completingVisit === item.id}
+                        className="px-2 py-1 bg-green-600/20 border border-green-800 rounded text-xs text-green-400 hover:bg-green-600/30 disabled:opacity-50">
+                        {completingVisit === item.id ? '...' : 'Done'}
+                      </button>
+                    ) : item.status === 'completed' ? (
+                      <span className="text-xs text-green-500 px-1">Done</span>
+                    ) : null}
                     {item.clientId && (
                       <Link to={`/clients/${item.clientId}?tab=${item.source === 'ical_sync' ? 'properties' : 'jobs'}`} className="text-xs text-gray-500 hover:text-gray-300">View</Link>
                     )}

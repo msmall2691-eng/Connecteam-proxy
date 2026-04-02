@@ -238,7 +238,7 @@ export default async function handler(req, res) {
               scheduled_start_time: startTime,
               scheduled_end_time: endTime,
               status: 'scheduled',
-              source: 'recurring',
+              source: quote.frequency === 'one-time' ? 'one_off' : 'recurring',
               service_type_id: serviceTypeId,
               address: property?.address_line1 || client?.address || '',
               client_visible: true,
