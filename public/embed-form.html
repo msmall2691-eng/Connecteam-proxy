@@ -217,6 +217,10 @@
       <input type="tel" name="phone" required placeholder="(207) 555-1234">
     </div>
     <div class="field">
+      <label>Company Name</label>
+      <input type="text" name="companyName" placeholder="(if applicable)">
+    </div>
+    <div class="field">
       <label>Address</label>
       <input type="text" name="address" placeholder="123 Main St, Portland, ME">
     </div>
@@ -378,6 +382,7 @@
       name: name,
       email: email,
       phone: phone,
+      companyName: form.companyName.value.trim(),
       address: form.address.value.trim(),
       service: serviceType,
       propertyType: form.propertyType.value,

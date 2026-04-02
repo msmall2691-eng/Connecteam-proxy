@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useCallback } from 'react'
 
 const PROPERTY_TYPES = [
   { value: 'residential', label: 'Residential' },
@@ -31,10 +31,52 @@ export default function PropertyForm({ property, onSave, onCancel }) {
     rentalPlatform: property?.rentalPlatform || '',
   })
 
+  const [enriching, setEnriching] = useState(false)
+  const [enrichResult, setEnrichResult] = useState(null)
+
   function handleSubmit(e) {
     e.preventDefault()
     if (!form.addressLine1.trim()) return
     onSave({ ...form, ...(property?.id ? { id: property.id } : {}) })
+  }
+
+  async function handleEnrich() {
+    if (!form.addressLine1.trim()) return
+    setEnriching(true)
+    setEnrichResult(null)
+    try {
+      const res = await fetch('/api/enrich-property', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          address: [form.addressLine1, form.city, form.state, form.zip].filter(Boolean).join(', '),
+          name: form.name,
+          clientType: form.type,
+        }),
+      })
+      if (res.ok) {
+        const data = await res.json()
+        if (data.enriched) {
+          // Auto-fill empty fields only (don't overwrite user input)
+          setForm(prev => ({
+            ...prev,
+            sqft: prev.sqft || (data.sqft ? String(data.sqft) : ''),
+            bedrooms: prev.bedrooms || (data.bedrooms ? String(data.bedrooms) : ''),
+            bathrooms: prev.bathrooms || (data.bathrooms ? String(data.bathrooms) : ''),
+            type: data.propertyType || prev.type,
+            parkingInstructions: prev.parkingInstructions || data.parkingInstructions || '',
+            cleaningNotes: prev.cleaningNotes || data.notes || '',
+          }))
+          setEnrichResult({ type: 'success', message: `Estimated: ${data.sqft || '?'} sqft, ${data.bedrooms || '?'}bd/${data.bathrooms || '?'}ba (${data.confidence} confidence)` })
+        } else {
+          setEnrichResult({ type: 'info', message: 'Could not estimate — fill in manually' })
+        }
+      }
+    } catch (e) {
+      setEnrichResult({ type: 'error', message: e.message })
+    } finally {
+      setEnriching(false)
+    }
   }
 
   const isRental = form.type === 'rental'
@@ -71,6 +113,19 @@ export default function PropertyForm({ property, onSave, onCancel }) {
           className="px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500" />
         <input value={form.zip} onChange={e => setForm({ ...form, zip: e.target.value })} placeholder="ZIP"
           className="px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+      </div>
+
+      {/* AI Enrichment */}
+      <div className="flex items-center gap-3">
+        <button type="button" onClick={handleEnrich} disabled={enriching || !form.addressLine1.trim()}
+          className="px-3 py-1.5 bg-purple-600 hover:bg-purple-500 disabled:opacity-50 rounded-lg text-xs text-white font-medium">
+          {enriching ? 'Estimating...' : 'Auto-fill with AI'}
+        </button>
+        {enrichResult && (
+          <span className={`text-xs ${enrichResult.type === 'success' ? 'text-green-400' : enrichResult.type === 'error' ? 'text-red-400' : 'text-gray-400'}`}>
+            {enrichResult.message}
+          </span>
+        )}
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">

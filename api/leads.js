@@ -104,7 +104,7 @@ export default async function handler(req, res) {
       name, email, phone, address, message, service,
       source, propertyType, frequency, bedrooms, bathrooms,
       squareFeet, preferredDate, preferredTime, budget,
-      petHair, condition,
+      petHair, condition, companyName,
       // Website quote fields (pre-calculated)
       estimateMin, estimateMax,
       // Facebook Lead Ads fields
@@ -176,6 +176,7 @@ export default async function handler(req, res) {
             email: lead.email,
             phone: lead.phone,
             address: lead.address,
+            company_name: companyName || '',
             status: 'lead',
             type: lead.type,
             source: lead.source,
@@ -225,7 +226,7 @@ export default async function handler(req, res) {
                   quote_number: qNum,
                   client_id: clientId,
                   property_id: propertyId,
-                  service_type: lead.service || lead.propertyType || 'standard',
+                  service_type: lead.service || 'standard',
                   frequency: lead.frequency || 'one-time',
                   estimate_min: lead.estimateMin,
                   estimate_max: lead.estimateMax,
@@ -599,6 +600,7 @@ export default async function handler(req, res) {
         websiteBookingId, name, email, phone, address, zip,
         serviceType, frequency, sqft, bathrooms, petHair, condition,
         estimateMin, estimateMax, requestedDate, distanceMiles, source,
+        propertyType, companyName, bedrooms,
       } = req.body
 
       if (!name && !phone) return res.status(400).json({ error: 'Name or phone required' })
@@ -645,7 +647,7 @@ export default async function handler(req, res) {
         } else {
           const r = await fetch(`${supabaseUrl}/rest/v1/clients`, {
             method: 'POST', headers: { ...sbHeaders, 'Prefer': 'return=representation' },
-            body: JSON.stringify({ name: name || 'Unknown', email: email || '', phone: phone || '', address: address || '', status: 'prospect', type: 'residential', source: source || 'Website', tags: ['self-booking', serviceType, frequency].filter(Boolean) }),
+            body: JSON.stringify({ name: name || 'Unknown', email: email || '', phone: phone || '', address: address || '', company_name: companyName || '', status: 'prospect', type: mapPropertyType(propertyType), source: source || 'Website', tags: ['self-booking', serviceType, frequency].filter(Boolean) }),
           })
           if (r.ok) { const d = await r.json(); clientId = d[0]?.id }
         }
@@ -681,7 +683,7 @@ export default async function handler(req, res) {
                 // Create new property from booking data
                 const newProp = await fetch(`${supabaseUrl}/rest/v1/properties`, {
                   method: 'POST', headers: { ...sbHeaders, 'Prefer': 'return=representation' },
-                  body: JSON.stringify({ client_id: clientId, address_line1: address || '', zip: zip || '', type: 'residential', sqft: sqft ? parseInt(sqft) : null, bathrooms: bathrooms ? parseInt(bathrooms) : null, pet_hair: petHair || 'none', condition: condition || 'maintenance', is_primary: true }),
+                  body: JSON.stringify({ client_id: clientId, address_line1: address || '', zip: zip || '', type: mapPropertyType(propertyType), sqft: sqft ? parseInt(sqft) : null, bedrooms: bedrooms ? parseInt(bedrooms) : null, bathrooms: bathrooms ? parseInt(bathrooms) : null, pet_hair: petHair || 'none', condition: condition || 'maintenance', is_primary: true }),
                 })
                 if (newProp.ok) { const np = await newProp.json(); propertyId = np[0]?.id }
               }
