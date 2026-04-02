@@ -72,7 +72,7 @@ export default function Settings() {
 
     const checks = [
       { key: 'anthropic', url: '/api/chat', method: 'POST', body: { messages: [{ role: 'user', content: 'ping' }], context: '' } },
-      { key: 'gmail', url: '/api/gmail?action=profile' },
+      { key: 'gmail', url: '/api/google?action=gmail-profile' },
       { key: 'twilio', url: '/api/sms?action=list&limit=1' },
       { key: 'square', url: '/api/square?action=team' },
       { key: 'calendar', url: '/api/google?action=calendars' },
@@ -209,7 +209,7 @@ export default function Settings() {
             testResult={testResults.anthropic} />
 
           <IntegrationRow name="Gmail" envVars="GMAIL_CLIENT_ID, GMAIL_CLIENT_SECRET, GMAIL_REFRESH_TOKEN" status={integrations.gmail}
-            onTest={() => testEndpoint('gmail', '/api/gmail?action=profile')} testResult={testResults.gmail} />
+            onTest={() => testEndpoint('gmail', '/api/google?action=gmail-profile')} testResult={testResults.gmail} />
 
           <IntegrationRow name="Google Calendar" envVars="Same as Gmail (auto-shared)" status={integrations.calendar}
             onTest={() => testEndpoint('calendar', '/api/google?action=calendars')} testResult={testResults.calendar} />

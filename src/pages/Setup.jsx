@@ -91,7 +91,7 @@ const STEPS = [
       '  Copy the Refresh Token',
       '⚠️ Add all 3 to Vercel env vars, then redeploy',
     ],
-    testEndpoint: '/api/gmail?action=profile',
+    testEndpoint: '/api/google?action=gmail-profile',
   },
   {
     id: 'twilio',
@@ -175,7 +175,7 @@ export default function Setup() {
 
     // Gmail
     try {
-      const res = await fetch('/api/gmail?action=profile')
+      const res = await fetch('/api/google?action=gmail-profile')
       results.gmail = res.ok ? 'connected' : 'not_configured'
     } catch { results.gmail = 'not_configured' }
 

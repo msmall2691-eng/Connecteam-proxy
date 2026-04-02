@@ -70,11 +70,11 @@ async function sendInvoiceEmail(inv) {
   }
 
   const html = buildInvoiceEmailHtml(inv);
-  const res = await fetch('/api/gmail', {
+  const res = await fetch('/api/google', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      action: 'send',
+      action: 'gmail-send',
       to: toEmail,
       subject: `Invoice ${inv.invoiceNumber} from Maine Cleaning Co - $${inv.total.toFixed(2)}`,
       body: html,

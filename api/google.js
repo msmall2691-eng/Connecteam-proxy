@@ -1,4 +1,4 @@
-// Vercel serverless: Unified Google proxy (Calendar, Contacts, Drive)
+// Vercel serverless: Unified Google proxy (Calendar, Contacts, Drive, Gmail)
 // Uses GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REFRESH_TOKEN from env
 // (Same Gmail OAuth credentials work for all Google APIs)
 //
@@ -6,6 +6,7 @@
 //   calendar-*  or legacy: calendars, events, create, delete, turnovers
 //   contacts-*  or legacy: list (when routed here)
 //   drive-*     or legacy: list, upload, save-report, delete (when routed here)
+//   gmail-*     : gmail-list, gmail-thread, gmail-send, gmail-profile
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*')
@@ -379,7 +380,133 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'Unknown drive action. Use: drive-list, drive-upload, drive-save-report, drive-delete' })
     }
 
-    return res.status(400).json({ error: 'Unknown action. Use calendar-*, contacts-*, or drive-*' })
+    // ════════════════════════════════════════════════════════════════
+    // GMAIL ACTIONS
+    // Supports: gmail-list, gmail-thread, gmail-send, gmail-profile
+    // ════════════════════════════════════════════════════════════════
+    if (action === 'gmail-list' || action === 'gmail-thread' || action === 'gmail-send' ||
+        action === 'gmail-profile' || action.startsWith('gmail')) {
+
+      // ── LIST MESSAGES ──
+      if (action === 'gmail-list') {
+        const query = req.query.q || ''
+        const maxResults = req.query.maxResults || 20
+        const url = `https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=${maxResults}${query ? `&q=${encodeURIComponent(query)}` : ''}`
+
+        const listRes = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } })
+        const listData = await listRes.json()
+        const messageIds = (listData.messages || []).map(m => m.id)
+
+        // Fetch each message's headers
+        const messages = await Promise.all(messageIds.slice(0, 20).map(async (id) => {
+          const msgRes = await fetch(
+            `https://gmail.googleapis.com/gmail/v1/users/me/messages/${id}?format=metadata&metadataHeaders=From&metadataHeaders=To&metadataHeaders=Subject&metadataHeaders=Date`,
+            { headers: { Authorization: `Bearer ${accessToken}` } }
+          )
+          const msg = await msgRes.json()
+          const headers = {}
+          for (const h of msg.payload?.headers || []) {
+            headers[h.name.toLowerCase()] = h.value
+          }
+          return {
+            id: msg.id,
+            threadId: msg.threadId,
+            snippet: msg.snippet,
+            from: headers.from || '',
+            to: headers.to || '',
+            subject: headers.subject || '',
+            date: headers.date || '',
+            labelIds: msg.labelIds || [],
+          }
+        }))
+
+        return res.status(200).json({ messages })
+      }
+
+      // ── GET THREAD ──
+      if (action === 'gmail-thread') {
+        const threadId = req.query.threadId
+        if (!threadId) return res.status(400).json({ error: 'threadId required' })
+
+        const threadRes = await fetch(
+          `https://gmail.googleapis.com/gmail/v1/users/me/threads/${threadId}?format=full`,
+          { headers: { Authorization: `Bearer ${accessToken}` } }
+        )
+        const thread = await threadRes.json()
+
+        const messages = (thread.messages || []).map(msg => {
+          const headers = {}
+          for (const h of msg.payload?.headers || []) {
+            headers[h.name.toLowerCase()] = h.value
+          }
+          // Extract body
+          let body = ''
+          function extractText(part) {
+            if (part.mimeType === 'text/plain' && part.body?.data) {
+              body += Buffer.from(part.body.data, 'base64url').toString('utf-8')
+            }
+            if (part.parts) part.parts.forEach(extractText)
+          }
+          extractText(msg.payload)
+
+          return {
+            id: msg.id,
+            from: headers.from || '',
+            to: headers.to || '',
+            subject: headers.subject || '',
+            date: headers.date || '',
+            body,
+            snippet: msg.snippet,
+          }
+        })
+
+        return res.status(200).json({ threadId, messages })
+      }
+
+      // ── SEND EMAIL ──
+      if (action === 'gmail-send' && req.method === 'POST') {
+        const { to, subject, body, threadId, isHtml } = req.body
+        if (!to || !body) return res.status(400).json({ error: 'to and body required' })
+
+        // Build raw email — supports both plain text and HTML
+        const contentType = isHtml ? 'text/html; charset=utf-8' : 'text/plain; charset=utf-8'
+        const email = [
+          `To: ${to}`,
+          `Subject: ${subject || ''}`,
+          `Content-Type: ${contentType}`,
+          '',
+          body,
+        ].join('\r\n')
+
+        const encodedEmail = Buffer.from(email).toString('base64url')
+        const sendBody = { raw: encodedEmail }
+        if (threadId) sendBody.threadId = threadId
+
+        const sendRes = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/messages/send', {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(sendBody),
+        })
+        const sendData = await sendRes.json()
+
+        return res.status(200).json({ messageId: sendData.id, threadId: sendData.threadId })
+      }
+
+      // ── GET PROFILE ──
+      if (action === 'gmail-profile') {
+        const profileRes = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/profile', {
+          headers: { Authorization: `Bearer ${accessToken}` },
+        })
+        return res.status(200).json(await profileRes.json())
+      }
+
+      return res.status(400).json({ error: 'Unknown gmail action. Use: gmail-list, gmail-thread, gmail-send, gmail-profile' })
+    }
+
+    return res.status(400).json({ error: 'Unknown action. Use calendar-*, contacts-*, drive-*, or gmail-*' })
   } catch (err) {
     console.error('Google handler error:', err)
     return res.status(500).json({ error: err.message })

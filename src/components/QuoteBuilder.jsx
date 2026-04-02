@@ -105,10 +105,10 @@ export default function QuoteBuilder({ client, onSave, onSend }) {
 
     if (channel === 'email' && client.email) {
       try {
-        await fetch('/api/gmail', {
+        await fetch('/api/google', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'send', to: client.email, subject: `Cleaning Quote — ${client.name} — The Maine Cleaning Co.`, body: message }),
+          body: JSON.stringify({ action: 'gmail-send', to: client.email, subject: `Cleaning Quote — ${client.name} — The Maine Cleaning Co.`, body: message }),
         })
       } catch {}
     }

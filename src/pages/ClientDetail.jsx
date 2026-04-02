@@ -510,7 +510,7 @@ function QuotesTab({ client, properties, quotes, jobs, onReload, onSwitchTab }) 
     })
 
     if (channel === 'email' && client.email) {
-      try { await fetch('/api/gmail', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'send', to: client.email, subject: `Your Cleaning Quote — The Maine Cleaning Co.`, body: emailHtml, isHtml: true }) }) } catch {}
+      try { await fetch('/api/google', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'gmail-send', to: client.email, subject: `Your Cleaning Quote — The Maine Cleaning Co.`, body: emailHtml, isHtml: true }) }) } catch {}
     }
     if (channel === 'text' && client.phone) {
       try { await fetch('/api/sms', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'send', to: client.phone, body: smsMsg }) }) } catch {}

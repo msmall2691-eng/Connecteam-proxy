@@ -47,7 +47,7 @@ export default function Communications() {
     setGmailLoading(true)
     try {
       const q = query || ''
-      const res = await fetch(`/api/gmail?action=list&maxResults=30${q ? `&q=${encodeURIComponent(q)}` : ''}`)
+      const res = await fetch(`/api/google?action=gmail-list&maxResults=30${q ? `&q=${encodeURIComponent(q)}` : ''}`)
       if (res.ok) {
         const data = await res.json()
         // Match emails to known clients
@@ -76,7 +76,7 @@ export default function Communications() {
     })
 
     try {
-      const res = await fetch(`/api/gmail?action=thread&threadId=${email.threadId}`)
+      const res = await fetch(`/api/google?action=gmail-thread&threadId=${email.threadId}`)
       if (res.ok) {
         const data = await res.json()
         for (const msg of data.messages || []) {
@@ -129,9 +129,9 @@ export default function Communications() {
     // Email via Gmail
     if (active.channel === 'email' && client?.email) {
       try {
-        const res = await fetch('/api/gmail', {
+        const res = await fetch('/api/google', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'send', to: client.email, subject: active.subject, body: newMsg.trim(), threadId: active.gmailThreadId || undefined }),
+          body: JSON.stringify({ action: 'gmail-send', to: client.email, subject: active.subject, body: newMsg.trim(), threadId: active.gmailThreadId || undefined }),
         })
         if (res.ok) {
           const data = await res.json()

@@ -21,7 +21,7 @@ export default function Bookings() {
 
   const fetchBookings = useCallback(async () => {
     try {
-      const url = filter === 'all' ? '/api/bookings?action=list' : `/api/bookings?action=list&status=${filter}`
+      const url = filter === 'all' ? '/api/leads?action=booking-list' : `/api/leads?action=booking-list&status=${filter}`
       const res = await fetch(url)
       if (res.ok) {
         const data = await res.json()
@@ -35,7 +35,7 @@ export default function Bookings() {
 
   const fetchStats = useCallback(async () => {
     try {
-      const res = await fetch('/api/bookings?action=stats')
+      const res = await fetch('/api/leads?action=booking-stats')
       if (res.ok) {
         const data = await res.json()
         setStats(data.stats || { total: 0, pending: 0, approved: 0, rejected: 0 })
@@ -53,7 +53,7 @@ export default function Bookings() {
   async function approveBooking(id) {
     setApproving(id)
     try {
-      const res = await fetch('/api/bookings?action=approve', {
+      const res = await fetch('/api/leads?action=booking-approve', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ bookingId: id, adminNotes, assignee, startTime, endTime }),
@@ -77,7 +77,7 @@ export default function Bookings() {
   async function rejectBooking(id) {
     setRejecting(id)
     try {
-      const res = await fetch('/api/bookings?action=reject', {
+      const res = await fetch('/api/leads?action=booking-reject', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ bookingId: id, adminNotes }),
