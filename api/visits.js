@@ -151,6 +151,145 @@ export default async function handler(req, res) {
   }
 
   // ════════════════════════════════════════════════
+  // ACTION: update-status — change visit status + auto-notify client/employee
+  // POST /api/visits?action=update-status
+  // Body: { visitId, status, notify: true }
+  // ════════════════════════════════════════════════
+  if (action === 'update-status' && req.method === 'POST') {
+    const visitId = req.query.visitId || req.body?.visitId
+    const newStatus = req.body?.status
+    const notify = req.body?.notify !== false // default true
+    if (!visitId || !newStatus) return res.status(400).json({ error: 'visitId and status required' })
+
+    const validStatuses = ['scheduled', 'confirmed', 'in_transit', 'in_progress', 'completed', 'skipped', 'cancelled', 'no_show']
+    if (!validStatuses.includes(newStatus)) return res.status(400).json({ error: `Invalid status. Use: ${validStatuses.join(', ')}` })
+
+    try {
+      // Fetch visit with client + job + employee info
+      const vRes = await fetch(
+        `${supabaseUrl}/rest/v1/visits?id=eq.${visitId}&select=*,client:clients(id,name,email,phone,preferred_contact),job:jobs(title),employee:employees(id,name,phone)`,
+        { headers: sbHeaders }
+      )
+      const visits = await vRes.json()
+      if (!visits?.length) return res.status(404).json({ error: 'Visit not found' })
+      const visit = visits[0]
+      const oldStatus = visit.status
+
+      // If completing, delegate to the complete action for invoice logic
+      if (newStatus === 'completed') {
+        // Update status
+        await fetch(`${supabaseUrl}/rest/v1/visits?id=eq.${visitId}`, {
+          method: 'PATCH', headers: sbHeaders,
+          body: JSON.stringify({ status: 'completed', actual_end_time: visit.actual_end_time || new Date().toISOString() }),
+        })
+      } else {
+        // Update status + timestamps
+        const patch = { status: newStatus }
+        if (newStatus === 'in_progress' && !visit.actual_start_time) {
+          patch.actual_start_time = new Date().toISOString()
+        }
+        if (newStatus === 'confirmed') {
+          patch.confirmed_at = new Date().toISOString()
+        }
+        await fetch(`${supabaseUrl}/rest/v1/visits?id=eq.${visitId}`, {
+          method: 'PATCH', headers: sbHeaders, body: JSON.stringify(patch),
+        })
+      }
+
+      // Send notifications
+      const notifications = []
+      if (notify) {
+        const client = visit.client || {}
+        const employee = visit.employee || {}
+        const firstName = (client.name || '').split(' ')[0] || 'there'
+        const jobTitle = visit.job?.title || 'cleaning'
+        const dateStr = visit.scheduled_date ? new Date(visit.scheduled_date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }) : 'your upcoming visit'
+        const timeStr = visit.scheduled_start_time || ''
+
+        // Message templates per status
+        const clientMessages = {
+          confirmed: `Hi ${firstName}! Your ${jobTitle} on ${dateStr} is confirmed. We'll see you then!\n\n— The Maine Cleaning Co.\n(207) 572-0502`,
+          in_transit: `Hi ${firstName}! Your cleaner is on the way for your ${jobTitle} today. They should arrive shortly!\n\n— The Maine Cleaning Co.`,
+          in_progress: `Hi ${firstName}! Your ${jobTitle} is now in progress. We'll let you know when we're all done!\n\n— The Maine Cleaning Co.`,
+          completed: `Hi ${firstName}! Your ${jobTitle} is all done! We hope everything looks great. If you have any questions or feedback, just reply to this text.\n\n— The Maine Cleaning Co.\n(207) 572-0502`,
+          cancelled: `Hi ${firstName}, your ${jobTitle} on ${dateStr} has been cancelled. If you'd like to reschedule, just text us back or call (207) 572-0502.\n\n— The Maine Cleaning Co.`,
+        }
+
+        const employeeMessages = {
+          scheduled: `New job assigned: ${jobTitle} for ${client.name || 'Client'} on ${dateStr}${timeStr ? ' at ' + timeStr : ''}. ${visit.address || ''}`,
+          cancelled: `Job cancelled: ${jobTitle} for ${client.name || 'Client'} on ${dateStr} has been cancelled.`,
+        }
+
+        // Send client SMS
+        const clientMsg = clientMessages[newStatus]
+        if (clientMsg && client.phone) {
+          const { TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_PHONE_NUMBER } = process.env
+          if (TWILIO_ACCOUNT_SID && TWILIO_AUTH_TOKEN && TWILIO_PHONE_NUMBER) {
+            try {
+              const smsRes = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${TWILIO_ACCOUNT_SID}/Messages.json`, {
+                method: 'POST',
+                headers: {
+                  Authorization: 'Basic ' + Buffer.from(`${TWILIO_ACCOUNT_SID}:${TWILIO_AUTH_TOKEN}`).toString('base64'),
+                  'Content-Type': 'application/x-www-form-urlencoded',
+                },
+                body: new URLSearchParams({ From: TWILIO_PHONE_NUMBER, To: client.phone, Body: clientMsg }),
+              })
+              if (smsRes.ok) {
+                const smsData = await smsRes.json()
+                notifications.push({ to: 'client', channel: 'sms', status: 'sent', sid: smsData.sid })
+                // Log to conversations
+                const convRes = await fetch(
+                  `${supabaseUrl}/rest/v1/conversations?client_id=eq.${client.id}&channel=eq.text&limit=1&order=updated_at.desc`,
+                  { headers: sbHeaders }
+                )
+                const convos = (await convRes.json()) || []
+                const convoId = convos[0]?.id
+                if (convoId) {
+                  await fetch(`${supabaseUrl}/rest/v1/messages`, {
+                    method: 'POST', headers: sbHeaders,
+                    body: JSON.stringify({
+                      conversation_id: convoId, content: clientMsg, direction: 'outbound',
+                      sender: 'System', channel: 'sms', twilio_sid: smsData.sid,
+                      visit_id: visitId, is_automated: true, automation_trigger: `visit_${newStatus}`,
+                    }),
+                  }).catch(() => {})
+                  await fetch(`${supabaseUrl}/rest/v1/conversations?id=eq.${convoId}`, {
+                    method: 'PATCH', headers: sbHeaders,
+                    body: JSON.stringify({ last_message: clientMsg.slice(0, 100), updated_at: new Date().toISOString() }),
+                  }).catch(() => {})
+                }
+              }
+            } catch (e) { notifications.push({ to: 'client', channel: 'sms', status: 'failed', error: e.message }) }
+          }
+        }
+
+        // Send employee SMS for relevant statuses
+        const empMsg = employeeMessages[newStatus]
+        if (empMsg && employee?.phone) {
+          const { TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_PHONE_NUMBER } = process.env
+          if (TWILIO_ACCOUNT_SID && TWILIO_AUTH_TOKEN && TWILIO_PHONE_NUMBER) {
+            try {
+              const smsRes = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${TWILIO_ACCOUNT_SID}/Messages.json`, {
+                method: 'POST',
+                headers: {
+                  Authorization: 'Basic ' + Buffer.from(`${TWILIO_ACCOUNT_SID}:${TWILIO_AUTH_TOKEN}`).toString('base64'),
+                  'Content-Type': 'application/x-www-form-urlencoded',
+                },
+                body: new URLSearchParams({ From: TWILIO_PHONE_NUMBER, To: employee.phone, Body: empMsg }),
+              })
+              if (smsRes.ok) notifications.push({ to: 'employee', channel: 'sms', status: 'sent' })
+            } catch (e) { notifications.push({ to: 'employee', channel: 'sms', status: 'failed', error: e.message }) }
+          }
+        }
+      }
+
+      return res.status(200).json({ visitId, oldStatus, newStatus, notifications })
+    } catch (err) {
+      return res.status(500).json({ error: err.message })
+    }
+  }
+
+  // ════════════════════════════════════════════════
   // ACTION: review-request — send Google review request 2 days after completion
   // GET /api/visits?action=review-request
   // ════════════════════════════════════════════════

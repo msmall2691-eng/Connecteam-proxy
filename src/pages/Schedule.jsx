@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { Link } from 'react-router-dom'
 import { getApiKey } from '../lib/api'
 import { getClients, getClientsAsync, getJobs, getJobsAsync, getVisitsAsync, getScheduleAsync, getEmployeesAsync, saveVisitAsync, saveJobAsync, getPropertiesAsync, savePropertyAsync } from '../lib/store'
@@ -586,6 +586,11 @@ export default function Schedule() {
         const data = await res.json()
         const msg = data.invoice ? `Completed + Invoice #${data.invoice.invoice_number} created` : 'Marked as completed'
         setToast({ type: 'success', message: msg, details: item.title || 'Visit' })
+        // Also send completion notification
+        fetch('/api/visits?action=update-status', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ visitId: item.id, status: 'completed' }),
+        }).catch(() => {})
         loadCrmData()
       } else {
         setToast({ type: 'error', message: 'Failed to complete visit' })
@@ -594,6 +599,30 @@ export default function Schedule() {
       setToast({ type: 'error', message: 'Failed to complete visit', details: err.message })
     } finally {
       setCompletingVisit(null)
+    }
+  }
+
+  const [updatingStatus, setUpdatingStatus] = useState(null)
+  async function handleUpdateStatus(item, newStatus) {
+    const statusLabels = { in_transit: 'On My Way', in_progress: 'In Progress', confirmed: 'Confirmed', cancelled: 'Cancelled' }
+    setUpdatingStatus(`${item.id}_${newStatus}`)
+    try {
+      const res = await fetch('/api/visits?action=update-status', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ visitId: item.id, status: newStatus }),
+      })
+      if (res.ok) {
+        const data = await res.json()
+        const notified = data.notifications?.filter(n => n.status === 'sent').length || 0
+        setToast({ type: 'success', message: `${statusLabels[newStatus] || newStatus}${notified ? ` — ${notified} notification${notified > 1 ? 's' : ''} sent` : ''}`, details: item.title || 'Visit' })
+        loadCrmData()
+      } else {
+        setToast({ type: 'error', message: `Failed to update status` })
+      }
+    } catch (err) {
+      setToast({ type: 'error', message: 'Status update failed', details: err.message })
+    } finally {
+      setUpdatingStatus(null)
     }
   }
 
@@ -667,10 +696,10 @@ export default function Schedule() {
         <div className="flex flex-wrap items-center gap-2">
           {/* View mode */}
           <div className="flex rounded-lg overflow-hidden border border-gray-700">
-            {['WEEK', 'MONTH', 'AGENDA'].map(v => (
+            {['WEEK', 'MONTH', 'AGENDA', 'MAP'].map(v => (
               <button key={v} onClick={() => setCalView(v)}
                 className={`px-3 py-1.5 text-xs ${calView === v ? 'bg-blue-600 text-white' : 'bg-gray-800 text-gray-400 hover:text-gray-200'}`}>
-                {v === 'AGENDA' ? 'List' : v.charAt(0) + v.slice(1).toLowerCase()}
+                {v === 'AGENDA' ? 'List' : v === 'MAP' ? 'Map' : v.charAt(0) + v.slice(1).toLowerCase()}
               </button>
             ))}
           </div>
@@ -1232,6 +1261,10 @@ export default function Schedule() {
                                 {item.source === 'booking' && <span className="text-[10px] px-1.5 py-0.5 bg-green-600/20 text-green-400 rounded">booking</span>}
                                 {item.source === 'one_off' && <span className="text-[10px] px-1.5 py-0.5 bg-gray-600/20 text-gray-400 rounded">one-off</span>}
                                 {item.status === 'completed' && <span className="text-[10px] px-1.5 py-0.5 bg-green-600/20 text-green-400 rounded">done</span>}
+                                {item.status === 'confirmed' && <span className="text-[10px] px-1.5 py-0.5 bg-blue-600/20 text-blue-400 rounded">confirmed</span>}
+                                {item.status === 'in_transit' && <span className="text-[10px] px-1.5 py-0.5 bg-amber-600/20 text-amber-400 rounded">on my way</span>}
+                                {item.status === 'in_progress' && <span className="text-[10px] px-1.5 py-0.5 bg-purple-600/20 text-purple-400 rounded">in progress</span>}
+                                {item.status === 'cancelled' && <span className="text-[10px] px-1.5 py-0.5 bg-red-600/20 text-red-400 rounded">cancelled</span>}
                               </div>
                               <p className="text-xs text-gray-500">
                                 {item.startTime && `${formatTime(item.startTime)}`}
@@ -1240,30 +1273,56 @@ export default function Schedule() {
                                 {item.address && <span className="text-gray-600"> &middot; {item.address.split(',')[0]}</span>}
                               </p>
                             </div>
-                            <div className="flex items-center gap-1.5 shrink-0">
-                              {!item.googleEventId && (
-                                <button onClick={() => pushVisitToCalendar(item)} disabled={pushingVisitToCal === item.id}
-                                  className="px-2.5 py-1.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 rounded-lg text-xs text-white font-medium">
-                                  {pushingVisitToCal === item.id ? '...' : 'Google Cal'}
+                            <div className="flex items-center gap-1.5 shrink-0 flex-wrap">
+                              {/* Status workflow buttons */}
+                              {item.status === 'scheduled' && (
+                                <button onClick={() => handleUpdateStatus(item, 'confirmed')} disabled={updatingStatus === `${item.id}_confirmed`}
+                                  className="px-2 py-1 bg-blue-600/20 border border-blue-800 rounded text-xs text-blue-400 hover:bg-blue-600/30 disabled:opacity-50">
+                                  {updatingStatus === `${item.id}_confirmed` ? '...' : 'Confirm'}
                                 </button>
                               )}
-                              {item.googleEventId && (
-                                <span className="text-[10px] text-green-500 px-1.5">on cal</span>
-                              )}
-                              {!item.connecteamShiftId && (
-                                <button onClick={() => pushVisitToConnecteam(item)} disabled={pushingVisitToCT === item.id}
-                                  className="px-2.5 py-1.5 bg-purple-600 hover:bg-purple-500 disabled:opacity-50 rounded-lg text-xs text-white font-medium">
-                                  {pushingVisitToCT === item.id ? '...' : 'Connecteam'}
+                              {(item.status === 'scheduled' || item.status === 'confirmed') && (
+                                <button onClick={() => handleUpdateStatus(item, 'in_transit')} disabled={updatingStatus === `${item.id}_in_transit`}
+                                  className="px-2 py-1 bg-amber-600/20 border border-amber-800 rounded text-xs text-amber-400 hover:bg-amber-600/30 disabled:opacity-50">
+                                  {updatingStatus === `${item.id}_in_transit` ? '...' : 'On My Way'}
                                 </button>
                               )}
-                              {item.connecteamShiftId && (
-                                <span className="text-[10px] text-purple-400 px-1.5">synced</span>
+                              {(item.status === 'confirmed' || item.status === 'in_transit') && (
+                                <button onClick={() => handleUpdateStatus(item, 'in_progress')} disabled={updatingStatus === `${item.id}_in_progress`}
+                                  className="px-2 py-1 bg-purple-600/20 border border-purple-800 rounded text-xs text-purple-400 hover:bg-purple-600/30 disabled:opacity-50">
+                                  {updatingStatus === `${item.id}_in_progress` ? '...' : 'Start'}
+                                </button>
                               )}
-                              {(item.status === 'scheduled' || item.status === 'confirmed' || item.status === 'in_progress') && (
+                              {(item.status === 'scheduled' || item.status === 'confirmed' || item.status === 'in_transit' || item.status === 'in_progress') && (
                                 <button onClick={() => handleCompleteVisit(item)} disabled={completingVisit === item.id}
                                   className="px-2 py-1 bg-green-600/20 border border-green-800 rounded text-xs text-green-400 hover:bg-green-600/30 disabled:opacity-50">
                                   {completingVisit === item.id ? '...' : 'Done'}
                                 </button>
+                              )}
+                              {(item.status === 'scheduled' || item.status === 'confirmed') && (
+                                <button onClick={() => { if (confirm('Cancel this visit?')) handleUpdateStatus(item, 'cancelled') }} disabled={updatingStatus === `${item.id}_cancelled`}
+                                  className="px-2 py-1 text-red-400/50 text-xs rounded hover:text-red-400 hover:bg-red-900/20 disabled:opacity-50">
+                                  Cancel
+                                </button>
+                              )}
+                              {/* Sync buttons */}
+                              {!item.googleEventId && (
+                                <button onClick={() => pushVisitToCalendar(item)} disabled={pushingVisitToCal === item.id}
+                                  className="px-2 py-1 bg-gray-800 border border-gray-700 rounded text-xs text-gray-400 hover:text-white disabled:opacity-50">
+                                  {pushingVisitToCal === item.id ? '...' : 'GCal'}
+                                </button>
+                              )}
+                              {item.googleEventId && (
+                                <span className="text-[10px] text-green-500 px-1">cal</span>
+                              )}
+                              {!item.connecteamShiftId && (
+                                <button onClick={() => pushVisitToConnecteam(item)} disabled={pushingVisitToCT === item.id}
+                                  className="px-2 py-1 bg-gray-800 border border-gray-700 rounded text-xs text-gray-400 hover:text-white disabled:opacity-50">
+                                  {pushingVisitToCT === item.id ? '...' : 'CT'}
+                                </button>
+                              )}
+                              {item.connecteamShiftId && (
+                                <span className="text-[10px] text-purple-400 px-1">ct</span>
                               )}
                               {item.clientId && (
                                 <Link to={`/clients/${item.clientId}?tab=${isTurnover ? 'properties' : 'jobs'}`} className="text-xs text-gray-500 hover:text-gray-300">View</Link>
@@ -1280,6 +1339,11 @@ export default function Schedule() {
           </div>
         )
       })()}
+
+      {/* ═══════════════════════════════════════════════════ */}
+      {/* MAP VIEW                                           */}
+      {/* ═══════════════════════════════════════════════════ */}
+      {calView === 'MAP' && <ScheduleMap visits={crmVisits} />}
 
       {/* ═══════════════════════════════════════════════════ */}
       {/* GOOGLE CALENDAR EMBED                              */}
@@ -1317,4 +1381,124 @@ export default function Schedule() {
       )}
     </div>
   )
+}
+
+// ═══════════════════════════════════════════════════
+// Map View Component — Leaflet loaded from CDN
+// ═══════════════════════════════════════════════════
+function ScheduleMap({ visits }) {
+  const mapRef = useRef(null)
+  const mapInstanceRef = useRef(null)
+  const [leafletLoaded, setLeafletLoaded] = useState(!!window.L)
+  const [geocodeCache] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('geocode_cache') || '{}') } catch { return {} }
+  })
+
+  // Load Leaflet CSS + JS from CDN
+  useEffect(() => {
+    if (window.L) { setLeafletLoaded(true); return }
+    const css = document.createElement('link')
+    css.rel = 'stylesheet'
+    css.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css'
+    document.head.appendChild(css)
+    const script = document.createElement('script')
+    script.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js'
+    script.onload = () => setLeafletLoaded(true)
+    document.head.appendChild(script)
+  }, [])
+
+  // Initialize map + add markers
+  useEffect(() => {
+    if (!leafletLoaded || !mapRef.current || !window.L) return
+
+    // Clean up previous map
+    if (mapInstanceRef.current) {
+      mapInstanceRef.current.remove()
+      mapInstanceRef.current = null
+    }
+
+    const L = window.L
+    const map = L.map(mapRef.current).setView([43.66, -70.25], 10) // Default: Portland, ME area
+    mapInstanceRef.current = map
+
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '&copy; OpenStreetMap contributors',
+      maxZoom: 18,
+    }).addTo(map)
+
+    // Filter visits with addresses
+    const withAddress = visits.filter(v => v.address && v.status !== 'cancelled' && v.status !== 'skipped')
+    if (!withAddress.length) return
+
+    const statusColors = {
+      scheduled: '#3b82f6', confirmed: '#3b82f6', in_transit: '#f59e0b',
+      in_progress: '#a855f7', completed: '#22c55e',
+    }
+
+    // Geocode addresses and add markers
+    const bounds = []
+    let pending = withAddress.length
+
+    for (const visit of withAddress) {
+      const addr = visit.address
+      const cached = geocodeCache[addr]
+
+      if (cached) {
+        addMarker(L, map, cached, visit, statusColors, bounds)
+        pending--
+        if (pending === 0 && bounds.length) map.fitBounds(bounds, { padding: [40, 40] })
+      } else {
+        // Use Nominatim (free geocoding, 1 req/sec)
+        fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(addr)}&limit=1`, {
+          headers: { 'User-Agent': 'MaineCleaningCo-Schedule/1.0' },
+        })
+          .then(r => r.json())
+          .then(data => {
+            if (data?.[0]) {
+              const coords = [parseFloat(data[0].lat), parseFloat(data[0].lon)]
+              geocodeCache[addr] = coords
+              try { localStorage.setItem('geocode_cache', JSON.stringify(geocodeCache)) } catch {}
+              addMarker(L, map, coords, visit, statusColors, bounds)
+            }
+          })
+          .catch(() => {})
+          .finally(() => {
+            pending--
+            if (pending === 0 && bounds.length) map.fitBounds(bounds, { padding: [40, 40] })
+          })
+      }
+    }
+
+    return () => {
+      if (mapInstanceRef.current) {
+        mapInstanceRef.current.remove()
+        mapInstanceRef.current = null
+      }
+    }
+  }, [leafletLoaded, visits])
+
+  return (
+    <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
+      <div ref={mapRef} style={{ height: '500px', width: '100%' }} />
+      <div className="px-4 py-2 flex items-center gap-4 text-xs text-gray-500 border-t border-gray-800">
+        <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-blue-500" /> Scheduled</span>
+        <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-amber-500" /> On My Way</span>
+        <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-purple-500" /> In Progress</span>
+        <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-green-500" /> Done</span>
+      </div>
+    </div>
+  )
+}
+
+function addMarker(L, map, coords, visit, statusColors, bounds) {
+  const color = statusColors[visit.status] || '#6b7280'
+  const icon = L.divIcon({
+    className: '',
+    html: `<div style="width:14px;height:14px;border-radius:50%;background:${color};border:2px solid white;box-shadow:0 1px 4px rgba(0,0,0,.4)"></div>`,
+    iconSize: [14, 14], iconAnchor: [7, 7],
+  })
+  const marker = L.marker(coords, { icon }).addTo(map)
+  const time = visit.startTime ? ` at ${visit.startTime}` : ''
+  marker.bindPopup(`<b>${visit.title || 'Visit'}</b><br/>${visit.clientName || ''}${time}<br/><span style="font-size:11px;color:#888">${visit.address}</span>`)
+  bounds.push(coords)
 }
