@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react'
 import { Link } from 'react-router-dom'
-import { saveClient, saveClientAsync, getClientAsync, saveProperty, savePropertyAsync, getPropertiesAsync, getQuotesAsync, saveQuote, saveQuoteAsync, generateQuoteNumber } from '../lib/store'
+import { saveClient, saveClientAsync, getClientAsync, saveProperty, savePropertyAsync, getPropertiesAsync, getQuotesAsync, getJobsAsync, saveQuote, saveQuoteAsync, generateQuoteNumber } from '../lib/store'
 import { isSupabaseConfigured, getSupabase } from '../lib/supabase'
 
 const STATUS_OPTIONS = [
@@ -34,12 +34,40 @@ export default function WebsiteRequests() {
   const [search, setSearch] = useState('')
   const [sourceFilter, setSourceFilter] = useState('All Sources')
   const [dateRange, setDateRange] = useState('all')
+  const [bulkActioning, setBulkActioning] = useState(false)
+  const [clientInfoCache, setClientInfoCache] = useState({})
 
   useEffect(() => {
     fetchRequests()
     const interval = setInterval(fetchRequests, 30000)
     return () => clearInterval(interval)
   }, [])
+
+  // Fetch linked client info for converted requests
+  useEffect(() => {
+    const convertedWithClients = requests.filter(r => r.status === 'converted' && r.client_id && !clientInfoCache[r.client_id])
+    if (convertedWithClients.length === 0) return
+    convertedWithClients.forEach(async (r) => {
+      try {
+        const [client, quotes, jobs] = await Promise.all([
+          isSupabaseConfigured() ? getClientAsync(r.client_id) : null,
+          isSupabaseConfigured() ? getQuotesAsync(r.client_id) : [],
+          isSupabaseConfigured() ? getJobsAsync(r.client_id) : [],
+        ])
+        setClientInfoCache(prev => ({
+          ...prev,
+          [r.client_id]: {
+            name: client?.name || r.name || 'Unknown',
+            quoteCount: quotes?.length || 0,
+            latestQuoteStatus: quotes?.[0]?.status || null,
+            jobCount: jobs?.length || 0,
+          }
+        }))
+      } catch (e) {
+        console.error('Failed to fetch client info for', r.client_id, e)
+      }
+    })
+  }, [requests])
 
   async function fetchRequests() {
     try {
@@ -121,6 +149,10 @@ export default function WebsiteRequests() {
             req.frequency ? `Frequency: ${req.frequency}` : '',
             req.sqft ? `Sq ft: ${req.sqft}` : '',
             req.bathrooms ? `Bathrooms: ${req.bathrooms}` : '',
+            req.bedrooms ? `Bedrooms: ${req.bedrooms}` : '',
+            req.preferred_day || req.preferredDay ? `Preferred day: ${req.preferred_day || req.preferredDay}` : '',
+            req.preferred_time || req.preferredTime ? `Preferred time: ${req.preferred_time || req.preferredTime}` : '',
+            (req.company_name || req.companyName) ? `Company: ${req.company_name || req.companyName}` : '',
           ].filter(Boolean).join('\n'),
           tags: [req.service, req.frequency, 'Website'].filter(Boolean),
         }
@@ -146,6 +178,7 @@ export default function WebsiteRequests() {
             type: req.property_type || req.propertyType || 'residential',
             sqft: req.sqft ? parseInt(req.sqft) : null,
             bathrooms: req.bathrooms ? parseInt(req.bathrooms) : null,
+            bedrooms: req.bedrooms ? parseInt(req.bedrooms) : null,
             petHair: req.pet_hair || 'none',
             condition: req.condition || 'maintenance',
             isPrimary: true,
@@ -177,7 +210,7 @@ export default function WebsiteRequests() {
             estimateMax: parseFloat(req.estimate_max),
             status: 'draft',
             notes: req.message || '',
-            calcInputs: { sqft: req.sqft, bathrooms: req.bathrooms, petHair: req.pet_hair, condition: req.condition },
+            calcInputs: { sqft: req.sqft, bathrooms: req.bathrooms, bedrooms: req.bedrooms, petHair: req.pet_hair, condition: req.condition },
           }
           try {
             isSupabaseConfigured()
@@ -222,10 +255,12 @@ export default function WebsiteRequests() {
   const newCount = requests.filter(r => r.status === 'new').length
 
   async function markAllContacted() {
+    setBulkActioning(true)
     const newReqs = requests.filter(r => r.status === 'new')
     for (const r of newReqs) {
       await updateStatus(r.id, 'contacted')
     }
+    setBulkActioning(false)
   }
 
   const statusColor = (status) => {
@@ -327,10 +362,10 @@ export default function WebsiteRequests() {
               </button>
             ))}
           </div>
-          {newCount > 3 && (
-            <button onClick={markAllContacted}
-              className="px-3 py-1.5 bg-yellow-600/20 border border-yellow-800 rounded-lg text-xs text-yellow-400 hover:bg-yellow-600/30">
-              Mark all new as contacted
+          {newCount > 0 && (
+            <button onClick={markAllContacted} disabled={bulkActioning}
+              className="px-3 py-1.5 bg-yellow-600/20 border border-yellow-800 rounded-lg text-xs text-yellow-400 hover:bg-yellow-600/30 disabled:opacity-50">
+              {bulkActioning ? 'Updating...' : `Mark all ${newCount} new as contacted`}
             </button>
           )}
         </div>
@@ -380,6 +415,7 @@ export default function WebsiteRequests() {
             const isNew = !r.status || r.status === 'new'
             const isConverted = r.status === 'converted'
             const isConverting = converting === r.id
+            const linkedInfo = isConverted && r.client_id ? clientInfoCache[r.client_id] : null
 
             return (
               <div key={r.id || r.created_at}
