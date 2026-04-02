@@ -1,4 +1,4 @@
-import { Routes, Route, NavLink } from 'react-router-dom'
+import { Routes, Route, NavLink, useLocation } from 'react-router-dom'
 import { useState, useEffect, lazy, Suspense } from 'react'
 import { useAuth } from './lib/auth'
 import { getClientsAsync, getClients, getQuotesAsync, getQuotes, getInvoicesAsync, getInvoices } from './lib/store'
@@ -107,6 +107,13 @@ export default function App() {
   }, [cmdKOpen])
 
   const [showShortcuts, setShowShortcuts] = useState(false)
+  const location = useLocation()
+
+  // Scroll to top on route change
+  useEffect(() => {
+    const main = document.querySelector('main')
+    if (main) main.scrollTop = 0
+  }, [location.pathname])
 
   // Show loading while checking auth
   if (loading) {
@@ -277,19 +284,33 @@ export default function App() {
               <h3 className="text-sm font-semibold text-white">Keyboard Shortcuts</h3>
               <button onClick={() => setShowShortcuts(false)} className="text-xs text-gray-500 hover:text-white">Close</button>
             </div>
-            <div className="space-y-2 text-sm">
+            <div className="space-y-1">
+              <p className="text-[10px] text-gray-600 uppercase tracking-wider font-medium mt-1 mb-1">Navigation</p>
               {[
-                ['/', 'Search'],
+                ['/', 'Search clients & pages'],
                 ['\u2318K', 'Search (also Ctrl+K)'],
                 ['Shift+?', 'Show this help'],
               ].map(([key, desc]) => (
-                <div key={key} className="flex items-center justify-between">
-                  <span className="text-gray-400">{desc}</span>
+                <div key={key} className="flex items-center justify-between py-1">
+                  <span className="text-sm text-gray-400">{desc}</span>
+                  <kbd className="px-2 py-0.5 bg-gray-800 rounded text-xs text-gray-300 font-mono">{key}</kbd>
+                </div>
+              ))}
+              <p className="text-[10px] text-gray-600 uppercase tracking-wider font-medium mt-3 mb-1">Clients Table</p>
+              {[
+                ['j / \u2193', 'Move down'],
+                ['k / \u2191', 'Move up'],
+                ['Enter', 'Open client'],
+                ['x', 'Toggle select'],
+                ['n', 'New client'],
+              ].map(([key, desc]) => (
+                <div key={key} className="flex items-center justify-between py-1">
+                  <span className="text-sm text-gray-400">{desc}</span>
                   <kbd className="px-2 py-0.5 bg-gray-800 rounded text-xs text-gray-300 font-mono">{key}</kbd>
                 </div>
               ))}
             </div>
-            <p className="text-xs text-gray-600 mt-4">More shortcuts coming soon. Shortcuts are disabled when typing in inputs.</p>
+            <p className="text-xs text-gray-600 mt-4">Shortcuts are disabled when typing in inputs.</p>
           </div>
         </div>
       )}

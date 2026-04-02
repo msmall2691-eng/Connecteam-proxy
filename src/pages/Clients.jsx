@@ -1,5 +1,5 @@
-import { useState, useEffect, useMemo } from 'react'
-import { Link, useSearchParams } from 'react-router-dom'
+import { useState, useEffect, useMemo, useCallback } from 'react'
+import { Link, useSearchParams, useNavigate } from 'react-router-dom'
 import { getClients, getClientsAsync, saveClient, saveClientAsync, deleteClient, deleteClientAsync,
   getQuotes, getQuotesAsync, getJobs, getJobsAsync, getInvoices, getInvoicesAsync } from '../lib/store'
 import { isSupabaseConfigured } from '../lib/supabase'
@@ -28,6 +28,7 @@ const EMPTY_CLIENT = {
 }
 
 export default function Clients() {
+  const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
   const [clients, setClients] = useState([])
   const [showForm, setShowForm] = useState(false)
@@ -57,6 +58,40 @@ export default function Clients() {
   const PAGE_SIZE = 25
   const [selected, setSelected] = useState(new Set())
   const [confirmBulk, setConfirmBulk] = useState(null)
+  const [focusedRow, setFocusedRow] = useState(-1)
+
+  // Keyboard navigation for table rows
+  useEffect(() => {
+    function handleKey(e) {
+      const tag = document.activeElement?.tagName
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return
+      if (e.key === 'ArrowDown' || e.key === 'j') {
+        e.preventDefault()
+        setFocusedRow(r => Math.min(r + 1, paginatedClients.length - 1))
+      }
+      if (e.key === 'ArrowUp' || e.key === 'k') {
+        e.preventDefault()
+        setFocusedRow(r => Math.max(r - 1, 0))
+      }
+      if (e.key === 'Enter' && focusedRow >= 0 && focusedRow < paginatedClients.length) {
+        e.preventDefault()
+        navigate(`/clients/${paginatedClients[focusedRow].id}`)
+      }
+      if (e.key === 'x' && focusedRow >= 0 && focusedRow < paginatedClients.length) {
+        const id = paginatedClients[focusedRow].id
+        setSelected(prev => { const next = new Set(prev); next.has(id) ? next.delete(id) : next.add(id); return next })
+      }
+      if (e.key === 'n') {
+        e.preventDefault()
+        setForm({ ...EMPTY_CLIENT }); setEditing(null); setShowForm(true)
+      }
+    }
+    document.addEventListener('keydown', handleKey)
+    return () => document.removeEventListener('keydown', handleKey)
+  }, [focusedRow, paginatedClients])
+
+  // Reset focused row when page changes
+  useEffect(() => { setFocusedRow(-1) }, [page, filterStatus, search])
 
   useEffect(() => { reload() }, [])
 
@@ -440,8 +475,8 @@ export default function Clients() {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-800/50">
-              {paginatedClients.map(client => (
-                <tr key={client.id} className={`text-gray-300 hover:bg-gray-800/30 transition-colors ${selected.has(client.id) ? 'bg-blue-950/20' : ''}`}>
+              {paginatedClients.map((client, rowIdx) => (
+                <tr key={client.id} className={`text-gray-300 hover:bg-gray-800/30 transition-colors ${selected.has(client.id) ? 'bg-blue-950/20' : ''} ${focusedRow === rowIdx ? 'ring-1 ring-inset ring-blue-500/50 bg-blue-950/10' : ''}`}>
                   <td className="px-3 py-3">
                     <Checkbox
                       checked={selected.has(client.id)}
