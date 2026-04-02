@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { Link } from 'react-router-dom'
 import { getApiKey } from '../lib/api'
 import { getClients, getClientsAsync, getJobs, getJobsAsync, getVisitsAsync, getScheduleAsync, getEmployeesAsync, saveVisitAsync, saveJobAsync, getPropertiesAsync, savePropertyAsync } from '../lib/store'
-import { isSupabaseConfigured } from '../lib/supabase'
+import { isSupabaseConfigured, subscribeToTable } from '../lib/supabase'
 
 // DST-safe timezone offset for America/New_York
 function easternOffset(dateStr) {
@@ -100,7 +100,7 @@ export default function Schedule() {
     setLastRefresh(new Date())
   }, [])
 
-  // Auto-refresh schedule data every 60 seconds
+  // Auto-refresh schedule data every 60 seconds + real-time subscriptions
   useEffect(() => {
     const interval = setInterval(() => {
       loadCrmData()
@@ -108,7 +108,17 @@ export default function Schedule() {
       loadRentalStays()
       setLastRefresh(new Date())
     }, 60000)
-    return () => clearInterval(interval)
+
+    // Real-time: refresh when visits change in Supabase
+    let unsub
+    if (isSupabaseConfigured()) {
+      unsub = subscribeToTable('visits', () => {
+        loadCrmData()
+        setLastRefresh(new Date())
+      })
+    }
+
+    return () => { clearInterval(interval); unsub?.() }
   }, [])
 
   async function loadCrmData() {

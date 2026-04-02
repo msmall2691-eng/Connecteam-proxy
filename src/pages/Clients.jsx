@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { getClients, getClientsAsync, saveClient, saveClientAsync, deleteClient, deleteClientAsync,
   getQuotes, getQuotesAsync, getJobs, getJobsAsync, getInvoices, getInvoicesAsync } from '../lib/store'
 import { isSupabaseConfigured } from '../lib/supabase'
@@ -28,19 +28,31 @@ const EMPTY_CLIENT = {
 }
 
 export default function Clients() {
+  const [searchParams, setSearchParams] = useSearchParams()
   const [clients, setClients] = useState([])
   const [showForm, setShowForm] = useState(false)
   const [showImport, setShowImport] = useState(false)
   const [importingGoogle, setImportingGoogle] = useState(false)
   const [editing, setEditing] = useState(null)
   const [form, setForm] = useState({ ...EMPTY_CLIENT })
-  const [search, setSearch] = useState('')
-  const [filterStatus, setFilterStatus] = useState('all')
-  const [filterSource, setFilterSource] = useState('all')
-  const [filterType, setFilterType] = useState('all')
-  const [sortBy, setSortBy] = useState('name-az')
+  const [search, setSearch] = useState(searchParams.get('q') || '')
+  const [filterStatus, setFilterStatus] = useState(searchParams.get('status') || 'all')
+  const [filterSource, setFilterSource] = useState(searchParams.get('source') || 'all')
+  const [filterType, setFilterType] = useState(searchParams.get('type') || 'all')
+  const [sortBy, setSortBy] = useState(searchParams.get('sort') || 'name-az')
   const [clientStats, setClientStats] = useState({})
   const [loading, setLoading] = useState(true)
+
+  // Persist filters to URL
+  useEffect(() => {
+    const params = {}
+    if (search) params.q = search
+    if (filterStatus !== 'all') params.status = filterStatus
+    if (filterSource !== 'all') params.source = filterSource
+    if (filterType !== 'all') params.type = filterType
+    if (sortBy !== 'name-az') params.sort = sortBy
+    setSearchParams(params, { replace: true })
+  }, [search, filterStatus, filterSource, filterType, sortBy])
   const [page, setPage] = useState(1)
   const PAGE_SIZE = 25
 

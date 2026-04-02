@@ -1,25 +1,38 @@
 import { Routes, Route, NavLink } from 'react-router-dom'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, lazy, Suspense } from 'react'
 import { useAuth } from './lib/auth'
-import { getClientsAsync, getClients } from './lib/store'
+import { getClientsAsync, getClients, getQuotesAsync, getQuotes, getInvoicesAsync, getInvoices } from './lib/store'
 import { isSupabaseConfigured } from './lib/supabase'
 import Login from './pages/Login'
-import Dashboard from './pages/Dashboard'
-import Reports from './pages/Reports'
-import Clients from './pages/Clients'
-import Pipeline from './pages/Pipeline'
-import ClientDetail from './pages/ClientDetail'
-import Communications from './pages/Communications'
-import Schedule from './pages/Schedule'
-import Payroll from './pages/Payroll'
-import Invoices from './pages/Invoices'
-import Settings from './pages/Settings'
-import Setup from './pages/Setup'
-import Revenue from './pages/Revenue'
-import MyWebsite from './pages/MyWebsite'
-import AgentChat from './components/AgentChat'
 import { ToastProvider, CommandPalette, Badge } from './components/ui'
-import { getQuotesAsync, getQuotes, getInvoicesAsync, getInvoices } from './lib/store'
+
+// Lazy-loaded pages for code splitting
+const Dashboard = lazy(() => import('./pages/Dashboard'))
+const Reports = lazy(() => import('./pages/Reports'))
+const Clients = lazy(() => import('./pages/Clients'))
+const Pipeline = lazy(() => import('./pages/Pipeline'))
+const ClientDetail = lazy(() => import('./pages/ClientDetail'))
+const Communications = lazy(() => import('./pages/Communications'))
+const Schedule = lazy(() => import('./pages/Schedule'))
+const Payroll = lazy(() => import('./pages/Payroll'))
+const Invoices = lazy(() => import('./pages/Invoices'))
+const Settings = lazy(() => import('./pages/Settings'))
+const Setup = lazy(() => import('./pages/Setup'))
+const Revenue = lazy(() => import('./pages/Revenue'))
+const MyWebsite = lazy(() => import('./pages/MyWebsite'))
+const AgentChat = lazy(() => import('./components/AgentChat'))
+
+// Route loading fallback
+function PageLoader() {
+  return (
+    <div className="flex items-center justify-center h-64">
+      <div className="flex flex-col items-center gap-3">
+        <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+        <p className="text-xs text-gray-500">Loading...</p>
+      </div>
+    </div>
+  )
+}
 
 const navItems = [
   { to: '/', label: 'Dashboard', icon: 'M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6' },
@@ -231,27 +244,29 @@ export default function App() {
       </aside>
 
       {/* Main content */}
-      <main className="flex-1 overflow-auto min-w-0 pt-14 md:pt-0">
-        <Routes>
-          <Route path="/" element={<Dashboard />} />
-          <Route path="/pipeline" element={<Pipeline />} />
-          <Route path="/clients" element={<Clients />} />
-          <Route path="/clients/:id" element={<ClientDetail />} />
-          <Route path="/communications" element={<Communications />} />
-          <Route path="/schedule" element={<Schedule />} />
-          <Route path="/invoices" element={<Invoices />} />
-          <Route path="/payroll" element={<Payroll />} />
-          <Route path="/reports" element={<Reports />} />
-          <Route path="/revenue" element={<Revenue />} />
-          <Route path="/website-requests" element={<Pipeline />} />
-          <Route path="/my-website" element={<MyWebsite />} />
-          <Route path="/settings" element={<Settings />} />
-          <Route path="/setup" element={<Setup />} />
-        </Routes>
+      <main className="flex-1 overflow-auto min-w-0 pt-14 pb-16 md:pt-0 md:pb-0">
+        <Suspense fallback={<PageLoader />}>
+          <Routes>
+            <Route path="/" element={<Dashboard />} />
+            <Route path="/pipeline" element={<Pipeline />} />
+            <Route path="/clients" element={<Clients />} />
+            <Route path="/clients/:id" element={<ClientDetail />} />
+            <Route path="/communications" element={<Communications />} />
+            <Route path="/schedule" element={<Schedule />} />
+            <Route path="/invoices" element={<Invoices />} />
+            <Route path="/payroll" element={<Payroll />} />
+            <Route path="/reports" element={<Reports />} />
+            <Route path="/revenue" element={<Revenue />} />
+            <Route path="/website-requests" element={<Pipeline />} />
+            <Route path="/my-website" element={<MyWebsite />} />
+            <Route path="/settings" element={<Settings />} />
+            <Route path="/setup" element={<Setup />} />
+          </Routes>
+        </Suspense>
       </main>
 
       {/* AI Agent panel */}
-      {chatOpen && <AgentChat onClose={() => setChatOpen(false)} />}
+      {chatOpen && <Suspense fallback={null}><AgentChat onClose={() => setChatOpen(false)} /></Suspense>}
 
       {/* Keyboard shortcuts help */}
       {showShortcuts && (
@@ -278,6 +293,28 @@ export default function App() {
           </div>
         </div>
       )}
+      {/* Mobile bottom nav bar */}
+      <nav className="fixed bottom-0 left-0 right-0 z-40 bg-gray-900/95 backdrop-blur border-t border-gray-800 flex md:hidden">
+        {[
+          { to: '/', label: 'Home', icon: 'M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6' },
+          { to: '/pipeline', label: 'Pipeline', icon: 'M3.75 6A2.25 2.25 0 016 3.75h2.25A2.25 2.25 0 0110.5 6v2.25a2.25 2.25 0 01-2.25 2.25H6a2.25 2.25 0 01-2.25-2.25V6zM3.75 15.75A2.25 2.25 0 016 13.5h2.25a2.25 2.25 0 012.25 2.25V18a2.25 2.25 0 01-2.25 2.25H6A2.25 2.25 0 013.75 18v-2.25z' },
+          { to: '/schedule', label: 'Schedule', icon: 'M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0v-7.5A2.25 2.25 0 015.25 9h13.5A2.25 2.25 0 0121 11.25v7.5' },
+          { to: '/clients', label: 'Clients', icon: 'M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 018.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0111.964-3.07M12 6.375a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0z' },
+          { to: '/invoices', label: 'Invoices', icon: 'M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z' },
+        ].map(item => (
+          <NavLink key={item.to} to={item.to} end={item.to === '/'}
+            className={({ isActive }) =>
+              `flex-1 flex flex-col items-center gap-0.5 py-2 text-[10px] transition-colors ${
+                isActive ? 'text-blue-400' : 'text-gray-500'
+              }`
+            }>
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d={item.icon} />
+            </svg>
+            {item.label}
+          </NavLink>
+        ))}
+      </nav>
     </div>
     </ToastProvider>
   )

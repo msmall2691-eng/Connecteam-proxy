@@ -7,7 +7,7 @@ import {
   getQuotes, getQuotesAsync, getProperties, getPropertiesAsync,
   getScheduleAsync,
 } from '../lib/store'
-import { isSupabaseConfigured } from '../lib/supabase'
+import { isSupabaseConfigured, subscribeToTable } from '../lib/supabase'
 import { Skeleton, CardSkeleton, StatusBadge, ProgressBar } from '../components/ui'
 
 export default function Dashboard() {
@@ -24,7 +24,19 @@ export default function Dashboard() {
   const bottomRef = useRef(null)
   const apiKey = getApiKey()
 
-  useEffect(() => { loadDashboard(); loadPendingBookings() }, [])
+  useEffect(() => {
+    loadDashboard(); loadPendingBookings()
+    // Subscribe to real-time changes on key tables
+    if (isSupabaseConfigured()) {
+      const unsubs = [
+        subscribeToTable('visits', () => loadDashboard()),
+        subscribeToTable('quotes', () => loadDashboard()),
+        subscribeToTable('invoices', () => loadDashboard()),
+        subscribeToTable('clients', () => loadDashboard()),
+      ].filter(Boolean)
+      return () => unsubs.forEach(fn => fn())
+    }
+  }, [])
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages])
 
   async function loadDashboard() {
