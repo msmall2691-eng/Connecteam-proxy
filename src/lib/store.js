@@ -172,6 +172,14 @@ export async function addMessageAsync(convoId, message) {
       gmail_message_id: message.gmailMessageId || null,
       twilio_sid: message.twilioSid || null,
       metadata: message.metadata || {},
+      // v5 fields
+      job_id: message.jobId || null,
+      visit_id: message.visitId || null,
+      subject: message.subject || null,
+      from_address: message.fromAddress || null,
+      to_address: message.toAddress || null,
+      is_automated: message.isAutomated || false,
+      automation_trigger: message.automationTrigger || null,
     }
     const { data } = await sb.from('messages').insert(msg).select().single()
     // Update conversation last_message
@@ -211,6 +219,17 @@ export async function getMessagesAsync(convoId) {
       timestamp: m.timestamp,
       gmailMessageId: m.gmail_message_id,
       twilioSid: m.twilio_sid,
+      // v5 fields
+      jobId: m.job_id,
+      visitId: m.visit_id,
+      subject: m.subject,
+      fromAddress: m.from_address,
+      toAddress: m.to_address,
+      isAutomated: m.is_automated,
+      automationTrigger: m.automation_trigger,
+      callDurationSeconds: m.call_duration_seconds,
+      callOutcome: m.call_outcome,
+      attachments: m.attachments || [],
     }))
   }
   const convo = getConversation(convoId)
@@ -601,6 +620,293 @@ export function generateQuoteNumber() {
   return `QTE-${y}${m}-${seq}`
 }
 
+// ══════════════════════════════════════════
+// EMPLOYEES
+// ══════════════════════════════════════════
+export async function getEmployeesAsync() {
+  const sb = getSupabase()
+  if (sb) {
+    const { data } = await sb.from('employees').select('*').order('first_name')
+    return (data || []).map(normalizeEmployee)
+  }
+  return []
+}
+
+export async function getEmployeeAsync(id) {
+  const sb = getSupabase()
+  if (sb) {
+    const { data } = await sb.from('employees').select('*').eq('id', id).single()
+    return data ? normalizeEmployee(data) : null
+  }
+  return null
+}
+
+export async function saveEmployeeAsync(employee) {
+  const sb = getSupabase()
+  if (!sb) return employee
+  const row = employeeToSnake(employee)
+  if (employee.id) {
+    const { data } = await sb.from('employees').update(row).eq('id', employee.id).select().single()
+    return normalizeEmployee(data)
+  } else {
+    delete row.id
+    const { data } = await sb.from('employees').insert(row).select().single()
+    return normalizeEmployee(data)
+  }
+}
+
+export async function deleteEmployeeAsync(id) {
+  const sb = getSupabase()
+  if (sb) await sb.from('employees').delete().eq('id', id)
+}
+
+// ══════════════════════════════════════════
+// TEAMS
+// ══════════════════════════════════════════
+export async function getTeamsAsync() {
+  const sb = getSupabase()
+  if (sb) {
+    const { data } = await sb.from('teams').select('*').order('name')
+    return (data || []).map(normalizeTeam)
+  }
+  return []
+}
+
+export async function saveTeamAsync(team) {
+  const sb = getSupabase()
+  if (!sb) return team
+  const row = teamToSnake(team)
+  if (team.id) {
+    const { data } = await sb.from('teams').update(row).eq('id', team.id).select().single()
+    return normalizeTeam(data)
+  } else {
+    delete row.id
+    const { data } = await sb.from('teams').insert(row).select().single()
+    return normalizeTeam(data)
+  }
+}
+
+export async function deleteTeamAsync(id) {
+  const sb = getSupabase()
+  if (sb) await sb.from('teams').delete().eq('id', id)
+}
+
+// ══════════════════════════════════════════
+// SERVICE TYPES
+// ══════════════════════════════════════════
+export async function getServiceTypesAsync() {
+  const sb = getSupabase()
+  if (sb) {
+    const { data } = await sb.from('service_types').select('*').order('sort_order')
+    return (data || []).map(normalizeServiceType)
+  }
+  return []
+}
+
+export async function saveServiceTypeAsync(st) {
+  const sb = getSupabase()
+  if (!sb) return st
+  const row = serviceTypeToSnake(st)
+  if (st.id) {
+    const { data } = await sb.from('service_types').update(row).eq('id', st.id).select().single()
+    return normalizeServiceType(data)
+  } else {
+    delete row.id
+    const { data } = await sb.from('service_types').insert(row).select().single()
+    return normalizeServiceType(data)
+  }
+}
+
+export async function deleteServiceTypeAsync(id) {
+  const sb = getSupabase()
+  if (sb) await sb.from('service_types').delete().eq('id', id)
+}
+
+// ══════════════════════════════════════════
+// PRICING RULES
+// ══════════════════════════════════════════
+export async function getPricingRulesAsync(serviceTypeId = null) {
+  const sb = getSupabase()
+  if (sb) {
+    let q = sb.from('pricing_rules').select('*')
+    if (serviceTypeId) q = q.eq('service_type_id', serviceTypeId)
+    const { data } = await q
+    return (data || []).map(normalizePricingRule)
+  }
+  return []
+}
+
+export async function savePricingRuleAsync(rule) {
+  const sb = getSupabase()
+  if (!sb) return rule
+  const row = pricingRuleToSnake(rule)
+  if (rule.id) {
+    const { data } = await sb.from('pricing_rules').update(row).eq('id', rule.id).select().single()
+    return normalizePricingRule(data)
+  } else {
+    delete row.id
+    const { data } = await sb.from('pricing_rules').insert(row).select().single()
+    return normalizePricingRule(data)
+  }
+}
+
+export async function deletePricingRuleAsync(id) {
+  const sb = getSupabase()
+  if (sb) await sb.from('pricing_rules').delete().eq('id', id)
+}
+
+// ══════════════════════════════════════════
+// EXTRAS / ADD-ONS
+// ══════════════════════════════════════════
+export async function getExtrasAsync() {
+  const sb = getSupabase()
+  if (sb) {
+    const { data } = await sb.from('extras').select('*').eq('active', true).order('sort_order')
+    return (data || []).map(normalizeExtra)
+  }
+  return []
+}
+
+export async function saveExtraAsync(extra) {
+  const sb = getSupabase()
+  if (!sb) return extra
+  const row = extraToSnake(extra)
+  if (extra.id) {
+    const { data } = await sb.from('extras').update(row).eq('id', extra.id).select().single()
+    return normalizeExtra(data)
+  } else {
+    delete row.id
+    const { data } = await sb.from('extras').insert(row).select().single()
+    return normalizeExtra(data)
+  }
+}
+
+export async function deleteExtraAsync(id) {
+  const sb = getSupabase()
+  if (sb) await sb.from('extras').update({ active: false }).eq('id', id)
+}
+
+// ══════════════════════════════════════════
+// CHECKLIST TEMPLATES
+// ══════════════════════════════════════════
+export async function getChecklistTemplatesAsync() {
+  const sb = getSupabase()
+  if (sb) {
+    const { data } = await sb.from('checklist_templates').select('*').eq('active', true).order('name')
+    return (data || []).map(normalizeChecklistTemplate)
+  }
+  return []
+}
+
+export async function saveChecklistTemplateAsync(tpl) {
+  const sb = getSupabase()
+  if (!sb) return tpl
+  const row = checklistTemplateToSnake(tpl)
+  if (tpl.id) {
+    const { data } = await sb.from('checklist_templates').update(row).eq('id', tpl.id).select().single()
+    return normalizeChecklistTemplate(data)
+  } else {
+    delete row.id
+    const { data } = await sb.from('checklist_templates').insert(row).select().single()
+    return normalizeChecklistTemplate(data)
+  }
+}
+
+export async function deleteChecklistTemplateAsync(id) {
+  const sb = getSupabase()
+  if (sb) await sb.from('checklist_templates').update({ active: false }).eq('id', id)
+}
+
+// ══════════════════════════════════════════
+// VISITS
+// ══════════════════════════════════════════
+export async function getVisitsAsync({ jobId, clientId, startDate, endDate, status } = {}) {
+  const sb = getSupabase()
+  if (sb) {
+    let q = sb.from('visits').select('*').order('scheduled_date', { ascending: false })
+    if (jobId) q = q.eq('job_id', jobId)
+    if (clientId) q = q.eq('client_id', clientId)
+    if (startDate) q = q.gte('scheduled_date', startDate)
+    if (endDate) q = q.lte('scheduled_date', endDate)
+    if (status) q = q.eq('status', status)
+    const { data } = await q
+    return (data || []).map(normalizeVisit)
+  }
+  return []
+}
+
+export async function getVisitAsync(id) {
+  const sb = getSupabase()
+  if (sb) {
+    const { data } = await sb.from('visits').select('*').eq('id', id).single()
+    return data ? normalizeVisit(data) : null
+  }
+  return null
+}
+
+export async function saveVisitAsync(visit) {
+  const sb = getSupabase()
+  if (!sb) return visit
+  const row = visitToSnake(visit)
+  if (visit.id) {
+    const { data } = await sb.from('visits').update(row).eq('id', visit.id).select().single()
+    return normalizeVisit(data)
+  } else {
+    delete row.id
+    const { data } = await sb.from('visits').insert(row).select().single()
+    return normalizeVisit(data)
+  }
+}
+
+export async function deleteVisitAsync(id) {
+  const sb = getSupabase()
+  if (sb) await sb.from('visits').delete().eq('id', id)
+}
+
+// Generate visits from a recurring job
+export async function generateVisitsForJob(job, weeksAhead = 8) {
+  if (!job.isRecurring || !job.recurrenceRule) return []
+
+  const existing = await getVisitsAsync({ jobId: job.id })
+  const existingDates = new Set(existing.map(v => v.scheduledDate))
+  const generated = []
+  const today = new Date()
+
+  for (let w = 0; w < weeksAhead; w++) {
+    let nextDate
+    if (job.recurrenceRule === 'weekly') {
+      nextDate = new Date(today)
+      nextDate.setDate(nextDate.getDate() + (7 * w) + ((job.recurrenceDay || 0) - nextDate.getDay() + 7) % 7)
+    } else if (job.recurrenceRule === 'biweekly') {
+      nextDate = new Date(today)
+      nextDate.setDate(nextDate.getDate() + (14 * Math.floor(w / 1)) + ((job.recurrenceDay || 0) - nextDate.getDay() + 7) % 7)
+      if (w % 2 !== 0) continue
+    } else if (job.recurrenceRule === 'monthly') {
+      nextDate = new Date(today.getFullYear(), today.getMonth() + w, job.recurrenceDay || 1)
+    }
+
+    if (!nextDate || nextDate < today) continue
+    const dateStr = nextDate.toISOString().split('T')[0]
+    if (existingDates.has(dateStr)) continue
+
+    const visit = await saveVisitAsync({
+      jobId: job.id,
+      clientId: job.clientId,
+      propertyId: job.propertyId,
+      visitNumber: existing.length + generated.length + 1,
+      scheduledDate: dateStr,
+      scheduledStartTime: job.startTime,
+      scheduledEndTime: job.endTime,
+      status: 'scheduled',
+      assignedEmployeeId: job.assignedEmployeeId,
+      assignedTeamId: job.assignedTeamId,
+    })
+    generated.push(visit)
+  }
+
+  return generated
+}
+
 // IMPORT / EXPORT
 // ══════════════════════════════════════════
 export function exportData() { return loadLocal() }
@@ -619,6 +925,12 @@ function normalizeClient(row) {
     squareCustomerId: row.square_customer_id,
     stripeCustomerId: row.stripe_customer_id,
     preferredContact: row.preferred_contact,
+    // v5 fields
+    referralSource: row.referral_source,
+    referredByClientId: row.referred_by_client_id,
+    defaultPaymentTerms: row.default_payment_terms,
+    leadStage: row.lead_stage,
+    lostReason: row.lost_reason,
     createdAt: row.created_at, updatedAt: row.updated_at,
   }
 }
@@ -632,6 +944,12 @@ function toSnake(client) {
     square_customer_id: client.squareCustomerId || null,
     stripe_customer_id: client.stripeCustomerId || null,
     preferred_contact: client.preferredContact || 'email',
+    // v5 fields
+    referral_source: client.referralSource || null,
+    referred_by_client_id: client.referredByClientId || null,
+    default_payment_terms: client.defaultPaymentTerms || 30,
+    lead_stage: client.leadStage || null,
+    lost_reason: client.lostReason || null,
   }
 }
 
@@ -673,6 +991,15 @@ function normalizeJob(row) {
     propertyId: row.property_id, quoteId: row.quote_id,
     googleEventId: row.google_event_id, serviceType: row.service_type,
     address: row.address,
+    // v5 fields
+    serviceTypeId: row.service_type_id,
+    assignedEmployeeId: row.assigned_employee_id,
+    assignedTeamId: row.assigned_team_id,
+    estimatedDurationMinutes: row.estimated_duration_minutes,
+    frequencyDiscountPct: row.frequency_discount_pct,
+    extras: row.extras || [],
+    checklistTemplateId: row.checklist_template_id,
+    instructions: row.instructions,
     createdAt: row.created_at, updatedAt: row.updated_at,
   }
 }
@@ -690,6 +1017,15 @@ function jobToSnake(job) {
     property_id: job.propertyId || null, quote_id: job.quoteId || null,
     google_event_id: job.googleEventId || null, service_type: job.serviceType || null,
     address: job.address || null,
+    // v5 fields
+    service_type_id: job.serviceTypeId || null,
+    assigned_employee_id: job.assignedEmployeeId || null,
+    assigned_team_id: job.assignedTeamId || null,
+    estimated_duration_minutes: job.estimatedDurationMinutes || null,
+    frequency_discount_pct: job.frequencyDiscountPct || 0,
+    extras: job.extras || [],
+    checklist_template_id: job.checklistTemplateId || null,
+    instructions: job.instructions || null,
   }
 }
 
@@ -752,6 +1088,16 @@ function normalizeProperty(row) {
     isPrimary: row.is_primary,
     icalUrl: row.ical_url, checkoutTime: row.checkout_time, cleaningTime: row.cleaning_time,
     rentalPlatform: row.rental_platform,
+    // v5 fields
+    latitude: row.latitude, longitude: row.longitude,
+    hasPets: row.has_pets, petDetails: row.pet_details,
+    parkingInstructions: row.parking_instructions,
+    accessType: row.access_type, doNotAreas: row.do_not_areas,
+    cleaningNotes: row.cleaning_notes, photos: row.photos || [],
+    stories: row.stories,
+    googleCalendarId: row.google_calendar_id,
+    autoScheduleTurnovers: row.auto_schedule_turnovers,
+    lastIcalSyncAt: row.last_ical_sync_at,
     createdAt: row.created_at, updatedAt: row.updated_at,
   }
 }
@@ -768,6 +1114,16 @@ function propertyToSnake(p) {
     access_notes: p.accessNotes, is_primary: p.isPrimary || false,
     ical_url: p.icalUrl, checkout_time: p.checkoutTime, cleaning_time: p.cleaningTime,
     rental_platform: p.rentalPlatform,
+    // v5 fields
+    latitude: p.latitude || null, longitude: p.longitude || null,
+    has_pets: p.hasPets || false, pet_details: p.petDetails || null,
+    parking_instructions: p.parkingInstructions || null,
+    access_type: p.accessType || null, do_not_areas: p.doNotAreas || null,
+    cleaning_notes: p.cleaningNotes || null, photos: p.photos || [],
+    stories: p.stories || 1,
+    google_calendar_id: p.googleCalendarId || null,
+    auto_schedule_turnovers: p.autoScheduleTurnovers || false,
+    last_ical_sync_at: p.lastIcalSyncAt || null,
   }
 }
 
@@ -805,5 +1161,254 @@ function quoteToSnake(q) {
     signature_data: q.signatureData,
     items: q.items || [], notes: q.notes,
     preferred_day: q.preferredDay, preferred_time: q.preferredTime,
+  }
+}
+
+// ══════════════════════════════════════════
+// v5 NORMALIZERS
+// ══════════════════════════════════════════
+function normalizeEmployee(row) {
+  if (!row) return null
+  return {
+    id: row.id,
+    connecteamUserId: row.connecteam_user_id,
+    firstName: row.first_name,
+    lastName: row.last_name,
+    email: row.email,
+    phone: row.phone,
+    role: row.role,
+    hourlyRate: parseFloat(row.hourly_rate) || 0,
+    customRates: row.custom_rates || {},
+    hireDate: row.hire_date,
+    status: row.status,
+    zones: row.zones || [],
+    skills: row.skills || [],
+    maxHoursWeekly: row.max_hours_weekly,
+    color: row.color,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  }
+}
+
+function employeeToSnake(e) {
+  return {
+    id: e.id,
+    connecteam_user_id: e.connecteamUserId || null,
+    first_name: e.firstName,
+    last_name: e.lastName || '',
+    email: e.email || null,
+    phone: e.phone || null,
+    role: e.role || 'technician',
+    hourly_rate: e.hourlyRate || null,
+    custom_rates: e.customRates || {},
+    hire_date: e.hireDate || null,
+    status: e.status || 'active',
+    zones: e.zones || [],
+    skills: e.skills || [],
+    max_hours_weekly: e.maxHoursWeekly || null,
+    color: e.color || null,
+  }
+}
+
+function normalizeTeam(row) {
+  if (!row) return null
+  return {
+    id: row.id,
+    name: row.name,
+    leadEmployeeId: row.lead_employee_id,
+    memberIds: row.member_ids || [],
+    color: row.color,
+    zone: row.zone,
+    active: row.active,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  }
+}
+
+function teamToSnake(t) {
+  return {
+    id: t.id,
+    name: t.name,
+    lead_employee_id: t.leadEmployeeId || null,
+    member_ids: t.memberIds || [],
+    color: t.color || null,
+    zone: t.zone || null,
+    active: t.active !== false,
+  }
+}
+
+function normalizeServiceType(row) {
+  if (!row) return null
+  return {
+    id: row.id,
+    name: row.name,
+    description: row.description,
+    baseDurationMinutes: row.base_duration_minutes,
+    isRecurringEligible: row.is_recurring_eligible,
+    checklistTemplateId: row.checklist_template_id,
+    active: row.active,
+    sortOrder: row.sort_order,
+    createdAt: row.created_at,
+  }
+}
+
+function serviceTypeToSnake(st) {
+  return {
+    id: st.id,
+    name: st.name,
+    description: st.description || null,
+    base_duration_minutes: st.baseDurationMinutes || 120,
+    is_recurring_eligible: st.isRecurringEligible !== false,
+    checklist_template_id: st.checklistTemplateId || null,
+    active: st.active !== false,
+    sort_order: st.sortOrder || 0,
+  }
+}
+
+function normalizePricingRule(row) {
+  if (!row) return null
+  return {
+    id: row.id,
+    serviceTypeId: row.service_type_id,
+    propertyType: row.property_type,
+    bedroomsMin: row.bedrooms_min,
+    bedroomsMax: row.bedrooms_max,
+    bathroomsMin: row.bathrooms_min,
+    bathroomsMax: row.bathrooms_max,
+    basePrice: parseFloat(row.base_price) || 0,
+    pricePerSqft: parseFloat(row.price_per_sqft) || 0,
+    frequencyDiscounts: row.frequency_discounts || {},
+    createdAt: row.created_at,
+  }
+}
+
+function pricingRuleToSnake(r) {
+  return {
+    id: r.id,
+    service_type_id: r.serviceTypeId,
+    property_type: r.propertyType || null,
+    bedrooms_min: r.bedroomsMin || null,
+    bedrooms_max: r.bedroomsMax || null,
+    bathrooms_min: r.bathroomsMin || null,
+    bathrooms_max: r.bathroomsMax || null,
+    base_price: r.basePrice,
+    price_per_sqft: r.pricePerSqft || null,
+    frequency_discounts: r.frequencyDiscounts || {},
+  }
+}
+
+function normalizeExtra(row) {
+  if (!row) return null
+  return {
+    id: row.id,
+    name: row.name,
+    price: parseFloat(row.price) || 0,
+    priceType: row.price_type,
+    unitLabel: row.unit_label,
+    durationMinutes: row.duration_minutes,
+    active: row.active,
+    sortOrder: row.sort_order,
+    createdAt: row.created_at,
+  }
+}
+
+function extraToSnake(e) {
+  return {
+    id: e.id,
+    name: e.name,
+    price: e.price,
+    price_type: e.priceType || 'flat',
+    unit_label: e.unitLabel || null,
+    duration_minutes: e.durationMinutes || 0,
+    active: e.active !== false,
+    sort_order: e.sortOrder || 0,
+  }
+}
+
+function normalizeChecklistTemplate(row) {
+  if (!row) return null
+  return {
+    id: row.id,
+    name: row.name,
+    sections: row.sections || [],
+    active: row.active,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  }
+}
+
+function checklistTemplateToSnake(t) {
+  return {
+    id: t.id,
+    name: t.name,
+    sections: t.sections || [],
+    active: t.active !== false,
+  }
+}
+
+function normalizeVisit(row) {
+  if (!row) return null
+  return {
+    id: row.id,
+    jobId: row.job_id,
+    clientId: row.client_id,
+    propertyId: row.property_id,
+    visitNumber: row.visit_number,
+    scheduledDate: row.scheduled_date,
+    scheduledStartTime: row.scheduled_start_time,
+    scheduledEndTime: row.scheduled_end_time,
+    status: row.status,
+    assignedEmployeeId: row.assigned_employee_id,
+    assignedTeamId: row.assigned_team_id,
+    actualStartTime: row.actual_start_time,
+    actualEndTime: row.actual_end_time,
+    durationActualMinutes: row.duration_actual_minutes,
+    startLat: row.start_lat, startLng: row.start_lng,
+    endLat: row.end_lat, endLng: row.end_lng,
+    checklistSnapshot: row.checklist_snapshot,
+    photosBefore: row.photos_before || [],
+    photosAfter: row.photos_after || [],
+    employeeNotes: row.employee_notes,
+    clientRating: row.client_rating,
+    clientFeedback: row.client_feedback,
+    mileage: row.mileage ? parseFloat(row.mileage) : null,
+    priceOverride: row.price_override ? parseFloat(row.price_override) : null,
+    invoiceId: row.invoice_id,
+    googleEventId: row.google_event_id,
+    connecteamShiftId: row.connecteam_shift_id,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  }
+}
+
+function visitToSnake(v) {
+  return {
+    id: v.id,
+    job_id: v.jobId,
+    client_id: v.clientId,
+    property_id: v.propertyId || null,
+    visit_number: v.visitNumber || 1,
+    scheduled_date: v.scheduledDate,
+    scheduled_start_time: v.scheduledStartTime || null,
+    scheduled_end_time: v.scheduledEndTime || null,
+    status: v.status || 'scheduled',
+    assigned_employee_id: v.assignedEmployeeId || null,
+    assigned_team_id: v.assignedTeamId || null,
+    actual_start_time: v.actualStartTime || null,
+    actual_end_time: v.actualEndTime || null,
+    duration_actual_minutes: v.durationActualMinutes || null,
+    start_lat: v.startLat || null, start_lng: v.startLng || null,
+    end_lat: v.endLat || null, end_lng: v.endLng || null,
+    checklist_snapshot: v.checklistSnapshot || null,
+    photos_before: v.photosBefore || [],
+    photos_after: v.photosAfter || [],
+    employee_notes: v.employeeNotes || null,
+    client_rating: v.clientRating || null,
+    client_feedback: v.clientFeedback || null,
+    mileage: v.mileage || null,
+    price_override: v.priceOverride || null,
+    invoice_id: v.invoiceId || null,
+    google_event_id: v.googleEventId || null,
+    connecteam_shift_id: v.connecteamShiftId || null,
   }
 }
