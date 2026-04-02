@@ -451,6 +451,8 @@ function QuotesTab({ client, properties, quotes, jobs, onReload, onSwitchTab }) 
   const [sending, setSending] = useState(false)
   const [previewQuote, setPreviewQuote] = useState(null) // for viewing/editing existing quotes
   const [editingPrice, setEditingPrice] = useState('')
+  const [editingQuote, setEditingQuote] = useState(null) // full edit mode for quote fields
+  const [resending, setResending] = useState(false)
 
   // Pre-fill from selected property
   function selectProperty(propId) {
@@ -489,7 +491,7 @@ function QuotesTab({ client, properties, quotes, jobs, onReload, onSwitchTab }) 
       sentAt: new Date().toISOString(),
       expiresAt: new Date(Date.now() + 30 * 86400000).toISOString(),
       items: [{ description: `${quote.isDeep ? 'Deep' : 'Standard'} Cleaning — ${calcInputs.sqft} sqft`, quantity: 1, unitPrice: quote.perClean, total: quote.perClean }],
-      notes: '',
+      notes: calcInputs.notes || '',
       preferredDay: 1,
     })
 
@@ -528,6 +530,115 @@ function QuotesTab({ client, properties, quotes, jobs, onReload, onSwitchTab }) 
 
     setSending(false)
     setShowCalculator(false)
+    onReload()
+  }
+
+  // Start editing an existing quote (opens full edit mode)
+  function startEditQuote(q) {
+    setEditingQuote({
+      ...q,
+      serviceType: q.serviceType || 'standard',
+      frequency: q.frequency || 'biweekly',
+      items: q.items?.length ? [...q.items] : [{ description: 'Cleaning', quantity: 1, unitPrice: q.finalPrice || 0, total: q.finalPrice || 0 }],
+      notes: q.notes || '',
+      finalPrice: q.finalPrice || q.estimateMax || 0,
+    })
+    setPreviewQuote(null)
+  }
+
+  // Save edits to an existing quote
+  async function saveEditedQuote() {
+    if (!editingQuote) return
+    const itemsTotal = editingQuote.items.reduce((sum, item) => sum + (parseFloat(item.total) || 0), 0)
+    const updated = {
+      ...editingQuote,
+      finalPrice: parseFloat(editingQuote.finalPrice) || itemsTotal || editingQuote.estimateMax,
+      items: editingQuote.items,
+    }
+    await _saveQuote(updated)
+    setEditingQuote(null)
+    onReload()
+  }
+
+  // Update a line item in the editing quote
+  function updateEditItem(idx, field, value) {
+    const items = [...editingQuote.items]
+    items[idx] = { ...items[idx], [field]: value }
+    if (field === 'quantity' || field === 'unitPrice') {
+      items[idx].total = (parseFloat(items[idx].quantity) || 0) * (parseFloat(items[idx].unitPrice) || 0)
+    }
+    const itemsTotal = items.reduce((sum, item) => sum + (parseFloat(item.total) || 0), 0)
+    setEditingQuote({ ...editingQuote, items, finalPrice: itemsTotal })
+  }
+
+  // Add a new line item
+  function addEditItem() {
+    setEditingQuote({
+      ...editingQuote,
+      items: [...editingQuote.items, { description: '', quantity: 1, unitPrice: 0, total: 0 }],
+    })
+  }
+
+  // Remove a line item
+  function removeEditItem(idx) {
+    const items = editingQuote.items.filter((_, i) => i !== idx)
+    const itemsTotal = items.reduce((sum, item) => sum + (parseFloat(item.total) || 0), 0)
+    setEditingQuote({ ...editingQuote, items, finalPrice: itemsTotal || editingQuote.finalPrice })
+  }
+
+  // Resend an existing quote (same content, fresh email/text)
+  async function handleResendQuote(q, channel) {
+    setResending(true)
+    const approveToken = btoa(`${q.id}|${client.id}|${Date.now()}`).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+    const approveUrl = `${window.location.origin}/quote.html?token=${approveToken}`
+    const portalToken = btoa(`${client.id}|${Date.now()}`).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+    const portalUrl = `${window.location.origin}/portal.html?token=${portalToken}`
+    const prop = properties.find(p => p.id === q.propertyId)
+    const serviceLabel = { standard: 'Standard Cleaning', deep: 'Deep Cleaning', 'move-in-out': 'Move-In/Out Cleaning', 'airbnb-turnover': 'Turnover Cleaning' }[q.serviceType] || 'Cleaning'
+
+    if (channel === 'email' && client.email) {
+      const emailHtml = buildQuoteEmailHtml({
+        clientName: client.name,
+        serviceType: serviceLabel,
+        sqft: q.calcInputs?.sqft || '',
+        frequency: q.frequency,
+        estimateMin: q.estimateMin,
+        estimateMax: q.estimateMax,
+        finalPrice: q.finalPrice,
+        property: prop?.addressLine1,
+        approveUrl,
+        portalUrl,
+      })
+      try { await fetch('/api/google', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'gmail-send', to: client.email, subject: `Your Cleaning Quote — The Maine Cleaning Co.`, body: emailHtml, isHtml: true }) }) } catch {}
+    }
+    if (channel === 'text' && client.phone) {
+      const smsMsg = `Hi ${client.name.split(' ')[0]}! Here's your cleaning quote from The Maine Cleaning Co.:\n\n${serviceLabel}: $${q.estimateMin} – $${q.estimateMax}/clean\n${q.frequency !== 'one-time' ? `Frequency: ${q.frequency}\n` : ''}\nReview & approve here:\n${approveUrl}\n\nOr call (207) 572-0502!`
+      try { await fetch('/api/sms', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'send', to: client.phone, body: smsMsg }) }) } catch {}
+    }
+
+    // Update sent timestamp
+    await _saveQuote({ ...q, status: 'sent', sentVia: channel, sentAt: new Date().toISOString() })
+    setResending(false)
+    onReload()
+  }
+
+  // Duplicate a quote (creates new draft from existing)
+  async function duplicateQuote(q) {
+    await _saveQuote({
+      quoteNumber: generateQuoteNumber(),
+      clientId: client.id,
+      propertyId: q.propertyId,
+      serviceType: q.serviceType,
+      frequency: q.frequency,
+      estimateMin: q.estimateMin,
+      estimateMax: q.estimateMax,
+      finalPrice: q.finalPrice,
+      calcInputs: q.calcInputs,
+      calcBreakdown: q.calcBreakdown,
+      status: 'draft',
+      items: q.items ? [...q.items] : [],
+      notes: q.notes || '',
+    })
     onReload()
   }
 
@@ -683,8 +794,16 @@ function QuotesTab({ client, properties, quotes, jobs, onReload, onSwitchTab }) 
             </div>
           </div>
 
+          {/* Notes */}
+          <div>
+            <label className="block text-xs text-gray-500 mb-1">Notes for client (optional)</label>
+            <textarea rows={2} value={calcInputs.notes || ''} onChange={e => setCalcInputs({ ...calcInputs, notes: e.target.value })}
+              placeholder="Special instructions, access codes, anything the client should know..."
+              className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-sm text-white placeholder-gray-500 resize-none" />
+          </div>
+
           {/* Price display */}
-          <div className="bg-blue-900/20 border border-blue-800/50 rounded-lg p-4 flex items-center justify-between">
+          <div className="bg-blue-900/20 border border-blue-800/50 rounded-lg p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div>
               <span className="text-2xl font-bold text-blue-400">${quote.estimateMin} – ${quote.estimateMax}</span>
               <span className="text-sm text-gray-500 ml-2">per clean</span>
@@ -703,13 +822,13 @@ function QuotesTab({ client, properties, quotes, jobs, onReload, onSwitchTab }) 
                 </button>
               )}
               <button onClick={() => handleSendQuote('none')} disabled={sending}
-                className="px-3 py-1.5 bg-gray-700 hover:bg-gray-600 rounded-lg text-xs text-gray-300">Save</button>
+                className="px-3 py-1.5 bg-gray-700 hover:bg-gray-600 rounded-lg text-xs text-gray-300">Save Draft</button>
             </div>
           </div>
         </div>
       )}
 
-      {/* Quote preview/edit panel */}
+      {/* Quote preview panel (read-only view with action buttons) */}
       {previewQuote && (
         <div className="bg-gray-900 border border-gray-800 rounded-xl p-5 space-y-4">
           <div className="flex justify-between items-center">
@@ -726,21 +845,7 @@ function QuotesTab({ client, properties, quotes, jobs, onReload, onSwitchTab }) 
             </div>
           </div>
 
-          {/* Editable final price */}
-          <div className="flex items-center gap-3">
-            <label className="text-xs text-gray-500">Final Price:</label>
-            <div className="flex items-center gap-2">
-              <span className="text-gray-500">$</span>
-              <input type="number" step="5" value={editingPrice}
-                onChange={e => setEditingPrice(e.target.value)}
-                className="w-24 px-2 py-1 bg-gray-800 border border-gray-700 rounded text-sm text-white text-right" />
-              <button onClick={async () => {
-                await _saveQuote({ ...previewQuote, finalPrice: parseFloat(editingPrice) || previewQuote.finalPrice })
-                onReload()
-                setPreviewQuote({ ...previewQuote, finalPrice: parseFloat(editingPrice) || previewQuote.finalPrice })
-              }} className="px-2 py-1 bg-blue-600 hover:bg-blue-500 rounded text-xs text-white">Update</button>
-            </div>
-          </div>
+          <div className="text-lg font-bold text-white">Total: ${previewQuote.finalPrice || previewQuote.estimateMax || 0}</div>
 
           {/* Line items */}
           {previewQuote.items?.length > 0 && (
@@ -761,7 +866,7 @@ function QuotesTab({ client, properties, quotes, jobs, onReload, onSwitchTab }) 
             </div>
           )}
 
-          {previewQuote.notes && <p className="text-xs text-gray-500">Notes: {previewQuote.notes}</p>}
+          {previewQuote.notes && <p className="text-xs text-gray-400 bg-gray-800/50 rounded-lg p-3">Notes: {previewQuote.notes}</p>}
           {previewQuote.sentAt && <p className="text-xs text-gray-600">Sent: {new Date(previewQuote.sentAt).toLocaleString()}</p>}
 
           {/* Signature info if accepted with signature */}
@@ -777,30 +882,146 @@ function QuotesTab({ client, properties, quotes, jobs, onReload, onSwitchTab }) 
 
           {/* Action buttons */}
           <div className="flex flex-wrap gap-2 pt-2 border-t border-gray-800">
+            {(previewQuote.status === 'draft' || previewQuote.status === 'sent') && (
+              <button onClick={() => startEditQuote(previewQuote)}
+                className="px-3 py-1.5 bg-amber-600 hover:bg-amber-500 rounded-lg text-xs text-white font-medium">Edit Quote</button>
+            )}
             {previewQuote.status === 'draft' && (
               <>
                 {client.email && <button onClick={() => { handleSendQuote('email'); setPreviewQuote(null) }} className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 rounded-lg text-xs text-white">Email Quote</button>}
                 {client.phone && <button onClick={() => { handleSendQuote('text'); setPreviewQuote(null) }} className="px-3 py-1.5 bg-green-600 hover:bg-green-500 rounded-lg text-xs text-white">Text Quote</button>}
-                <button onClick={async () => { await _saveQuote({ ...previewQuote, status: 'sent', sentAt: new Date().toISOString() }); setPreviewQuote(null); onReload() }}
-                  className="px-3 py-1.5 bg-gray-700 rounded-lg text-xs text-gray-300">Mark Sent</button>
               </>
             )}
             {previewQuote.status === 'sent' && (
               <>
+                {client.email && <button onClick={() => { handleResendQuote(previewQuote, 'email'); setPreviewQuote(null) }} disabled={resending}
+                  className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 rounded-lg text-xs text-white">{resending ? '...' : 'Resend Email'}</button>}
+                {client.phone && <button onClick={() => { handleResendQuote(previewQuote, 'text'); setPreviewQuote(null) }} disabled={resending}
+                  className="px-3 py-1.5 bg-green-600 hover:bg-green-500 disabled:opacity-50 rounded-lg text-xs text-white">{resending ? '...' : 'Resend Text'}</button>}
                 <button onClick={() => { startAcceptQuote(previewQuote); setPreviewQuote(null) }}
-                  className="px-3 py-1.5 bg-green-600 hover:bg-green-500 rounded-lg text-xs text-white font-medium">Accept → Create Job</button>
+                  className="px-3 py-1.5 bg-green-600 hover:bg-green-500 rounded-lg text-xs text-white font-medium">Accept &rarr; Create Job</button>
                 <button onClick={() => {
                   const token = btoa(`${previewQuote.id}|${client.id}|${Date.now()}`).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
                   const url = `${window.location.origin}/quote.html?token=${token}`
                   navigator.clipboard.writeText(url)
                   alert('Approval link copied!')
-                }} className="px-3 py-1.5 bg-gray-700 hover:bg-gray-600 rounded-lg text-xs text-gray-300">Copy Approval Link</button>
+                }} className="px-3 py-1.5 bg-gray-700 hover:bg-gray-600 rounded-lg text-xs text-gray-300">Copy Link</button>
               </>
             )}
+            <button onClick={() => { duplicateQuote(previewQuote); setPreviewQuote(null) }}
+              className="px-3 py-1.5 bg-gray-700 hover:bg-gray-600 rounded-lg text-xs text-gray-300">Duplicate</button>
             {(previewQuote.status === 'sent' || previewQuote.status === 'draft') && (
               <button onClick={async () => { await _saveQuote({ ...previewQuote, status: 'declined', declinedAt: new Date().toISOString() }); setPreviewQuote(null); onReload() }}
                 className="px-3 py-1.5 bg-gray-800 rounded-lg text-xs text-red-400">Decline</button>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Full quote editor (edit all fields) */}
+      {editingQuote && (
+        <div className="bg-gray-900 border border-amber-800/40 rounded-xl p-5 space-y-4">
+          <div className="flex justify-between items-center">
+            <h3 className="text-sm font-semibold text-amber-400">Editing Quote {editingQuote.quoteNumber}</h3>
+            <button onClick={() => setEditingQuote(null)} className="text-xs text-gray-500 hover:text-gray-300">Cancel</button>
+          </div>
+
+          {/* Editable fields */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Service Type</label>
+              <select value={editingQuote.serviceType} onChange={e => setEditingQuote({ ...editingQuote, serviceType: e.target.value })}
+                className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-sm text-white">
+                <option value="standard">Standard</option><option value="deep">Deep Clean</option>
+                <option value="move-in-out">Move-In/Out</option><option value="airbnb-turnover">Turnover</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Frequency</label>
+              <select value={editingQuote.frequency} onChange={e => setEditingQuote({ ...editingQuote, frequency: e.target.value })}
+                className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-sm text-white">
+                <option value="weekly">Weekly</option><option value="biweekly">Bi-weekly</option>
+                <option value="monthly">Monthly</option><option value="one-time">One-time</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Final Price</label>
+              <div className="flex items-center gap-1">
+                <span className="text-gray-500">$</span>
+                <input type="number" step="5" value={editingQuote.finalPrice}
+                  onChange={e => setEditingQuote({ ...editingQuote, finalPrice: e.target.value })}
+                  className="w-full px-2 py-2 bg-gray-800 border border-gray-700 rounded-lg text-sm text-white" />
+              </div>
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Status</label>
+              <span className={`inline-block px-2 py-2 rounded text-xs font-medium ${QUOTE_STATUS_COLORS[editingQuote.status]}`}>{editingQuote.status}</span>
+            </div>
+          </div>
+
+          {/* Editable line items */}
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <label className="text-xs text-gray-500 font-medium">Line Items</label>
+              <button onClick={addEditItem} className="text-xs text-blue-400 hover:text-blue-300">+ Add Item</button>
+            </div>
+            <div className="border border-gray-800 rounded-lg overflow-hidden">
+              <table className="w-full text-sm">
+                <thead><tr className="text-xs text-gray-500 bg-gray-800/50">
+                  <th className="px-3 py-2 text-left">Description</th><th className="px-3 py-2 text-right w-16">Qty</th>
+                  <th className="px-3 py-2 text-right w-24">Price</th><th className="px-3 py-2 text-right w-24">Total</th>
+                  <th className="px-3 py-2 w-8" />
+                </tr></thead>
+                <tbody>
+                  {editingQuote.items.map((item, i) => (
+                    <tr key={i} className="border-t border-gray-800/50">
+                      <td className="px-2 py-1">
+                        <input value={item.description} onChange={e => updateEditItem(i, 'description', e.target.value)}
+                          className="w-full px-2 py-1 bg-gray-800 border border-gray-700 rounded text-sm text-white" />
+                      </td>
+                      <td className="px-2 py-1">
+                        <input type="number" value={item.quantity} onChange={e => updateEditItem(i, 'quantity', e.target.value)}
+                          className="w-full px-2 py-1 bg-gray-800 border border-gray-700 rounded text-sm text-white text-right" />
+                      </td>
+                      <td className="px-2 py-1">
+                        <input type="number" step="5" value={item.unitPrice} onChange={e => updateEditItem(i, 'unitPrice', e.target.value)}
+                          className="w-full px-2 py-1 bg-gray-800 border border-gray-700 rounded text-sm text-white text-right" />
+                      </td>
+                      <td className="px-3 py-1 text-right font-mono text-gray-400">${(parseFloat(item.total) || 0).toFixed(0)}</td>
+                      <td className="px-2 py-1">
+                        {editingQuote.items.length > 1 && (
+                          <button onClick={() => removeEditItem(i)} className="text-xs text-red-500 hover:text-red-400">X</button>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* Notes */}
+          <div>
+            <label className="block text-xs text-gray-500 mb-1">Notes</label>
+            <textarea rows={2} value={editingQuote.notes} onChange={e => setEditingQuote({ ...editingQuote, notes: e.target.value })}
+              placeholder="Special instructions, access details, terms..."
+              className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-sm text-white placeholder-gray-500 resize-none" />
+          </div>
+
+          {/* Save + send actions */}
+          <div className="flex flex-wrap gap-2 pt-2 border-t border-gray-800">
+            <button onClick={saveEditedQuote}
+              className="px-4 py-2 bg-amber-600 hover:bg-amber-500 rounded-lg text-sm text-white font-medium">Save Changes</button>
+            {client.email && (
+              <button onClick={async () => { await saveEditedQuote(); const q = editingQuote; setEditingQuote(null); handleResendQuote(q, 'email') }}
+                className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 rounded-lg text-xs text-white">Save & Email</button>
+            )}
+            {client.phone && (
+              <button onClick={async () => { await saveEditedQuote(); const q = editingQuote; setEditingQuote(null); handleResendQuote(q, 'text') }}
+                className="px-3 py-1.5 bg-green-600 hover:bg-green-500 rounded-lg text-xs text-white">Save & Text</button>
+            )}
+            <button onClick={() => setEditingQuote(null)}
+              className="px-3 py-1.5 bg-gray-800 rounded-lg text-xs text-gray-400">Cancel</button>
           </div>
         </div>
       )}
@@ -870,11 +1091,17 @@ function QuotesTab({ client, properties, quotes, jobs, onReload, onSwitchTab }) 
                     )}
                   </td>
                   <td className="px-5 py-2.5 text-right">
-                    <div className="flex gap-2 justify-end">
+                    <div className="flex gap-2 justify-end flex-wrap">
                       <button onClick={() => { setPreviewQuote(q); setEditingPrice(String(q.finalPrice || q.estimateMax || 0)) }}
                         className="text-xs text-gray-400 hover:text-blue-400">View</button>
+                      {(q.status === 'draft' || q.status === 'sent') && (
+                        <button onClick={() => startEditQuote(q)}
+                          className="text-xs text-amber-400 hover:text-amber-300">Edit</button>
+                      )}
                       {q.status === 'sent' && (
                         <>
+                          <button onClick={() => handleResendQuote(q, client.email ? 'email' : 'text')} disabled={resending}
+                            className="text-xs text-blue-400 hover:text-blue-300 disabled:opacity-50">{resending ? '...' : 'Resend'}</button>
                           <button onClick={() => startAcceptQuote(q)}
                             className="text-xs text-green-400 hover:text-green-300">Accept</button>
                           <button onClick={() => {
@@ -885,9 +1112,15 @@ function QuotesTab({ client, properties, quotes, jobs, onReload, onSwitchTab }) 
                         </>
                       )}
                       {q.status === 'draft' && (
-                        <button onClick={async () => { await _saveQuote({ ...q, status: 'sent', sentAt: new Date().toISOString() }); onReload() }}
-                          className="text-xs text-blue-400 hover:text-blue-300">Send</button>
+                        <>
+                          {client.email && <button onClick={() => handleResendQuote(q, 'email')} disabled={resending}
+                            className="text-xs text-blue-400 hover:text-blue-300 disabled:opacity-50">{resending ? '...' : 'Email'}</button>}
+                          {client.phone && <button onClick={() => handleResendQuote(q, 'text')} disabled={resending}
+                            className="text-xs text-green-400 hover:text-green-300 disabled:opacity-50">{resending ? '...' : 'Text'}</button>}
+                        </>
                       )}
+                      <button onClick={() => duplicateQuote(q)}
+                        className="text-xs text-gray-500 hover:text-gray-300" title="Duplicate as new draft">Dup</button>
                     </div>
                   </td>
                 </tr>
