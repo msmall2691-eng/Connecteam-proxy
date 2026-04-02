@@ -86,7 +86,7 @@
   }
 
   // Fetch quote data
-  fetch('/api/quote-approve?token=' + encodeURIComponent(token))
+  fetch('/api/client?action=quote&token=' + encodeURIComponent(token))
     .then(function(r) { return r.json() })
     .then(function(data) {
       document.getElementById('loading').style.display = 'none'
@@ -330,7 +330,7 @@ function submitAccept(token) {
   btn.textContent = 'Confirming...'
   document.getElementById('declineBtn').style.display = 'none'
 
-  fetch('/api/quote-approve?token=' + encodeURIComponent(token), {
+  fetch('/api/client?action=quote&token=' + encodeURIComponent(token), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -378,7 +378,7 @@ function submitDecline(token) {
   btn.disabled = true
   btn.textContent = 'Declining...'
 
-  fetch('/api/quote-approve?token=' + encodeURIComponent(token) + '&action=decline', {
+  fetch('/api/client?action=decline&token=' + encodeURIComponent(token), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ reason: '' }),

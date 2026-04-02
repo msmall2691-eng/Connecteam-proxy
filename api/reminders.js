@@ -124,7 +124,7 @@ export default async function handler(req, res) {
           })
         } catch { confirmToken = null }
 
-        const confirmUrl = confirmToken ? `https://connecteam-proxy.vercel.app/api/portal?action=confirm-token&confirmToken=${confirmToken}` : ''
+        const confirmUrl = confirmToken ? `https://connecteam-proxy.vercel.app/api/client?action=confirm-token&confirmToken=${confirmToken}` : ''
         const confirmLine = confirmUrl ? `\n\nConfirm your appointment: ${confirmUrl}` : ''
 
         const message = `Hi ${r.clientName.split(' ')[0]}! This is a reminder that your cleaning is scheduled for tomorrow (${new Date(r.date).toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}) at ${r.startTime}. ${r.address ? `Address: ${r.address}` : ''}${confirmLine}\n\nPlease make sure the space is accessible. See you then!\n\n— The Maine Cleaning Co.\n(207) 572-0502`

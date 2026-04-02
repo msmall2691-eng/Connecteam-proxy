@@ -149,7 +149,7 @@
     try { var u = new URL(url); return (u.protocol === 'https:') ? url : '' } catch { return '' }
   }
 
-  var portalUrl = token ? '/api/portal?token=' + token : '/api/portal?clientId=' + clientId
+  var portalUrl = token ? '/api/client?action=portal&token=' + token : '/api/client?action=portal&clientId=' + clientId
   fetch(portalUrl)
     .then(function(r) { return r.json() })
     .then(function(data) {
