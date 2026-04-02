@@ -41,6 +41,8 @@ export default function Clients() {
   const [sortBy, setSortBy] = useState('name-az')
   const [clientStats, setClientStats] = useState({})
   const [loading, setLoading] = useState(true)
+  const [page, setPage] = useState(1)
+  const PAGE_SIZE = 25
 
   useEffect(() => { reload() }, [])
 
@@ -127,6 +129,12 @@ export default function Clients() {
     })
     return result
   }, [clients, filterStatus, filterSource, filterType, search, sortBy, clientStats])
+
+  // Reset page when filters change
+  useEffect(() => { setPage(1) }, [filterStatus, filterSource, filterType, search, sortBy])
+
+  const totalPages = Math.ceil(filtered.length / PAGE_SIZE)
+  const paginatedClients = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
 
   if (loading && clients.length === 0) return (
     <div className="p-6 max-w-7xl mx-auto space-y-6 animate-fade-in">
@@ -366,7 +374,7 @@ export default function Clients() {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-800/50">
-              {filtered.map(client => (
+              {paginatedClients.map(client => (
                 <tr key={client.id} className="text-gray-300 hover:bg-gray-800/30 transition-colors">
                   <td className="px-5 py-3">
                     <Link to={`/clients/${client.id}`} className="font-medium text-white hover:text-blue-400 transition-colors">
@@ -425,6 +433,38 @@ export default function Clients() {
             </tbody>
           </table>
         </div>
+
+        {/* Pagination */}
+        {totalPages > 1 && (
+          <div className="flex items-center justify-between px-5 py-3 border-t border-gray-800">
+            <p className="text-xs text-gray-500">
+              Showing {(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, filtered.length)} of {filtered.length}
+            </p>
+            <div className="flex items-center gap-1">
+              <button onClick={() => setPage(Math.max(1, page - 1))} disabled={page === 1}
+                className="px-2.5 py-1.5 bg-gray-800 hover:bg-gray-700 disabled:opacity-30 disabled:cursor-not-allowed rounded-lg text-xs text-gray-300 transition-colors">
+                Prev
+              </button>
+              {Array.from({ length: Math.min(totalPages, 7) }, (_, i) => {
+                let p
+                if (totalPages <= 7) p = i + 1
+                else if (page <= 4) p = i + 1
+                else if (page >= totalPages - 3) p = totalPages - 6 + i
+                else p = page - 3 + i
+                return (
+                  <button key={p} onClick={() => setPage(p)}
+                    className={`w-8 h-8 rounded-lg text-xs font-medium transition-colors ${
+                      p === page ? 'bg-blue-600 text-white' : 'bg-gray-800 text-gray-400 hover:bg-gray-700 hover:text-white'
+                    }`}>{p}</button>
+                )
+              })}
+              <button onClick={() => setPage(Math.min(totalPages, page + 1))} disabled={page === totalPages}
+                className="px-2.5 py-1.5 bg-gray-800 hover:bg-gray-700 disabled:opacity-30 disabled:cursor-not-allowed rounded-lg text-xs text-gray-300 transition-colors">
+                Next
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   )

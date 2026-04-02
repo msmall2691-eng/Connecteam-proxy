@@ -126,7 +126,7 @@ export default function ClientDetail() {
   if (!client) return null
 
   return (
-    <div className="p-6 max-w-6xl mx-auto space-y-6">
+    <div className="p-6 max-w-6xl mx-auto space-y-6 animate-fade-in">
       <div className="flex items-start justify-between">
         <div>
           <Link to="/clients" className="text-xs text-gray-500 hover:text-gray-300 transition-colors">&larr; Back to Clients</Link>

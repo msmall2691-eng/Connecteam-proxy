@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import { getInvoices, getInvoicesAsync, saveInvoice, saveInvoiceAsync, getClients, getClientsAsync, saveClientAsync, getJobs, getJobsAsync, generateInvoiceNumber } from '../lib/store'
 import { isSupabaseConfigured } from '../lib/supabase'
+import { TableSkeleton, StatusBadge, EmptyState } from '../components/ui'
 
 function buildInvoiceEmailHtml(inv) {
   const itemRows = (inv.items || []).map(item =>
@@ -194,16 +195,19 @@ export default function Invoices() {
   const [filterClient, setFilterClient] = useState('all')
   const [dateRange, setDateRange] = useState('all')
   const [sortBy, setSortBy] = useState('date-desc')
+  const [loading, setLoading] = useState(true)
 
   useEffect(() => { reload() }, [])
 
   async function reload() {
+    setLoading(true)
     if (isSupabaseConfigured()) {
       const [inv, cls] = await Promise.all([getInvoicesAsync(), getClientsAsync()])
       setInvoices(inv); setClients(cls)
     } else {
       setInvoices(getInvoices()); setClients(getClients())
     }
+    setLoading(false)
   }
 
   const filtered = useMemo(() => {
@@ -283,8 +287,15 @@ export default function Invoices() {
     return Array.from(map.entries()).sort((a, b) => a[1].localeCompare(b[1]))
   }, [invoices])
 
+  if (loading && invoices.length === 0) return (
+    <div className="p-6 max-w-7xl mx-auto space-y-6 animate-fade-in">
+      <div><h1 className="text-2xl font-bold text-white">Invoices</h1><p className="text-sm text-gray-500 mt-1">Loading...</p></div>
+      <TableSkeleton rows={6} cols={5} />
+    </div>
+  )
+
   return (
-    <div className="p-6 max-w-7xl mx-auto space-y-6">
+    <div className="p-6 max-w-7xl mx-auto space-y-6 animate-fade-in">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold text-white">Invoices</h1>

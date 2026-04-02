@@ -7,6 +7,7 @@ import {
   savePropertyAsync, generateQuoteNumber, saveVisitAsync, lookupServiceTypeId,
 } from '../lib/store'
 import { isSupabaseConfigured, getSupabase } from '../lib/supabase'
+import { CardSkeleton, StatusBadge } from '../components/ui'
 
 // Linear workflow: Request → Quote Sent → Approved → Scheduled
 const STAGES = [
@@ -342,14 +343,27 @@ export default function Pipeline() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <div className="animate-spin w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full" />
+      <div className="p-4 sm:p-6 max-w-full mx-auto space-y-4 animate-fade-in">
+        <div><h1 className="text-2xl font-bold text-white">Pipeline</h1><p className="text-sm text-gray-500 mt-1">Loading workflow...</p></div>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <div key={i} className="bg-gray-900 border border-gray-800 rounded-xl p-4 space-y-3">
+              <div className="h-5 w-24 bg-gray-800 rounded animate-pulse" />
+              {Array.from({ length: 3 }).map((_, j) => (
+                <div key={j} className="bg-gray-800/50 rounded-lg p-3 space-y-2">
+                  <div className="h-4 w-3/4 bg-gray-800 rounded animate-pulse" />
+                  <div className="h-3 w-1/2 bg-gray-800/60 rounded animate-pulse" />
+                </div>
+              ))}
+            </div>
+          ))}
+        </div>
       </div>
     )
   }
 
   return (
-    <div className="p-4 sm:p-6 max-w-full mx-auto space-y-4">
+    <div className="p-4 sm:p-6 max-w-full mx-auto space-y-4 animate-fade-in">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>

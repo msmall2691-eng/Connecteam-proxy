@@ -644,7 +644,7 @@ export default function Schedule() {
   const mergedTurnovers = allTurnovers()
 
   return (
-    <div className="p-6 max-w-full mx-auto space-y-4">
+    <div className="p-6 max-w-full mx-auto space-y-4 animate-fade-in">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
