@@ -301,3 +301,39 @@ export function ProgressBar({ value = 0, max = 100, color = 'blue', size = 'sm' 
     </div>
   )
 }
+
+
+// ─── CONFIRM DIALOG ──────────────────────────────────────────────────────────
+export function ConfirmDialog({ open, title, message, confirmLabel = 'Confirm', cancelLabel = 'Cancel', onConfirm, onCancel, destructive = false }) {
+  if (!open) return null
+  return (
+    <div className="fixed inset-0 z-[200] flex items-center justify-center" onClick={onCancel}>
+      <div className="fixed inset-0 bg-black/60 backdrop-blur-sm" />
+      <div className="relative bg-gray-900 border border-gray-700 rounded-2xl shadow-2xl w-full max-w-sm p-6 animate-slide-up"
+        onClick={e => e.stopPropagation()}>
+        <h3 className="text-base font-semibold text-white mb-2">{title}</h3>
+        {message && <p className="text-sm text-gray-400 mb-5">{message}</p>}
+        <div className="flex gap-2 justify-end">
+          <button onClick={onCancel}
+            className="px-4 py-2 bg-gray-800 hover:bg-gray-700 rounded-lg text-sm text-gray-300 transition-colors">{cancelLabel}</button>
+          <button onClick={onConfirm}
+            className={`px-4 py-2 rounded-lg text-sm font-medium text-white transition-colors ${
+              destructive ? 'bg-red-600 hover:bg-red-500' : 'bg-blue-600 hover:bg-blue-500'
+            }`}>{confirmLabel}</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+
+// ─── NOTIFICATION BADGE ──────────────────────────────────────────────────────
+export function Badge({ count, color = 'blue' }) {
+  if (!count || count <= 0) return null
+  const colors = { blue: 'bg-blue-500', red: 'bg-red-500', amber: 'bg-amber-500', green: 'bg-green-500' }
+  return (
+    <span className={`inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full text-[10px] font-bold text-white ${colors[color] || colors.blue}`}>
+      {count > 99 ? '99+' : count}
+    </span>
+  )
+}

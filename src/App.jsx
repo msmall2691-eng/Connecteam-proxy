@@ -18,7 +18,8 @@ import Setup from './pages/Setup'
 import Revenue from './pages/Revenue'
 import MyWebsite from './pages/MyWebsite'
 import AgentChat from './components/AgentChat'
-import { ToastProvider, CommandPalette } from './components/ui'
+import { ToastProvider, CommandPalette, Badge } from './components/ui'
+import { getQuotesAsync, getQuotes, getInvoicesAsync, getInvoices } from './lib/store'
 
 const navItems = [
   { to: '/', label: 'Dashboard', icon: 'M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6' },
@@ -39,13 +40,30 @@ export default function App() {
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [cmdKOpen, setCmdKOpen] = useState(false)
   const [allClients, setAllClients] = useState([])
+  const [navBadges, setNavBadges] = useState({})
 
-  // Load clients for Cmd+K search
+  // Load clients for Cmd+K search + badge counts
   useEffect(() => {
     if (user) {
       (isSupabaseConfigured() ? getClientsAsync() : Promise.resolve(getClients()))
-        .then(c => setAllClients(c || []))
-        .catch(() => {})
+        .then(c => {
+          setAllClients(c || [])
+          setNavBadges(prev => ({ ...prev, leads: (c || []).filter(x => x.status === 'lead').length }))
+        })
+        .catch(() => {});
+      // Load quote + invoice counts for badges
+      (isSupabaseConfigured() ? getQuotesAsync() : Promise.resolve(getQuotes()))
+        .then(q => {
+          const draft = (q || []).filter(x => x.status === 'draft').length
+          const sent = (q || []).filter(x => x.status === 'sent').length
+          setNavBadges(prev => ({ ...prev, pipeline: draft + sent }))
+        }).catch(() => {});
+      (isSupabaseConfigured() ? getInvoicesAsync() : Promise.resolve(getInvoices()))
+        .then(inv => {
+          const overdue = (inv || []).filter(x => x.status === 'overdue').length
+          const unpaid = (inv || []).filter(x => x.status === 'sent').length
+          setNavBadges(prev => ({ ...prev, invoices: overdue, invoicesTotal: unpaid + overdue }))
+        }).catch(() => {})
     }
   }, [user])
 
@@ -139,20 +157,27 @@ export default function App() {
           <kbd className="hidden md:inline text-[10px] px-1.5 py-0.5 bg-gray-700/50 rounded font-mono">{'\u2318'}K</kbd>
         </button>
         <nav className="flex-1 p-3 space-y-1 overflow-y-auto">
-          {navItems.map(item => (
-            <NavLink key={item.to} to={item.to} end={item.to === '/'}
-              onClick={() => setSidebarOpen(false)}
-              className={({ isActive }) =>
-                `flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors ${
-                  isActive ? 'bg-blue-600/20 text-blue-400' : 'text-gray-400 hover:bg-gray-800 hover:text-gray-200'
-                }`
-              }>
-              <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
-                <path strokeLinecap="round" strokeLinejoin="round" d={item.icon} />
-              </svg>
-              {item.label}
-            </NavLink>
-          ))}
+          {navItems.map(item => {
+            const badgeCount = item.to === '/pipeline' ? navBadges.pipeline
+              : item.to === '/invoices' ? navBadges.invoices
+              : item.label === 'Clients' ? navBadges.leads : 0
+            const badgeColor = item.to === '/invoices' ? 'red' : item.to === '/pipeline' ? 'amber' : 'blue'
+            return (
+              <NavLink key={item.to} to={item.to} end={item.to === '/'}
+                onClick={() => setSidebarOpen(false)}
+                className={({ isActive }) =>
+                  `flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors ${
+                    isActive ? 'bg-blue-600/20 text-blue-400' : 'text-gray-400 hover:bg-gray-800 hover:text-gray-200'
+                  }`
+                }>
+                <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d={item.icon} />
+                </svg>
+                <span className="flex-1">{item.label}</span>
+                <Badge count={badgeCount} color={badgeColor} />
+              </NavLink>
+            )
+          })}
         </nav>
 
         {/* Bottom actions */}

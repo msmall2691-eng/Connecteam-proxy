@@ -29,6 +29,8 @@ export default function Pipeline() {
   const [search, setSearch] = useState('')
   const [acting, setActing] = useState(null)
   const [toast, setToast] = useState(null)
+  const [dragCard, setDragCard] = useState(null)
+  const [dragOverStage, setDragOverStage] = useState(null)
 
   useEffect(() => { reload() }, [])
   useEffect(() => { if (toast) { const t = setTimeout(() => setToast(null), 5000); return () => clearTimeout(t) } }, [toast])
@@ -333,6 +335,41 @@ export default function Pipeline() {
     reload()
   }
 
+  // Drag and drop handlers
+  function handleDragStart(card, fromStage) {
+    setDragCard({ ...card, fromStage })
+  }
+
+  function handleDragEnd() {
+    setDragCard(null)
+    setDragOverStage(null)
+  }
+
+  async function handleDrop(toStageId) {
+    setDragOverStage(null)
+    if (!dragCard || dragCard.fromStage === toStageId) { setDragCard(null); return }
+
+    // Determine the action based on source → destination
+    const from = dragCard.fromStage
+    const to = toStageId
+
+    if (from === 'new_request' && to === 'quote_sent') {
+      await sendQuote(dragCard)
+    } else if ((from === 'quote_sent' || from === 'new_request') && to === 'approved') {
+      // Accept the quote
+      if (dragCard.type === 'client' && dragCard.quoteId) {
+        const q = allQuotes.find(q => q.id === dragCard.quoteId)
+        if (q) await saveQuoteAsync({ ...q, status: 'accepted', acceptedAt: new Date().toISOString() })
+      }
+      reload()
+    } else if ((from === 'approved' || from === 'quote_sent') && to === 'scheduled') {
+      await createJob(dragCard)
+    } else {
+      setToast({ type: 'error', message: `Can't move directly from ${from.replace('_', ' ')} to ${to.replace('_', ' ')}` })
+    }
+    setDragCard(null)
+  }
+
   // Stats
   const stats = {
     newRequests: (filtered.new_request || []).length,
@@ -428,7 +465,13 @@ export default function Pipeline() {
         {STAGES.map(stage => {
           const cards = filtered[stage.id] || []
           return (
-            <div key={stage.id} className="bg-gray-900/50 border border-gray-800 rounded-xl flex flex-col min-w-[260px] md:min-w-0 shrink-0 md:shrink">
+            <div key={stage.id}
+              onDragOver={e => { e.preventDefault(); setDragOverStage(stage.id) }}
+              onDragLeave={() => setDragOverStage(null)}
+              onDrop={e => { e.preventDefault(); handleDrop(stage.id) }}
+              className={`bg-gray-900/50 border rounded-xl flex flex-col min-w-[260px] md:min-w-0 shrink-0 md:shrink transition-colors ${
+                dragOverStage === stage.id ? 'border-blue-500/50 bg-blue-950/10' : 'border-gray-800'
+              }`}>
               {/* Column header */}
               <div className="px-4 py-3 border-b border-gray-800">
                 <div className="flex items-center justify-between">
@@ -448,7 +491,12 @@ export default function Pipeline() {
               {/* Cards */}
               <div className="flex-1 p-2 space-y-2 overflow-y-auto">
                 {cards.map(card => (
-                  <div key={card.id} className="bg-gray-900 border border-gray-800 rounded-lg p-3 hover:border-gray-700 transition-colors">
+                  <div key={card.id} draggable
+                    onDragStart={() => handleDragStart(card, stage.id)}
+                    onDragEnd={handleDragEnd}
+                    className={`bg-gray-900 border border-gray-800 rounded-lg p-3 hover:border-gray-700 transition-all cursor-grab active:cursor-grabbing ${
+                      dragCard?.id === card.id ? 'opacity-40 scale-95' : ''
+                    }`}>
                     {/* Name + link */}
                     {card.type === 'client' ? (
                       <Link to={`/clients/${card.id}`} className="text-sm font-medium text-white hover:text-blue-400 block">{card.name}</Link>
