@@ -17,6 +17,13 @@ import { calculateQuote } from '../lib/quoteEngine'
 import PropertyForm from '../components/PropertyForm'
 import CustomFields from '../components/CustomFields'
 
+function formatTime(t) {
+  if (!t) return ''
+  const [h, m] = t.split(':')
+  const hr = parseInt(h)
+  return `${hr > 12 ? hr - 12 : hr || 12}:${m || '00'}${hr >= 12 ? 'pm' : 'am'}`
+}
+
 // Smart save wrappers — use Supabase when configured, localStorage otherwise
 const sb = () => isSupabaseConfigured()
 const _saveClient = (d) => sb() ? saveClientAsync(d) : Promise.resolve(saveClient(d))
@@ -1254,7 +1261,7 @@ function JobsTab({ clientId, clientName, clientAddress, jobs, properties, invoic
                     return next ? <p className="text-xs text-purple-400">Next: {next}</p> : null
                   })()}
                 </td>
-                <td className="px-3 py-2.5 text-gray-400">{j.startTime && j.endTime ? `${j.startTime}-${j.endTime}` : '-'}</td>
+                <td className="px-3 py-2.5 text-gray-400">{j.startTime && j.endTime ? `${formatTime(j.startTime)} – ${formatTime(j.endTime)}` : '-'}</td>
                 <td className="px-3 py-2.5">{j.assignee || '-'}</td>
                 <td className="px-3 py-2.5 text-right font-mono">{j.price ? `$${j.price}` : '-'}</td>
                 <td className="px-3 py-2.5 text-center">
