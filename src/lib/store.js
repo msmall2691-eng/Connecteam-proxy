@@ -451,24 +451,69 @@ export function generateInvoiceNumber() {
 
 // ══════════════════════════════════════════
 // ══════════════════════════════════════════
-// RECURRING INVOICE AUTO-GENERATION
+// RECURRING INVOICE AUTO-GENERATION (visits-first)
 // ══════════════════════════════════════════
-export function generateRecurringInvoices() {
+export async function generateRecurringInvoices() {
+  const sb = getSupabase()
+
+  // Try visits-first approach if Supabase is available
+  if (sb) {
+    const { data: completedVisits } = await sb.from('visits')
+      .select('*, job:jobs(id, title, price, client_id, client_name, property_id)')
+      .eq('status', 'completed')
+      .is('invoice_id', null)
+    const { data: invoices } = await sb.from('invoices').select('*, invoice_items(*)')
+
+    const existingVisitIds = new Set()
+    for (const inv of invoices || []) {
+      for (const item of inv.invoice_items || []) {
+        if (item.visit_id) existingVisitIds.add(item.visit_id)
+      }
+    }
+
+    const generated = []
+    for (const visit of completedVisits || []) {
+      if (existingVisitIds.has(visit.id)) continue
+      const job = visit.job || {}
+      const price = visit.price_override || job.price
+      if (!price) continue
+
+      const inv = await saveInvoiceAsync({
+        invoiceNumber: generateInvoiceNumber(),
+        clientId: visit.client_id || job.client_id,
+        clientName: job.client_name || 'Client',
+        propertyId: visit.property_id || job.property_id,
+        status: 'draft',
+        issueDate: new Date().toISOString().split('T')[0],
+        dueDate: new Date(Date.now() + 30 * 86400000).toISOString().split('T')[0],
+        subtotal: price,
+        taxRate: 0,
+        taxAmount: 0,
+        total: price,
+        items: [{ jobId: job.id, description: `${job.title || 'Cleaning'} (${visit.scheduled_date})`, quantity: 1, unitPrice: price, total: price }],
+      })
+
+      // Link invoice to visit
+      if (inv?.id) {
+        await sb.from('visits').update({ invoice_id: inv.id }).eq('id', visit.id)
+      }
+      generated.push(inv)
+    }
+    return generated
+  }
+
+  // Fallback: localStorage (original logic)
   const jobs = getJobs()
   const invoices = getInvoices()
   const generated = []
-
-  // Find completed recurring jobs that don't have an invoice yet
   const completedJobs = jobs.filter(j => j.status === 'completed' && j.price)
 
   for (const job of completedJobs) {
-    // Check if this specific job (by id) already has an invoice
     const hasInvoice = invoices.some(inv =>
       inv.items?.some(item => item.jobId === job.id)
     )
     if (hasInvoice) continue
 
-    // Auto-create invoice
     const inv = saveInvoice({
       invoiceNumber: generateInvoiceNumber(),
       clientId: job.clientId,
@@ -485,7 +530,6 @@ export function generateRecurringInvoices() {
     })
     generated.push(inv)
   }
-
   return generated
 }
 

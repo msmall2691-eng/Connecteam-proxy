@@ -111,13 +111,18 @@ Or pass directly: `python3 scripts/report.py --api-key YOUR_KEY`
 - `sql/supabase-migration-v4-bookings.sql` — Booking requests
 - `sql/supabase-migration-v5-schema-cleanup.sql` — Employees, visits, service types, checklists, extras, enriched messages
 - `sql/supabase-migration-v6-scheduling-redesign.sql` — Visits as single source of truth, calendar sync log, client portal tokens, visit reminders, recurring visit generation functions
+- `sql/supabase-migration-v7-workflow-enhancements.sql` — Visit status history, zone fields, Turno integration, confirmation tokens, deprecation comments on jobs
 
-### Scheduling Architecture (v6)
+### Scheduling Architecture (v6+v7)
 - **Jobs** = service agreements (what, who, how often, price). NOT individual occurrences.
 - **Visits** = the canonical schedule. Every individual cleaning is a visit.
 - **calendar_sync_log** = tracks what's been pushed to Google Calendar / Connecteam
 - **visit_reminders** = tracks reminders sent per visit
 - **client_schedule_tokens** = token-based client portal access
+- **visit_status_history** = audit trail of status changes (auto-logged by trigger)
+- **Turno integration** = webhook endpoint at `/api/turno`, links via `properties.turno_listing_id`
+- **Recurring visit generation** = `/api/visits?action=generate-recurring` cron (Monday 7am)
+- **Client confirmation** = visits have `confirm_token` for SMS/email one-click confirm
 - See `docs/scheduling-redesign-plan.md` for full implementation plan
 
 ## Notes
