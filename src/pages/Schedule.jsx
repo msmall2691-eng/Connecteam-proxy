@@ -315,10 +315,6 @@ export default function Schedule() {
 
   async function pushTurnoverToConnecteam(turnover) {
     const apiKey = getApiKey()
-    if (!apiKey) {
-      setToast({ type: 'error', message: 'Connecteam API key not set', details: 'Go to Settings to add your Connecteam API key.' })
-      return
-    }
 
     setPushingToConnecteam(turnover.eventId)
     try {
@@ -328,7 +324,7 @@ export default function Schedule() {
 
       const res = await fetch(`/api/connecteam?action=shift`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-API-KEY': apiKey },
+        headers: { 'Content-Type': 'application/json', ...(apiKey && { 'X-API-KEY': apiKey }) },
         body: JSON.stringify({
           title: `Turnover Clean — ${turnover.property}`,
           startTime: startUnix,
@@ -402,10 +398,6 @@ export default function Schedule() {
   // Push a visit/job to Connecteam
   async function pushVisitToConnecteam(item) {
     const apiKey = getApiKey()
-    if (!apiKey) {
-      setToast({ type: 'error', message: 'Connecteam API key not set' })
-      return
-    }
     setPushingVisitToCT(item.id)
     try {
       const date = item.scheduledDate || item.date
@@ -423,7 +415,7 @@ export default function Schedule() {
 
       const res = await fetch('/api/connecteam?action=shift', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-API-KEY': apiKey },
+        headers: { 'Content-Type': 'application/json', ...(apiKey && { 'X-API-KEY': apiKey }) },
         body: JSON.stringify({
           title: `${title}${clientName ? ' — ' + clientName : ''}`,
           startTime: startUnix,
@@ -454,10 +446,6 @@ export default function Schedule() {
 
   async function loadConnecteamShifts() {
     const apiKey = getApiKey()
-    if (!apiKey) {
-      setToast({ type: 'error', message: 'Connecteam API key not set', details: 'Go to Settings to add your Connecteam API key.' })
-      return
-    }
 
     setLoadingShifts(true)
     try {
@@ -469,7 +457,7 @@ export default function Schedule() {
       const endTime = Math.floor(future.getTime() / 1000)
 
       const res = await fetch(`/api/connecteam?path=${encodeURIComponent(`scheduler/v1/schedulers/15248539/shifts?startTime=${startTime}&endTime=${endTime}`)}`, {
-        headers: { 'X-API-KEY': apiKey },
+        headers: { ...(apiKey && { 'X-API-KEY': apiKey }) },
       })
 
       if (res.ok) {

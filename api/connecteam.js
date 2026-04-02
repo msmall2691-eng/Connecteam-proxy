@@ -107,8 +107,8 @@ export default async function handler(req, res) {
   if (action === 'shift') {
     if (req.method !== 'POST') return res.status(405).json({ error: 'POST only' })
 
-    const apiKey = req.headers['x-api-key']
-    if (!apiKey) return res.status(400).json({ error: 'X-API-KEY header required' })
+    const apiKey = req.headers['x-api-key'] || process.env.CONNECTEAM_API_KEY
+    if (!apiKey) return res.status(400).json({ error: 'X-API-KEY header or CONNECTEAM_API_KEY env var required' })
 
     const SCHEDULER_ID = 15248539
 
@@ -218,8 +218,9 @@ export default async function handler(req, res) {
   }
 
   const headers = {};
-  if (req.headers["x-api-key"]) {
-    headers["X-API-KEY"] = req.headers["x-api-key"];
+  const proxyKey = req.headers["x-api-key"] || process.env.CONNECTEAM_API_KEY;
+  if (proxyKey) {
+    headers["X-API-KEY"] = proxyKey;
   }
 
   try {
