@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { Link } from 'react-router-dom'
-import { getConversations, getConversationsAsync, getClients, getClientsAsync, addMessage, addMessageAsync, saveConversation, saveConversationAsync } from '../lib/store'
+import { getConversations, getConversationsAsync, getClients, getClientsAsync, addMessage, addMessageAsync, saveConversation, saveConversationAsync, getMessagesAsync } from '../lib/store'
 import { isSupabaseConfigured } from '../lib/supabase'
 
 export default function Communications() {
@@ -19,11 +19,13 @@ export default function Communications() {
   const [viewMode, setViewMode] = useState('conversations') // 'conversations' | 'inbox'
   const bottomRef = useRef(null)
 
+  const [activeMessages, setActiveMessages] = useState([])
+  const [messagesLoading, setMessagesLoading] = useState(false)
   const [autoImporting, setAutoImporting] = useState(false)
   const [autoImportCount, setAutoImportCount] = useState(0)
 
   useEffect(() => { reload(); fetchGmail() }, [])
-  useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [active])
+  useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [activeMessages])
 
   async function reload() {
     let allConvos, allClients
@@ -38,8 +40,35 @@ export default function Communications() {
     setClients(cls)
     if (active) {
       const updated = allConvos.find(c => c.id === active.id)
-      if (updated) setActive(updated)
+      if (updated) {
+        setActive(updated)
+        await loadMessages(updated)
+      }
     }
+  }
+
+  async function loadMessages(convo) {
+    if (!convo) return
+    setMessagesLoading(true)
+    try {
+      if (isSupabaseConfigured()) {
+        const msgs = await getMessagesAsync(convo.id)
+        setActiveMessages(msgs)
+      } else {
+        setActiveMessages(convo.messages || [])
+      }
+    } catch (err) {
+      console.error('Failed to load messages:', err)
+      setActiveMessages(convo.messages || [])
+    }
+    setMessagesLoading(false)
+  }
+
+  async function selectConversation(convo) {
+    setActive(convo)
+    setActiveMessages([])
+    setSendError(null)
+    await loadMessages(convo)
   }
 
   // Fetch Gmail inbox
@@ -94,7 +123,8 @@ export default function Communications() {
 
     await reload()
     const allConvos = isSupabaseConfigured() ? await getConversationsAsync() : getConversations()
-    setActive(allConvos.find(c => c.id === convo.id))
+    const imported = allConvos.find(c => c.id === convo.id)
+    if (imported) await selectConversation(imported)
     setViewMode('conversations')
   }
 
@@ -125,43 +155,61 @@ export default function Communications() {
     setSendError(null)
 
     const client = clients[active.clientId]
+    const _msg = isSupabaseConfigured() ? addMessageAsync : addMessage
+    const msgText = newMsg.trim()
 
-    // Email via Gmail
-    if (active.channel === 'email' && client?.email) {
-      try {
+    try {
+      // Email via Gmail
+      if (active.channel === 'email') {
+        if (!client?.email) {
+          setSendError('No email address on file for this client')
+          setSending(false)
+          return
+        }
         const res = await fetch('/api/google', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'gmail-send', to: client.email, subject: active.subject, body: newMsg.trim(), threadId: active.gmailThreadId || undefined }),
+          body: JSON.stringify({ action: 'gmail-send', to: client.email, subject: active.subject, body: msgText, threadId: active.gmailThreadId || undefined }),
         })
-        if (res.ok) {
-          const data = await res.json()
-          const _msg = isSupabaseConfigured() ? addMessageAsync : addMessage
-          await _msg(active.id, { content: newMsg.trim(), direction: 'outbound', sender: 'You', channel: 'email', gmailMessageId: data.messageId })
-          setNewMsg(''); reload(); setSending(false); return
-        } else { const err = await res.json().catch(() => ({})); setSendError(err.error || 'Email failed') }
-      } catch (err) { setSendError(err.message || 'Email failed') }
-    }
-
-    // SMS via Twilio
-    if (active.channel === 'text' && client?.phone) {
-      try {
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}))
+          setSendError(err.error || 'Email failed to send')
+          setSending(false)
+          return
+        }
+        const data = await res.json()
+        await _msg(active.id, { content: msgText, direction: 'outbound', sender: 'You', channel: 'email', gmailMessageId: data.messageId })
+      }
+      // SMS via Twilio
+      else if (active.channel === 'text') {
+        if (!client?.phone) {
+          setSendError('No phone number on file for this client')
+          setSending(false)
+          return
+        }
         const res = await fetch('/api/sms', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'send', to: client.phone, body: newMsg.trim() }),
+          body: JSON.stringify({ action: 'send', to: client.phone, body: msgText }),
         })
-        if (res.ok) {
-          const data = await res.json()
-          const _msg2 = isSupabaseConfigured() ? addMessageAsync : addMessage
-          await _msg2(active.id, { content: newMsg.trim(), direction: 'outbound', sender: 'You', channel: 'text', twilioSid: data.sid })
-          setNewMsg(''); reload(); setSending(false); return
-        } else { const err = await res.json().catch(() => ({})); setSendError(err.error || 'SMS failed') }
-      } catch (err) { setSendError(err.message || 'SMS failed') }
-    }
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}))
+          setSendError(err.error || 'SMS failed to send')
+          setSending(false)
+          return
+        }
+        const data = await res.json()
+        await _msg(active.id, { content: msgText, direction: 'outbound', sender: 'You', channel: 'text', twilioSid: data.sid })
+      }
+      // Phone/other channels: store locally only
+      else {
+        await _msg(active.id, { content: msgText, direction: 'outbound', sender: 'You', channel: active.channel })
+      }
 
-    // Fallback: local
-    const _msgLocal = isSupabaseConfigured() ? addMessageAsync : addMessage
-    await _msgLocal(active.id, { content: newMsg.trim(), direction: 'outbound', sender: 'You' })
-    setNewMsg(''); reload(); setSending(false)
+      setNewMsg('')
+      await reload()
+    } catch (err) {
+      setSendError(err.message || 'Failed to send message')
+    }
+    setSending(false)
   }
 
   async function logInbound() {
@@ -169,8 +217,8 @@ export default function Communications() {
     const content = prompt('Paste the message received:')
     if (!content) return
     const _msg = isSupabaseConfigured() ? addMessageAsync : addMessage
-    await _msg(active.id, { content, direction: 'inbound', sender: clients[active.clientId]?.name || 'Client' })
-    reload()
+    await _msg(active.id, { content, direction: 'inbound', sender: clients[active.clientId]?.name || 'Client', channel: active.channel })
+    await reload()
   }
 
   async function createConvo(e) {
@@ -259,7 +307,7 @@ export default function Communications() {
               {filtered.map(c => {
                 const client = clients[c.clientId]
                 return (
-                  <button key={c.id} onClick={() => setActive(c)}
+                  <button key={c.id} onClick={() => selectConversation(c)}
                     className={`w-full text-left px-3 py-3 border-b border-gray-800/50 transition-colors ${active?.id === c.id ? 'bg-blue-600/10' : 'hover:bg-gray-800/50'}`}>
                     <div className="flex items-center justify-between">
                       <span className="text-sm font-medium text-white truncate">{client?.name || 'Unknown'}</span>
@@ -330,7 +378,10 @@ export default function Communications() {
 
             {/* Messages */}
             <div className="flex-1 overflow-y-auto p-5 space-y-3">
-              {(active.messages || []).map(msg => (
+              {messagesLoading && (
+                <div className="flex items-center justify-center py-8"><p className="text-sm text-gray-500">Loading messages...</p></div>
+              )}
+              {!messagesLoading && activeMessages.map(msg => (
                 <div key={msg.id} className={`flex ${msg.direction === 'outbound' ? 'justify-end' : 'justify-start'}`}>
                   <div className={`max-w-[70%] rounded-xl px-4 py-2.5 text-sm ${
                     msg.direction === 'outbound' ? 'bg-blue-600 text-white' : 'bg-gray-800 text-gray-300'
@@ -344,7 +395,7 @@ export default function Communications() {
                   </div>
                 </div>
               ))}
-              {(!active.messages || active.messages.length === 0) && (
+              {!messagesLoading && activeMessages.length === 0 && (
                 <div className="flex items-center justify-center h-full"><p className="text-sm text-gray-500">No messages yet</p></div>
               )}
               <div ref={bottomRef} />
