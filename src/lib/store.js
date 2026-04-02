@@ -87,6 +87,13 @@ export function saveClient(client) {
 export async function deleteClientAsync(id) {
   const sb = getSupabase()
   if (sb) {
+    // Cascade delete related records before deleting client
+    await sb.from('visits').delete().eq('client_id', id)
+    await sb.from('jobs').delete().eq('client_id', id)
+    await sb.from('invoices').delete().eq('client_id', id)
+    await sb.from('quotes').delete().eq('client_id', id)
+    await sb.from('properties').delete().eq('client_id', id)
+    await sb.from('conversations').delete().eq('client_id', id)
     await sb.from('clients').delete().eq('id', id)
     return
   }
@@ -99,6 +106,9 @@ export function deleteClient(id) {
   data.conversations = data.conversations.filter(c => c.clientId !== id)
   data.jobs = data.jobs.filter(j => j.clientId !== id)
   data.invoices = (data.invoices || []).filter(i => i.clientId !== id)
+  data.quotes = (data.quotes || []).filter(q => q.clientId !== id)
+  data.properties = (data.properties || []).filter(p => p.clientId !== id)
+  data.visits = (data.visits || []).filter(v => v.clientId !== id)
   saveLocal(data)
 }
 

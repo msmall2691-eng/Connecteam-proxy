@@ -228,9 +228,9 @@
       <label>Service Type <span class="required">*</span></label>
       <select name="serviceType" required>
         <option value="">Select a service...</option>
-        <option value="Standard Cleaning">Standard Cleaning</option>
-        <option value="Deep Cleaning">Deep Cleaning</option>
-        <option value="Move-In/Move-Out">Move-In / Move-Out</option>
+        <option value="Standard Clean">Standard Clean</option>
+        <option value="Deep Clean">Deep Clean</option>
+        <option value="Move-In/Move-Out Clean">Move-In/Move-Out Clean</option>
         <option value="Airbnb Turnover">Airbnb Turnover</option>
         <option value="Commercial">Commercial</option>
         <option value="Post-Construction">Post-Construction</option>
@@ -365,7 +365,7 @@
     // SqFt to labor units (3-tier)
     var sqftUnits = sqft <= 1500 ? sqft / 680 : sqft <= 3000 ? 1500/680 + (sqft-1500)/1050 : 1500/680 + 1500/1050 + (sqft-3000)/1400;
     var labor = sqftUnits + Math.max(0, (baths - 1) * 0.40);
-    var isDeep = svcType === 'Deep Cleaning' || svcType === 'Move-In/Move-Out';
+    var isDeep = svcType === 'Deep Clean' || svcType === 'Move-In/Move-Out Clean';
     if (isDeep) labor *= (sqft <= 1200 ? 1.60 : sqft <= 2000 ? 1.65 : sqft <= 3000 ? 1.75 : 1.80);
     var freqMult = freq === 'weekly' ? 0.85 : freq === 'biweekly' ? 1.0 : freq === 'monthly' ? 1.15 : 1.50;
     var raw = labor * freqMult * 60;

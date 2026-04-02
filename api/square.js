@@ -162,6 +162,13 @@ export default async function handler(req, res) {
         return res.status(400).json({ error: 'locationId and customerId required' })
       }
 
+      // Validate that all line item prices are positive numbers
+      for (const item of (items || [])) {
+        if (typeof item.unitPrice !== 'number' || !isFinite(item.unitPrice) || item.unitPrice <= 0) {
+          return res.status(400).json({ error: `Invalid unitPrice for item "${item.description || 'unknown'}". Must be a positive number.` })
+        }
+      }
+
       // Build order first (Square invoices need an order)
       const orderLineItems = (items || []).map(item => ({
         name: item.description,
