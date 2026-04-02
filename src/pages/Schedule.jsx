@@ -19,6 +19,21 @@ function easternOffset(dateStr) {
   return '-05:00' // fallback EST
 }
 
+// Format time string (09:00:00 or 09:00) to human-friendly (9:00am)
+function formatTime(t) {
+  if (!t) return ''
+  const [h, m] = t.split(':')
+  const hr = parseInt(h)
+  if (isNaN(hr)) return t
+  return `${hr > 12 ? hr - 12 : hr || 12}:${m || '00'}${hr >= 12 ? 'pm' : 'am'}`
+}
+
+// Strip seconds from time string (10:30:00 → 10:30)
+function stripSeconds(t) {
+  if (!t) return t
+  return t.replace(/^(\d{2}:\d{2}):\d{2}$/, '$1')
+}
+
 // Rental calendar config (localStorage)
 const RENTAL_CAL_KEY = 'workflowhq_rental_calendars'
 function getRentalCalendars() {
@@ -320,7 +335,8 @@ export default function Schedule() {
   async function createCleaningEvent(turnover) {
     setCreatingCleaning(turnover.eventId)
     try {
-      const cleanEnd = new Date(`${turnover.checkOut}T${turnover.cleaningTime}:00`)
+      const cleanTime = stripSeconds(turnover.cleaningTime) || '11:00'
+      const cleanEnd = new Date(`${turnover.checkOut}T${cleanTime}:00`)
       cleanEnd.setHours(cleanEnd.getHours() + 3)
 
       await fetch('/api/google?action=calendar-create', {
@@ -328,8 +344,8 @@ export default function Schedule() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           summary: `🧹 Turnover: ${turnover.property}`,
-          description: `Checkout: ${turnover.checkoutTime}\nGuest: ${turnover.guestName}\nProperty: ${turnover.property}\n${turnover.reservationUrl ? `Reservation: ${turnover.reservationUrl}` : ''}`,
-          startDateTime: `${turnover.checkOut}T${turnover.cleaningTime}:00`,
+          description: `Checkout: ${formatTime(turnover.checkoutTime)}\nGuest: ${turnover.guestName}\nProperty: ${turnover.property}\n${turnover.reservationUrl ? `Reservation: ${turnover.reservationUrl}` : ''}`,
+          startDateTime: `${turnover.checkOut}T${cleanTime}:00`,
           endDateTime: cleanEnd.toISOString().split('.')[0],
           location: turnover.address || turnover.property,
           colorId: '6',
@@ -349,7 +365,8 @@ export default function Schedule() {
 
     setPushingToConnecteam(turnover.eventId)
     try {
-      const startDateTime = `${turnover.checkOut}T${turnover.cleaningTime}:00`
+      const cleanTime = stripSeconds(turnover.cleaningTime) || '11:00'
+      const startDateTime = `${turnover.checkOut}T${cleanTime}:00`
       const startUnix = Math.floor(new Date(startDateTime + easternOffset(turnover.checkOut)).getTime() / 1000)
       const endUnix = startUnix + 3 * 3600 // 3 hours
 
@@ -936,8 +953,8 @@ export default function Schedule() {
                       {t.fromScan && <span className="text-[10px] px-1.5 py-0.5 bg-orange-600/20 text-orange-400 rounded">from scan</span>}
                     </div>
                     <p className="text-xs text-gray-500">
-                      {new Date(t.checkOut).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })} &middot;
-                      Checkout {t.checkoutTime} &middot; {t.guestName}
+                      {new Date(t.checkOut + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })} &middot;
+                      Checkout {formatTime(t.checkoutTime)} &middot; {t.guestName}
                       {t.clientName && <span className="text-gray-600"> &middot; {t.clientName}</span>}
                     </p>
                   </div>
@@ -946,7 +963,7 @@ export default function Schedule() {
                   <button onClick={() => createCleaningEvent(t)} disabled={creatingCleaning === t.eventId}
                     className="px-2.5 py-1.5 bg-orange-600 hover:bg-orange-500 disabled:opacity-50 rounded-lg text-xs text-white font-medium"
                     title="Add to Google Calendar">
-                    {creatingCleaning === t.eventId ? '...' : `Cal @ ${t.cleaningTime}`}
+                    {creatingCleaning === t.eventId ? '...' : `Cal @ ${formatTime(t.cleaningTime)}`}
                   </button>
                   <button onClick={() => pushTurnoverToConnecteam(t)} disabled={pushingToConnecteam === t.eventId}
                     className="px-2.5 py-1.5 bg-purple-600 hover:bg-purple-500 disabled:opacity-50 rounded-lg text-xs text-white font-medium"
@@ -1020,11 +1037,7 @@ export default function Schedule() {
         </div>
       )}
 
-      {showStays && rentalStays.length === 0 && (
-        <div className="bg-teal-900/10 border border-teal-800/50 rounded-xl p-4 text-center">
-          <p className="text-xs text-gray-500">No guest stays found. Add rental properties with a Google Calendar ID to see upcoming reservations.</p>
-        </div>
-      )}
+      {/* Empty guest stays notice — only show if user actively clicked Guest Stays toggle */}
 
       {/* Connecteam shifts panel */}
       {showShifts && connecteamShifts.length > 0 && (
@@ -1061,11 +1074,7 @@ export default function Schedule() {
         </div>
       )}
 
-      {showShifts && connecteamShifts.length === 0 && !loadingShifts && (
-        <div className="bg-purple-900/10 border border-purple-800/50 rounded-xl p-4 text-center">
-          <p className="text-xs text-gray-500">No Connecteam shifts found in the next 2 weeks.</p>
-        </div>
-      )}
+      {/* Empty Connecteam shifts notice — hidden to reduce noise */}
 
       {/* Google Calendar embed */}
       {calendarConnected ? (
@@ -1087,12 +1096,6 @@ export default function Schedule() {
       {/* Upcoming Schedule (visits-first, fallback to jobs) */}
       {(() => {
         const today = new Date().toISOString().split('T')[0]
-        const formatTime = (t) => {
-          if (!t) return ''
-          const [h, m] = t.split(':')
-          const hr = parseInt(h)
-          return `${hr > 12 ? hr - 12 : hr || 12}:${m || '00'}${hr >= 12 ? 'pm' : 'am'}`
-        }
         // Use visits if available, fall back to jobs
         const items = crmVisits.length > 0
           ? crmVisits
