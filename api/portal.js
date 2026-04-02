@@ -1,29 +1,15 @@
 // Vercel serverless: Client Portal
-// Public page — no auth required, accessed via unique client ID
-// GET /api/portal?clientId=xxx — returns full client journey (requests, quotes, visits, invoices)
+// Public page — no auth required, accessed via unique client ID or schedule token
+// GET  /api/portal?clientId=xxx — returns full client journey
+// GET  /api/portal?token=xxx — token-based access via client_schedule_tokens
+// POST /api/portal?action=confirm&visitId=xxx&token=xxx — client confirms a visit
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*')
-  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS')
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type')
 
   if (req.method === 'OPTIONS') return res.status(200).end()
-
-  // Support both direct ID and signed token
-  let clientId = req.query.clientId || req.query.id
-  const token = req.query.token
-
-  // If token provided, decode it (simple base64 obfuscation + timestamp check)
-  if (token && !clientId) {
-    try {
-      const decoded = Buffer.from(token, 'base64url').toString()
-      const [id, ts] = decoded.split('|')
-      // Token valid for 365 days
-      if (Date.now() - parseInt(ts) < 365 * 86400000) clientId = id
-    } catch {}
-  }
-
-  if (!clientId) return res.status(400).json({ error: 'Invalid portal link' })
 
   const supabaseUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL
   const supabaseKey = process.env.SUPABASE_SERVICE_KEY || process.env.VITE_SUPABASE_ANON_KEY
@@ -32,8 +18,93 @@ export default async function handler(req, res) {
     return res.status(500).json({ error: 'Database not configured' })
   }
 
-  const sbHeaders = { apikey: supabaseKey, Authorization: `Bearer ${supabaseKey}` }
+  const sbHeaders = { apikey: supabaseKey, Authorization: `Bearer ${supabaseKey}`, 'Content-Type': 'application/json' }
+  const action = req.query.action || ''
 
+  // Resolve client ID from various token types
+  let clientId = req.query.clientId || req.query.id
+  const token = req.query.token
+
+  // Method 1: client_schedule_tokens table (v6+)
+  if (token && !clientId) {
+    try {
+      const tokenRes = await fetch(
+        `${supabaseUrl}/rest/v1/client_schedule_tokens?token=eq.${token}&is_active=eq.true&select=client_id`,
+        { headers: sbHeaders }
+      )
+      const tokens = await tokenRes.json()
+      if (tokens?.length) {
+        clientId = tokens[0].client_id
+        // Update last_accessed_at
+        await fetch(`${supabaseUrl}/rest/v1/client_schedule_tokens?token=eq.${token}`, {
+          method: 'PATCH', headers: sbHeaders,
+          body: JSON.stringify({ last_accessed_at: new Date().toISOString() }),
+        }).catch(() => {})
+      }
+    } catch {}
+  }
+
+  // Method 2: Legacy base64 token
+  if (token && !clientId) {
+    try {
+      const decoded = Buffer.from(token, 'base64url').toString()
+      const [id, ts] = decoded.split('|')
+      if (Date.now() - parseInt(ts) < 365 * 86400000) clientId = id
+    } catch {}
+  }
+
+  if (!clientId) return res.status(400).json({ error: 'Invalid portal link' })
+
+  // ── POST: Confirm a visit ──
+  if (req.method === 'POST' && action === 'confirm') {
+    const visitId = req.query.visitId || req.body?.visitId
+    if (!visitId) return res.status(400).json({ error: 'visitId required' })
+
+    try {
+      // Verify visit belongs to this client
+      const vRes = await fetch(
+        `${supabaseUrl}/rest/v1/visits?id=eq.${visitId}&client_id=eq.${clientId}&select=id,status`,
+        { headers: sbHeaders }
+      )
+      const visits = await vRes.json()
+      if (!visits?.length) return res.status(404).json({ error: 'Visit not found' })
+
+      await fetch(`${supabaseUrl}/rest/v1/visits?id=eq.${visitId}`, {
+        method: 'PATCH', headers: sbHeaders,
+        body: JSON.stringify({ status: 'confirmed', confirmed_at: new Date().toISOString() }),
+      })
+
+      return res.status(200).json({ success: true, message: 'Visit confirmed!' })
+    } catch (err) {
+      return res.status(500).json({ error: err.message })
+    }
+  }
+
+  // ── POST: Confirm via confirm_token (from SMS/email link) ──
+  if (req.method === 'POST' && action === 'confirm-token') {
+    const confirmToken = req.query.confirmToken || req.body?.confirmToken
+    if (!confirmToken) return res.status(400).json({ error: 'confirmToken required' })
+
+    try {
+      const vRes = await fetch(
+        `${supabaseUrl}/rest/v1/visits?confirm_token=eq.${confirmToken}&select=id,status,client_id`,
+        { headers: sbHeaders }
+      )
+      const visits = await vRes.json()
+      if (!visits?.length) return res.status(404).json({ error: 'Invalid confirmation link' })
+
+      await fetch(`${supabaseUrl}/rest/v1/visits?confirm_token=eq.${confirmToken}`, {
+        method: 'PATCH', headers: sbHeaders,
+        body: JSON.stringify({ status: 'confirmed', confirmed_at: new Date().toISOString() }),
+      })
+
+      return res.status(200).json({ success: true, message: 'Your cleaning is confirmed! See you then.' })
+    } catch (err) {
+      return res.status(500).json({ error: err.message })
+    }
+  }
+
+  // ── GET: Return full client portal data ──
   try {
     // Fetch client
     const clientRes = await fetch(`${supabaseUrl}/rest/v1/clients?id=eq.${clientId}&select=name,email,phone,company_name`, { headers: sbHeaders })

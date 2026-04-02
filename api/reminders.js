@@ -112,7 +112,22 @@ export default async function handler(req, res) {
       const failed = []
 
       for (const r of reminders) {
-        const message = `Hi ${r.clientName.split(' ')[0]}! This is a reminder that your cleaning is scheduled for tomorrow (${new Date(r.date).toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}) at ${r.startTime}. ${r.address ? `Address: ${r.address}` : ''}\n\nPlease make sure the space is accessible. See you then!\n\n— The Maine Cleaning Co.\n(207) 572-0502`
+        // Generate a confirm token for this visit
+        let confirmToken = null
+        try {
+          const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'
+          confirmToken = ''
+          for (let i = 0; i < 24; i++) confirmToken += chars[Math.floor(Math.random() * chars.length)]
+          await fetch(`${supabaseUrl}/rest/v1/visits?id=eq.${r.visitId}`, {
+            method: 'PATCH', headers: { ...sbHeaders, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ confirm_token: confirmToken }),
+          })
+        } catch { confirmToken = null }
+
+        const confirmUrl = confirmToken ? `https://connecteam-proxy.vercel.app/api/portal?action=confirm-token&confirmToken=${confirmToken}` : ''
+        const confirmLine = confirmUrl ? `\n\nConfirm your appointment: ${confirmUrl}` : ''
+
+        const message = `Hi ${r.clientName.split(' ')[0]}! This is a reminder that your cleaning is scheduled for tomorrow (${new Date(r.date).toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}) at ${r.startTime}. ${r.address ? `Address: ${r.address}` : ''}${confirmLine}\n\nPlease make sure the space is accessible. See you then!\n\n— The Maine Cleaning Co.\n(207) 572-0502`
 
         // Send via email
         if (r.clientEmail) {
