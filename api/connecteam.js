@@ -1,6 +1,8 @@
 // Consolidated Connecteam serverless function
 // Routes: default (proxy), action=webhook, action=shift
 
+import crypto from 'crypto'
+
 export default async function handler(req, res) {
   // CORS headers
   res.setHeader('Access-Control-Allow-Origin', '*')
@@ -22,6 +24,17 @@ export default async function handler(req, res) {
     }
 
     if (req.method !== 'POST') return res.status(405).json({ error: 'POST only' })
+
+    // Verify webhook secret if configured
+    const WEBHOOK_SECRET = process.env.CONNECTEAM_WEBHOOK_SECRET
+    if (WEBHOOK_SECRET) {
+      const providedSecret = req.headers['x-webhook-secret']
+      if (!providedSecret || !crypto.timingSafeEqual(Buffer.from(providedSecret), Buffer.from(WEBHOOK_SECRET))) {
+        return res.status(401).json({ error: 'Invalid webhook secret' })
+      }
+    } else {
+      console.warn('CONNECTEAM_WEBHOOK_SECRET not set — webhook authentication skipped')
+    }
 
     try {
       const event = req.body

@@ -1,6 +1,8 @@
 // Vercel serverless: Twilio SMS integration
 // Requires TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_PHONE_NUMBER in env
 
+import crypto from 'crypto'
+
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*')
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
@@ -78,12 +80,74 @@ export default async function handler(req, res) {
 
     // ── INCOMING WEBHOOK (Twilio posts here when SMS received) ──
     if (action === 'webhook' && req.method === 'POST') {
+      // Verify Twilio request signature
+      const twilioSig = req.headers['x-twilio-signature']
+      if (twilioSig) {
+        const webhookUrl = `https://${req.headers.host}${req.url}`
+        const params = req.body || {}
+        // Sort params alphabetically and concatenate key+value
+        const paramStr = Object.keys(params).sort().reduce((acc, key) => acc + key + params[key], '')
+        const expectedSig = crypto
+          .createHmac('sha1', TWILIO_AUTH_TOKEN)
+          .update(webhookUrl + paramStr)
+          .digest('base64')
+        if (!crypto.timingSafeEqual(Buffer.from(twilioSig), Buffer.from(expectedSig))) {
+          return res.status(401).json({ error: 'Invalid Twilio signature' })
+        }
+      } else {
+        console.warn('No X-Twilio-Signature header — webhook signature verification skipped')
+      }
+
       // Twilio sends form data
       const from = req.body.From
       const body = req.body.Body
       const sid = req.body.MessageSid
 
-      // TODO: Store incoming message in Supabase or relay to frontend
+      // Store incoming message in Supabase
+      const supabaseUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL
+      const supabaseKey = process.env.SUPABASE_SERVICE_KEY || process.env.VITE_SUPABASE_ANON_KEY
+      if (supabaseUrl && supabaseKey && from && body) {
+        const sbHeaders = { apikey: supabaseKey, Authorization: `Bearer ${supabaseKey}`, 'Content-Type': 'application/json' }
+        try {
+          // Find client by phone number
+          const clientRes = await fetch(
+            `${supabaseUrl}/rest/v1/clients?phone=like.*${encodeURIComponent(from.replace(/^\+1/, ''))}*&limit=1`,
+            { headers: sbHeaders }
+          )
+          const clients = await clientRes.json()
+          if (clients?.length) {
+            const client = clients[0]
+            // Find or create SMS conversation
+            const convRes = await fetch(
+              `${supabaseUrl}/rest/v1/conversations?client_id=eq.${client.id}&channel=eq.text&limit=1&order=updated_at.desc`,
+              { headers: sbHeaders }
+            )
+            const convos = await convRes.json()
+            let convoId = convos?.[0]?.id
+            if (!convoId) {
+              const newConvo = await fetch(`${supabaseUrl}/rest/v1/conversations`, {
+                method: 'POST', headers: { ...sbHeaders, Prefer: 'return=representation' },
+                body: JSON.stringify({ client_id: client.id, subject: 'SMS Conversation', channel: 'text', last_message: body.slice(0, 100) }),
+              })
+              const created = await newConvo.json()
+              convoId = created?.[0]?.id
+            }
+            if (convoId) {
+              await fetch(`${supabaseUrl}/rest/v1/messages`, {
+                method: 'POST', headers: sbHeaders,
+                body: JSON.stringify({ conversation_id: convoId, content: body, direction: 'inbound', sender: client.name || from, channel: 'sms', twilio_sid: sid }),
+              })
+              await fetch(`${supabaseUrl}/rest/v1/conversations?id=eq.${convoId}`, {
+                method: 'PATCH', headers: sbHeaders,
+                body: JSON.stringify({ last_message: body.slice(0, 100), updated_at: new Date().toISOString() }),
+              })
+            }
+          }
+        } catch (e) {
+          console.error('Failed to store incoming SMS:', e.message)
+        }
+      }
+
       console.log(`Incoming SMS from ${from}: ${body} (SID: ${sid})`)
 
       // Respond with empty TwiML to acknowledge

@@ -2,6 +2,8 @@
 // Receives messages and subscriber data from ManyChat
 // POST /api/manychat — incoming webhook from ManyChat flows
 
+import crypto from 'crypto'
+
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*')
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
@@ -15,6 +17,17 @@ export default async function handler(req, res) {
   }
 
   if (req.method !== 'POST') return res.status(405).json({ error: 'POST only' })
+
+  // Verify webhook secret if configured
+  const WEBHOOK_SECRET = process.env.MANYCHAT_WEBHOOK_SECRET
+  if (WEBHOOK_SECRET) {
+    const providedSecret = req.headers['x-webhook-secret']
+    if (!providedSecret || !crypto.timingSafeEqual(Buffer.from(providedSecret), Buffer.from(WEBHOOK_SECRET))) {
+      return res.status(401).json({ error: 'Invalid webhook secret' })
+    }
+  } else {
+    console.warn('MANYCHAT_WEBHOOK_SECRET not set — webhook authentication skipped')
+  }
 
   try {
     const data = req.body

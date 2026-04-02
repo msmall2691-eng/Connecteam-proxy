@@ -1,8 +1,9 @@
 // Vercel serverless: Client Portal
-// Public page — no auth required, accessed via unique client ID or schedule token
-// GET  /api/portal?clientId=xxx — returns full client journey
+// Public page — no auth required, accessed via schedule token
 // GET  /api/portal?token=xxx — token-based access via client_schedule_tokens
 // POST /api/portal?action=confirm&visitId=xxx&token=xxx — client confirms a visit
+
+import crypto from 'crypto'
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*')
@@ -44,12 +45,12 @@ export default async function handler(req, res) {
     } catch {}
   }
 
-  // Method 2: Legacy base64 token
+  // Method 2: Legacy base64 token (30-day expiry, reduced from 365 days)
   if (token && !clientId) {
     try {
       const decoded = Buffer.from(token, 'base64url').toString()
       const [id, ts] = decoded.split('|')
-      if (Date.now() - parseInt(ts) < 365 * 86400000) clientId = id
+      if (Date.now() - parseInt(ts) < 30 * 86400000) clientId = id
     } catch {}
   }
 

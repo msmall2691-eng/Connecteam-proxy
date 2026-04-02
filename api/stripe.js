@@ -1,6 +1,9 @@
 // Vercel serverless: Stripe payment links for invoices
 // Creates a Stripe Checkout session and returns a payment URL
 // Requires STRIPE_SECRET_KEY in env
+// Requires STRIPE_WEBHOOK_SECRET for webhook signature verification
+
+import crypto from 'crypto'
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*')
@@ -26,7 +29,7 @@ export default async function handler(req, res) {
     // ── CREATE PAYMENT LINK ──
     if (action === 'create-payment' && req.method === 'POST') {
       const { invoiceNumber, clientName, clientEmail, amount, description } = req.body
-      if (!amount) return res.status(400).json({ error: 'amount required (in dollars)' })
+      if (!amount || parseFloat(amount) <= 0) return res.status(400).json({ error: 'amount required and must be positive (in dollars)' })
 
       const amountCents = Math.round(parseFloat(amount) * 100)
 
@@ -72,6 +75,26 @@ export default async function handler(req, res) {
 
     // ── WEBHOOK (Stripe sends payment confirmation) ──
     if (action === 'webhook' && req.method === 'POST') {
+      // Verify Stripe webhook signature
+      const WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET
+      if (WEBHOOK_SECRET) {
+        const sig = req.headers['stripe-signature']
+        if (!sig) return res.status(401).json({ error: 'Missing Stripe signature header' })
+
+        // Stripe signatures use HMAC-SHA256: t=timestamp,v1=signature
+        const rawBody = typeof req.body === 'string' ? req.body : JSON.stringify(req.body)
+        const parts = Object.fromEntries(sig.split(',').map(p => p.split('=')))
+        const expectedSig = crypto.createHmac('sha256', WEBHOOK_SECRET)
+          .update(`${parts.t}.${rawBody}`)
+          .digest('hex')
+
+        if (!crypto.timingSafeEqual(Buffer.from(parts.v1 || ''), Buffer.from(expectedSig))) {
+          return res.status(401).json({ error: 'Invalid Stripe webhook signature' })
+        }
+      } else {
+        console.warn('STRIPE_WEBHOOK_SECRET not set — webhook signature verification skipped')
+      }
+
       const event = req.body
       if (event.type === 'checkout.session.completed') {
         const session = event.data.object
@@ -79,7 +102,7 @@ export default async function handler(req, res) {
         // Update invoice in Supabase
         const supabaseUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL
         const supabaseKey = process.env.SUPABASE_SERVICE_KEY || process.env.VITE_SUPABASE_ANON_KEY
-        if (supabaseUrl && supabaseKey && invoiceNumber) {
+        if (supabaseUrl && supabaseKey && invoiceNumber && session.payment_status === 'paid') {
           await fetch(`${supabaseUrl}/rest/v1/invoices?invoice_number=eq.${invoiceNumber}`, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json', apikey: supabaseKey, Authorization: `Bearer ${supabaseKey}` },

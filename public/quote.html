@@ -121,20 +121,31 @@
       showError('Something went wrong. Please try again or call us at (207) 572-0502.')
     })
 
+  function escapeHtml(str) {
+    var div = document.createElement('div')
+    div.textContent = str
+    return div.innerHTML
+  }
+
   function showError(msg) {
     document.getElementById('loading').style.display = 'none'
     var el = document.getElementById('error')
     el.style.display = 'block'
-    el.innerHTML = '<div class="error-msg">' + msg + '</div>'
+    var errDiv = document.createElement('div')
+    errDiv.className = 'error-msg'
+    errDiv.textContent = msg
+    el.innerHTML = ''
+    el.appendChild(errDiv)
   }
 
   function showAlreadyAccepted(q, client) {
     var el = document.getElementById('content')
     el.style.display = 'block'
+    var firstName = escapeHtml((client.name || '').split(' ')[0])
     el.innerHTML = '<div class="card"><div class="success-card">' +
       '<div class="success-icon">&#10003;</div>' +
       '<div class="success-title">Quote Accepted</div>' +
-      '<div class="success-detail">Hi ' + (client.name || '').split(' ')[0] + ', this quote has already been accepted and your cleaning is scheduled.<br><br>Questions? Call us at (207) 572-0502.</div>' +
+      '<div class="success-detail">Hi ' + firstName + ', this quote has already been accepted and your cleaning is scheduled.<br><br>Questions? Call us at (207) 572-0502.</div>' +
       '</div></div>'
   }
 
@@ -158,19 +169,19 @@
 
     // Greeting
     html += '<div class="card">'
-    html += '<p style="font-size:15px;color:#334155;">Hi ' + (client.name || '').split(' ')[0] + ',</p>'
+    html += '<p style="font-size:15px;color:#334155;">Hi ' + escapeHtml((client.name || '').split(' ')[0]) + ',</p>'
     html += '<p style="font-size:14px;color:#64748b;margin-top:8px;">Here\'s your cleaning quote. Review the details below, choose your preferred schedule, and sign to book.</p>'
     html += '</div>'
 
     // Quote details
     html += '<div class="card">'
-    html += '<h2>Quote #' + q.quoteNumber + '</h2>'
+    html += '<h2>Quote #' + escapeHtml(q.quoteNumber || '') + '</h2>'
 
     // Line items
     if (q.items && q.items.length > 0) {
       html += '<table class="items-table"><thead><tr><th>Service</th><th style="text-align:right">Price</th></tr></thead><tbody>'
       q.items.forEach(function(item) {
-        html += '<tr><td>' + item.description + '</td><td>$' + parseFloat(item.total).toFixed(2) + '</td></tr>'
+        html += '<tr><td>' + escapeHtml(item.description || '') + '</td><td>$' + parseFloat(item.total).toFixed(2) + '</td></tr>'
       })
       html += '</tbody></table>'
     }
@@ -186,12 +197,12 @@
 
     // Details
     html += '<div style="margin-top:16px;">'
-    html += '<div class="detail-row"><span class="detail-label">Service Type</span><span class="detail-value">' + serviceLabel + '</span></div>'
-    html += '<div class="detail-row"><span class="detail-label">Frequency</span><span class="detail-value">' + freqLabel + '</span></div>'
+    html += '<div class="detail-row"><span class="detail-label">Service Type</span><span class="detail-value">' + escapeHtml(serviceLabel) + '</span></div>'
+    html += '<div class="detail-row"><span class="detail-label">Frequency</span><span class="detail-value">' + escapeHtml(freqLabel) + '</span></div>'
     if (property) {
-      html += '<div class="detail-row"><span class="detail-label">Property</span><span class="detail-value">' + (property.address || '') + '</span></div>'
+      html += '<div class="detail-row"><span class="detail-label">Property</span><span class="detail-value">' + escapeHtml(property.address || '') + '</span></div>'
       if (property.sqft) {
-        html += '<div class="detail-row"><span class="detail-label">Size</span><span class="detail-value">' + property.sqft + ' sqft &middot; ' + (property.bathrooms || 0) + ' bath</span></div>'
+        html += '<div class="detail-row"><span class="detail-label">Size</span><span class="detail-value">' + escapeHtml(String(property.sqft)) + ' sqft &middot; ' + (property.bathrooms || 0) + ' bath</span></div>'
       }
     }
     html += '</div>'
@@ -212,7 +223,7 @@
     html += '<div class="card">'
     html += '<h2>Approve & Sign</h2>'
     html += '<p style="font-size:13px;color:#64748b;margin-bottom:4px;">Print your name:</p>'
-    html += '<input type="text" id="signerName" class="input-field" placeholder="Your full name" value="' + (client.name || '') + '">'
+    html += '<input type="text" id="signerName" class="input-field" placeholder="Your full name" value="' + escapeHtml(client.name || '') + '">'
     html += '<p style="font-size:13px;color:#64748b;margin-top:12px;margin-bottom:4px;">Sign below (use your finger or mouse):</p>'
     html += '<div class="sig-area" id="sigArea"><canvas id="sigCanvas"></canvas><span class="sig-hint" id="sigHint">Sign here</span></div>'
     html += '<div class="sig-actions"><button type="button" onclick="clearSignature()">Clear</button></div>'
@@ -348,7 +359,7 @@ function submitAccept(token) {
       '<div class="success-title">You\'re All Set!</div>' +
       '<div class="success-detail">' +
       'Your cleaning has been booked.' +
-      (jobDate ? '<br><br><strong>First cleaning:</strong> ' + jobDate + ' at ' + (data.job.startTime || '9:00 AM') : '') +
+      (jobDate ? '<br><br><strong>First cleaning:</strong> ' + escapeHtml(jobDate) + ' at ' + escapeHtml(data.job.startTime || '9:00 AM') : '') +
       '<br><br>We\'ll send a reminder before your appointment. Questions? Call us at (207) 572-0502.' +
       '</div></div></div>'
   })
