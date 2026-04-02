@@ -171,7 +171,7 @@ export default function ClientDetail() {
         ))}
       </div>
 
-      {tab === 'overview' && <OverviewTab client={client} convos={convos} jobs={jobs} invoices={invoices} properties={properties} quotes={quotes} onSwitchTab={setTab} clientId={id} />}
+      {tab === 'overview' && <OverviewTab client={client} convos={convos} jobs={jobs} invoices={invoices} properties={properties} quotes={quotes} onSwitchTab={setTab} clientId={id} onReload={reload} />}
       {tab === 'properties' && <PropertiesTab clientId={id} properties={properties} onReload={reload} />}
       {tab === 'quotes' && <QuotesTab client={client} properties={properties} quotes={quotes} jobs={jobs} onReload={reload} onSwitchTab={setTab} />}
       {tab === 'conversations' && <ConversationsTab clientId={id} convos={convos} onReload={reload} />}
@@ -190,7 +190,31 @@ export default function ClientDetail() {
   )
 }
 
-function OverviewTab({ client, convos, jobs, invoices, properties, quotes, onSwitchTab, clientId }) {
+function OverviewTab({ client, convos, jobs, invoices, properties, quotes, onSwitchTab, clientId, onReload }) {
+  const [editingClient, setEditingClient] = useState(false)
+  const [editFields, setEditFields] = useState({})
+  const [savingClient, setSavingClient] = useState(false)
+
+  function startEditClient() {
+    setEditFields({
+      name: client.name || '',
+      email: client.email || '',
+      phone: client.phone || '',
+      address: client.address || '',
+      companyName: client.companyName || '',
+      status: client.status || 'lead',
+    })
+    setEditingClient(true)
+  }
+
+  async function saveClientEdits() {
+    setSavingClient(true)
+    await _saveClient({ id: client.id, ...editFields })
+    setSavingClient(false)
+    setEditingClient(false)
+    if (onReload) onReload()
+  }
+
   const completedJobs = jobs.filter(j => j.status === 'completed').length
   const scheduledJobs = jobs.filter(j => j.status === 'scheduled').length
   const totalRevenue = invoices.filter(i => i.status === 'paid').reduce((s, i) => s + (i.total || 0), 0)
@@ -282,20 +306,72 @@ function OverviewTab({ client, convos, jobs, invoices, properties, quotes, onSwi
 
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
       <div className="bg-gray-900 border border-gray-800 rounded-xl p-5 space-y-3">
-        <h3 className="text-sm font-semibold text-white">Client Info</h3>
-        <div className="space-y-2 text-sm">
-          {client.companyName && <InfoRow label="Company" value={client.companyName} />}
-          <InfoRow label="Type" value={client.type} />
-          <InfoRow label="Address" value={client.address} />
-          <InfoRow label="Source" value={client.source} />
-          <InfoRow label="Added" value={client.createdAt ? new Date(client.createdAt).toLocaleDateString() : '-'} />
-          {client.tags?.length > 0 && (
-            <div>
-              <span className="text-gray-500">Tags: </span>
-              {client.tags.map(t => <span key={t} className="inline-block px-1.5 py-0.5 bg-gray-800 rounded text-xs text-gray-400 mr-1">{t}</span>)}
-            </div>
+        <div className="flex items-center justify-between">
+          <h3 className="text-sm font-semibold text-white">Client Info</h3>
+          {!editingClient && (
+            <button onClick={startEditClient} className="text-xs text-blue-400 hover:text-blue-300">Edit</button>
           )}
         </div>
+
+        {editingClient ? (
+          <div className="space-y-2">
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Name</label>
+              <input value={editFields.name} onChange={e => setEditFields({ ...editFields, name: e.target.value })}
+                className="w-full px-2 py-1.5 bg-gray-800 border border-gray-700 rounded-lg text-sm text-white" />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Company</label>
+              <input value={editFields.companyName} onChange={e => setEditFields({ ...editFields, companyName: e.target.value })}
+                className="w-full px-2 py-1.5 bg-gray-800 border border-gray-700 rounded-lg text-sm text-white" />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Email</label>
+              <input type="email" value={editFields.email} onChange={e => setEditFields({ ...editFields, email: e.target.value })}
+                className="w-full px-2 py-1.5 bg-gray-800 border border-gray-700 rounded-lg text-sm text-white" />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Phone</label>
+              <input value={editFields.phone} onChange={e => setEditFields({ ...editFields, phone: e.target.value })}
+                className="w-full px-2 py-1.5 bg-gray-800 border border-gray-700 rounded-lg text-sm text-white" />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Address</label>
+              <input value={editFields.address} onChange={e => setEditFields({ ...editFields, address: e.target.value })}
+                className="w-full px-2 py-1.5 bg-gray-800 border border-gray-700 rounded-lg text-sm text-white" />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Status</label>
+              <select value={editFields.status} onChange={e => setEditFields({ ...editFields, status: e.target.value })}
+                className="w-full px-2 py-1.5 bg-gray-800 border border-gray-700 rounded-lg text-sm text-white">
+                <option value="lead">Lead</option><option value="prospect">Prospect</option>
+                <option value="active">Active</option><option value="inactive">Inactive</option>
+              </select>
+            </div>
+            <div className="flex gap-2 pt-2">
+              <button onClick={saveClientEdits} disabled={savingClient}
+                className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 rounded-lg text-xs text-white font-medium">
+                {savingClient ? 'Saving...' : 'Save'}
+              </button>
+              <button onClick={() => setEditingClient(false)}
+                className="px-3 py-1.5 bg-gray-800 rounded-lg text-xs text-gray-400">Cancel</button>
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-2 text-sm">
+            {client.companyName && <InfoRow label="Company" value={client.companyName} />}
+            <InfoRow label="Type" value={client.type} />
+            <InfoRow label="Address" value={client.address} />
+            <InfoRow label="Source" value={client.source} />
+            <InfoRow label="Added" value={client.createdAt ? new Date(client.createdAt).toLocaleDateString() : '-'} />
+            {client.tags?.length > 0 && (
+              <div>
+                <span className="text-gray-500">Tags: </span>
+                {client.tags.map(t => <span key={t} className="inline-block px-1.5 py-0.5 bg-gray-800 rounded text-xs text-gray-400 mr-1">{t}</span>)}
+              </div>
+            )}
+          </div>
+        )}
         <div className="pt-3 border-t border-gray-800 space-y-1">
           <div className="flex justify-between text-xs"><span className="text-gray-500">Jobs completed</span><span className="text-gray-300">{completedJobs}</span></div>
           <div className="flex justify-between text-xs"><span className="text-gray-500">Revenue (paid)</span><span className="text-green-400">${totalRevenue.toFixed(2)}</span></div>
