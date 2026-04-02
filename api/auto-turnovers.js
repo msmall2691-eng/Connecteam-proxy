@@ -44,7 +44,17 @@ export default async function handler(req, res) {
     const properties = await propsRes.json()
 
     if (!properties?.length) {
-      return res.status(200).json({ message: 'No rental properties with iCal URLs found', turnovers: [] })
+      return res.status(200).json({
+        action,
+        daysAhead,
+        properties: 0,
+        totalTurnovers: 0,
+        alreadyScheduled: 0,
+        newTurnovers: 0,
+        created: 0,
+        turnovers: [],
+        message: 'No rental properties with iCal URLs found',
+      })
     }
 
     // Fetch existing jobs to avoid duplicates
