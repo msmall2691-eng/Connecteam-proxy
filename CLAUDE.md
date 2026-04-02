@@ -110,6 +110,15 @@ Or pass directly: `python3 scripts/report.py --api-key YOUR_KEY`
 - `sql/supabase-migration-v3.sql` — Notifications table
 - `sql/supabase-migration-v4-bookings.sql` — Booking requests
 - `sql/supabase-migration-v5-schema-cleanup.sql` — Employees, visits, service types, checklists, extras, enriched messages
+- `sql/supabase-migration-v6-scheduling-redesign.sql` — Visits as single source of truth, calendar sync log, client portal tokens, visit reminders, recurring visit generation functions
+
+### Scheduling Architecture (v6)
+- **Jobs** = service agreements (what, who, how often, price). NOT individual occurrences.
+- **Visits** = the canonical schedule. Every individual cleaning is a visit.
+- **calendar_sync_log** = tracks what's been pushed to Google Calendar / Connecteam
+- **visit_reminders** = tracks reminders sent per visit
+- **client_schedule_tokens** = token-based client portal access
+- See `docs/scheduling-redesign-plan.md` for full implementation plan
 
 ## Notes
 - Connecteam API rate limits to ~5 requests per 10 seconds
