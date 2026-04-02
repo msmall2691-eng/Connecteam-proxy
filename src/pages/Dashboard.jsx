@@ -10,6 +10,8 @@ import { isSupabaseConfigured } from '../lib/supabase'
 
 export default function Dashboard() {
   const [data, setData] = useState(null)
+  const [pendingBookings, setPendingBookings] = useState([])
+  const [pendingCount, setPendingCount] = useState(0)
 
   // AI chat (compact)
   const [messages, setMessages] = useState([{ role: 'assistant', content: 'Ask me anything about your operations.' }])
@@ -20,7 +22,7 @@ export default function Dashboard() {
   const bottomRef = useRef(null)
   const apiKey = getApiKey()
 
-  useEffect(() => { loadDashboard() }, [])
+  useEffect(() => { loadDashboard(); loadPendingBookings() }, [])
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages])
 
   async function loadDashboard() {
@@ -92,6 +94,25 @@ export default function Dashboard() {
       todayJobs, thisWeekJobs, unpushedJobs, unpushedCT, draftQuotes, sentQuotes, leads, unpaid,
       recentMsgs: recentMsgs.slice(0, 4),
     })
+  }
+
+  async function loadPendingBookings() {
+    try {
+      const [statsRes, listRes] = await Promise.all([
+        fetch('/api/leads?action=booking-stats'),
+        fetch('/api/leads?action=booking-list&status=pending'),
+      ])
+      if (statsRes.ok) {
+        const { stats } = await statsRes.json()
+        setPendingCount(stats?.pending || 0)
+      }
+      if (listRes.ok) {
+        const { bookings } = await listRes.json()
+        setPendingBookings(bookings || [])
+      }
+    } catch (err) {
+      console.error('Failed to load pending bookings:', err)
+    }
   }
 
   // AI Report functions (simplified)
@@ -212,6 +233,34 @@ export default function Dashboard() {
           </Link>
         </div>
       </div>
+
+      {/* Pending Bookings */}
+      {pendingCount > 0 && (
+        <div className="bg-gray-900 border border-amber-800/30 rounded-xl p-4">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <h2 className="text-sm font-semibold text-white">Pending Bookings</h2>
+              <span className="px-2 py-0.5 bg-amber-600/20 text-amber-400 rounded-full text-xs font-medium">{pendingCount}</span>
+            </div>
+            <Link to="/website-requests" className="text-xs text-gray-500 hover:text-gray-300">View in Requests</Link>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
+            {pendingBookings.slice(0, 6).map((b, i) => (
+              <div key={b.id || i} className="bg-gray-800/50 rounded-lg p-3">
+                <p className="text-sm font-medium text-white truncate">{b.name || 'Unknown'}</p>
+                <div className="mt-1 space-y-0.5">
+                  {b.requested_date && <p className="text-xs text-gray-400">Date: <span className="text-gray-300">{b.requested_date}</span></p>}
+                  {b.estimate && <p className="text-xs text-gray-400">Estimate: <span className="text-green-400">{b.estimate}</span></p>}
+                  {b.distance && <p className="text-xs text-gray-400">Distance: <span className="text-gray-300">{b.distance}</span></p>}
+                </div>
+              </div>
+            ))}
+          </div>
+          {pendingBookings.length > 6 && (
+            <p className="mt-2 text-xs text-gray-600">+ {pendingBookings.length - 6} more pending</p>
+          )}
+        </div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4">
         {/* COLUMN 1: Quotes & Leads */}
