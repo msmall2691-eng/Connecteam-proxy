@@ -6,111 +6,131 @@
 <title>My Cleaning Portal — The Maine Cleaning Co.</title>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f8fafc; color: #1e293b; line-height: 1.6; }
-  .container { max-width: 640px; margin: 0 auto; padding: 24px 16px; }
-  .header { text-align: center; padding: 32px 0; }
-  .header h1 { font-size: 20px; color: #1e40af; }
-  .header .company { font-size: 13px; color: #94a3b8; margin-top: 2px; }
-  .header p { font-size: 14px; color: #64748b; margin-top: 4px; }
-  .summary { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 16px; }
-  .summary-card { background: white; border: 1px solid #e2e8f0; border-radius: 10px; padding: 14px; text-align: center; }
-  .summary-card .num { font-size: 22px; font-weight: 700; }
-  .summary-card .label { font-size: 11px; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.05em; }
-  .num-blue { color: #2563eb; }
-  .num-green { color: #16a34a; }
-  .num-yellow { color: #d97706; }
-  .card { background: white; border: 1px solid #e2e8f0; border-radius: 12px; padding: 20px; margin-bottom: 16px; }
-  .card h2 { font-size: 14px; color: #64748b; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 12px; display: flex; align-items: center; gap: 8px; }
-  .card h2 .count { background: #f1f5f9; color: #64748b; font-size: 11px; padding: 1px 7px; border-radius: 10px; }
-  .item { display: flex; justify-content: space-between; align-items: center; padding: 12px 0; border-bottom: 1px solid #f1f5f9; }
-  .item:last-child { border: none; }
-  .item-title { font-weight: 600; color: #0f172a; font-size: 14px; }
-  .item-sub { font-size: 13px; color: #64748b; margin-top: 2px; }
-  .badge { display: inline-block; padding: 2px 8px; border-radius: 6px; font-size: 11px; font-weight: 600; }
-  .badge-scheduled { background: #dbeafe; color: #1d4ed8; }
-  .badge-completed { background: #dcfce7; color: #16a34a; }
-  .badge-paid { background: #dcfce7; color: #16a34a; }
-  .badge-sent { background: #fef3c7; color: #d97706; }
-  .badge-overdue { background: #fee2e2; color: #dc2626; }
-  .badge-draft { background: #f1f5f9; color: #64748b; }
-  .badge-accepted { background: #dbeafe; color: #1d4ed8; }
-  .badge-signed { background: #dcfce7; color: #16a34a; }
-  .amount { font-weight: 700; font-size: 16px; }
-  .pay-btn { display: inline-block; padding: 8px 16px; background: #1e40af; color: white; border-radius: 8px; text-decoration: none; font-size: 13px; font-weight: 600; }
-  .pay-btn:hover { background: #1d4ed8; }
-  .empty { text-align: center; padding: 24px; color: #94a3b8; font-size: 14px; }
-  .footer { text-align: center; padding: 24px 0; font-size: 12px; color: #94a3b8; }
-  .loading { text-align: center; padding: 60px; color: #94a3b8; }
-  .tabs { display: flex; gap: 4px; margin-bottom: 16px; overflow-x: auto; }
-  .tab { padding: 8px 16px; background: white; border: 1px solid #e2e8f0; border-radius: 8px; font-size: 13px; color: #64748b; cursor: pointer; white-space: nowrap; }
-  .tab.active { background: #1e40af; color: white; border-color: #1e40af; }
-  .tab:hover:not(.active) { background: #f1f5f9; }
-  .section { display: none; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif; background: #fafbfc; color: #1a1a2e; line-height: 1.6; -webkit-font-smoothing: antialiased; }
+  .container { max-width: 600px; margin: 0 auto; padding: 20px 16px; min-height: 100vh; }
+
+  /* Header */
+  .header { text-align: center; padding: 32px 0 24px; }
+  .logo { font-size: 18px; font-weight: 700; color: #1e40af; letter-spacing: -0.02em; }
+  .welcome { font-size: 22px; font-weight: 700; color: #0f172a; margin-top: 12px; }
+  .welcome-sub { font-size: 14px; color: #64748b; margin-top: 4px; }
+
+  /* Summary stats */
+  .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 20px; }
+  .stat { background: white; border: 1px solid #e8ecf0; border-radius: 14px; padding: 16px 12px; text-align: center; transition: box-shadow 0.2s; }
+  .stat:hover { box-shadow: 0 2px 8px rgba(0,0,0,0.06); }
+  .stat-num { font-size: 26px; font-weight: 800; letter-spacing: -0.02em; }
+  .stat-label { font-size: 11px; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.06em; margin-top: 2px; }
+  .c-blue { color: #2563eb; }
+  .c-green { color: #16a34a; }
+  .c-amber { color: #d97706; }
+
+  /* Tabs */
+  .tabs { display: flex; background: #f1f5f9; border-radius: 12px; padding: 4px; margin-bottom: 20px; gap: 2px; }
+  .tab { flex: 1; padding: 10px 8px; border-radius: 10px; font-size: 13px; font-weight: 600; color: #64748b; cursor: pointer; text-align: center; transition: all 0.2s; border: none; background: none; position: relative; }
+  .tab.active { background: white; color: #0f172a; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
+  .tab:hover:not(.active) { color: #334155; }
+  .tab .badge { position: absolute; top: 4px; right: 8px; min-width: 18px; height: 18px; padding: 0 5px; background: #2563eb; color: white; border-radius: 9px; font-size: 10px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; }
+
+  /* Sections */
+  .section { display: none; animation: fadeIn 0.25s ease; }
   .section.active { display: block; }
-  .quote-price { font-size: 24px; font-weight: 800; color: #1e40af; text-align: center; margin: 12px 0; }
-  .quote-detail { display: flex; justify-content: space-between; padding: 6px 0; font-size: 13px; border-bottom: 1px solid #f8fafc; }
-  .quote-detail:last-child { border: none; }
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+
+  /* Cards */
+  .card { background: white; border: 1px solid #e8ecf0; border-radius: 16px; overflow: hidden; margin-bottom: 12px; transition: box-shadow 0.2s; }
+  .card:hover { box-shadow: 0 2px 12px rgba(0,0,0,0.06); }
+  .card-header { padding: 16px 18px 12px; display: flex; justify-content: space-between; align-items: center; }
+  .card-title { font-size: 15px; font-weight: 700; color: #0f172a; }
+  .card-sub { font-size: 13px; color: #64748b; margin-top: 2px; }
+
+  /* List items */
+  .item { padding: 14px 18px; border-top: 1px solid #f1f5f9; display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+  .item:first-child { border-top: none; }
+  .item-info { flex: 1; min-width: 0; }
+  .item-title { font-weight: 600; color: #0f172a; font-size: 14px; }
+  .item-sub { font-size: 12px; color: #94a3b8; margin-top: 2px; }
+  .item-right { text-align: right; flex-shrink: 0; }
+  .item-amount { font-size: 16px; font-weight: 700; color: #0f172a; font-variant-numeric: tabular-nums; }
+
+  /* Badges */
+  .badge-pill { display: inline-flex; padding: 3px 10px; border-radius: 20px; font-size: 11px; font-weight: 600; letter-spacing: 0.02em; }
+  .b-scheduled { background: #dbeafe; color: #1d4ed8; }
+  .b-confirmed { background: #d1fae5; color: #059669; }
+  .b-completed { background: #d1fae5; color: #059669; }
+  .b-paid { background: #d1fae5; color: #059669; }
+  .b-sent { background: #fef3c7; color: #b45309; }
+  .b-overdue { background: #fee2e2; color: #dc2626; }
+  .b-draft { background: #f1f5f9; color: #64748b; }
+  .b-accepted { background: #dbeafe; color: #1d4ed8; }
+  .b-signed { background: #d1fae5; color: #059669; }
+
+  /* Buttons */
+  .btn { display: inline-flex; align-items: center; gap: 6px; padding: 10px 20px; border-radius: 10px; font-size: 14px; font-weight: 600; text-decoration: none; cursor: pointer; border: none; transition: all 0.15s; }
+  .btn-primary { background: #1e40af; color: white; }
+  .btn-primary:hover { background: #1d4ed8; transform: translateY(-1px); box-shadow: 0 4px 12px rgba(30,64,175,0.3); }
+  .btn-outline { background: white; color: #334155; border: 1px solid #e2e8f0; }
+  .btn-outline:hover { background: #f8fafc; border-color: #cbd5e1; }
+  .btn-sm { padding: 6px 14px; font-size: 12px; border-radius: 8px; }
+
+  /* Confirm button */
+  .confirm-btn { display: block; width: 100%; padding: 12px; background: #16a34a; color: white; border: none; border-radius: 10px; font-size: 14px; font-weight: 600; cursor: pointer; transition: all 0.15s; }
+  .confirm-btn:hover { background: #15803d; }
+  .confirm-btn:disabled { background: #94a3b8; cursor: not-allowed; }
+  .confirm-btn.confirmed { background: #d1fae5; color: #059669; cursor: default; }
+
+  /* Empty states */
+  .empty { text-align: center; padding: 40px 20px; }
+  .empty-icon { font-size: 36px; margin-bottom: 8px; opacity: 0.4; }
+  .empty-text { font-size: 14px; color: #94a3b8; }
+
+  /* Loading + Error */
+  .loading { text-align: center; padding: 80px 20px; }
+  .spinner { width: 32px; height: 32px; border: 3px solid #e2e8f0; border-top-color: #2563eb; border-radius: 50%; animation: spin 0.8s linear infinite; margin: 0 auto 12px; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .loading-text { font-size: 14px; color: #94a3b8; }
+  .error-card { text-align: center; padding: 40px; background: #fef2f2; border: 1px solid #fecaca; border-radius: 16px; }
+  .error-card p { color: #dc2626; font-size: 14px; }
+
+  /* Footer */
+  .footer { text-align: center; padding: 32px 0; font-size: 12px; color: #94a3b8; }
+  .footer a { color: #64748b; text-decoration: none; }
+  .footer a:hover { color: #334155; }
+
+  /* Quote price highlight */
+  .price-hero { background: linear-gradient(135deg, #eff6ff, #dbeafe); border-radius: 14px; padding: 20px; text-align: center; margin: 12px 0; }
+  .price-hero .amount { font-size: 32px; font-weight: 800; color: #1e40af; }
+  .price-hero .freq { font-size: 13px; color: #3b82f6; margin-top: 4px; }
+
+  /* Date badge */
+  .date-badge { display: inline-flex; flex-direction: column; align-items: center; background: #f1f5f9; border-radius: 10px; padding: 6px 10px; min-width: 48px; }
+  .date-badge .month { font-size: 10px; color: #64748b; text-transform: uppercase; font-weight: 600; }
+  .date-badge .day { font-size: 18px; font-weight: 800; color: #0f172a; line-height: 1; }
 </style>
 </head>
 <body>
 <div class="container">
   <div class="header">
-    <h1>The Maine Cleaning Co.</h1>
-    <p id="companyName" class="company" style="display:none"></p>
-    <p id="clientName">Loading...</p>
+    <div class="logo">The Maine Cleaning Co.</div>
+    <div id="welcomeName" class="welcome" style="display:none"></div>
+    <div id="welcomeSub" class="welcome-sub" style="display:none"></div>
   </div>
+
+  <div id="loading" class="loading">
+    <div class="spinner"></div>
+    <div class="loading-text">Loading your portal...</div>
+  </div>
+  <div id="error" style="display:none"></div>
 
   <div id="content" style="display:none">
-    <!-- Summary cards -->
-    <div id="summarySection" class="summary"></div>
-
-    <!-- Navigation tabs -->
-    <div class="tabs" id="tabs">
-      <div class="tab active" data-section="upcoming">Upcoming</div>
-      <div class="tab" data-section="quotes">Quotes</div>
-      <div class="tab" data-section="history">History</div>
-      <div class="tab" data-section="invoices">Invoices</div>
-    </div>
-
-    <!-- Upcoming Jobs -->
-    <div id="upcoming" class="section active">
-      <div class="card">
-        <h2>Upcoming Visits <span id="upcomingCount" class="count">0</span></h2>
-        <div id="jobs"></div>
-      </div>
-    </div>
-
-    <!-- Quotes -->
-    <div id="quotes" class="section">
-      <div class="card">
-        <h2>Your Quotes <span id="quotesCount" class="count">0</span></h2>
-        <div id="quotesList"></div>
-      </div>
-    </div>
-
-    <!-- History -->
-    <div id="history" class="section">
-      <div class="card">
-        <h2>Completed Visits <span id="historyCount" class="count">0</span></h2>
-        <div id="completedJobs"></div>
-      </div>
-    </div>
-
-    <!-- Invoices -->
-    <div id="invoices" class="section">
-      <div class="card">
-        <h2>Invoices <span id="invoicesCount" class="count">0</span></h2>
-        <div id="invoicesList"></div>
-      </div>
-    </div>
+    <div id="summarySection" class="stats"></div>
+    <div class="tabs" id="tabs"></div>
+    <div id="sections"></div>
   </div>
 
-  <div id="loading" class="loading">Loading your information...</div>
-  <div id="error" style="display:none" class="empty"></div>
-
   <div class="footer">
-    The Maine Cleaning & Property Management Co.<br>
-    (207) 572-0502 &middot; office@mainecleaningco.com
+    <p>The Maine Cleaning & Property Management Co.</p>
+    <p style="margin-top:4px;"><a href="tel:2075720502">(207) 572-0502</a> &middot; <a href="mailto:office@mainecleaningco.com">office@mainecleaningco.com</a></p>
   </div>
 </div>
 
@@ -121,32 +141,33 @@
   var token = params.get('token')
 
   if (!clientId && !token) {
-    document.getElementById('loading').style.display = 'none'
-    document.getElementById('error').style.display = 'block'
-    document.getElementById('error').textContent = 'Invalid link. Please contact us for your portal URL.'
+    showError('Invalid link. Please contact us for your portal URL.')
     return
   }
 
-  // Tab switching
-  document.querySelectorAll('.tab').forEach(function(tab) {
-    tab.addEventListener('click', function() {
-      document.querySelectorAll('.tab').forEach(function(t) { t.classList.remove('active') })
-      document.querySelectorAll('.section').forEach(function(s) { s.classList.remove('active') })
-      tab.classList.add('active')
-      document.getElementById(tab.dataset.section).classList.add('active')
-    })
-  })
-
-  function escapeHtml(str) {
-    var div = document.createElement('div')
-    div.textContent = str
-    return div.innerHTML
+  function esc(str) { var d = document.createElement('div'); d.textContent = str; return d.innerHTML }
+  function sanitizeUrl(url) { if (!url) return ''; try { var u = new URL(url); return u.protocol === 'https:' ? url : '' } catch { return '' } }
+  function fmtDate(dateStr) {
+    if (!dateStr) return ''
+    var d = new Date(dateStr + 'T12:00:00')
+    return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
+  }
+  function fmtTime(t) {
+    if (!t) return ''
+    var parts = t.split(':'), h = parseInt(parts[0])
+    return (h > 12 ? h - 12 : h || 12) + ':' + (parts[1] || '00') + (h >= 12 ? 'pm' : 'am')
+  }
+  function dateParts(dateStr) {
+    if (!dateStr) return { month: '', day: '' }
+    var d = new Date(dateStr + 'T12:00:00')
+    return { month: d.toLocaleDateString('en-US', { month: 'short' }), day: d.getDate() }
   }
 
-  function sanitizeUrl(url) {
-    // Only allow https URLs for payment links
-    if (!url || typeof url !== 'string') return ''
-    try { var u = new URL(url); return (u.protocol === 'https:') ? url : '' } catch { return '' }
+  function showError(msg) {
+    document.getElementById('loading').style.display = 'none'
+    var el = document.getElementById('error')
+    el.style.display = 'block'
+    el.innerHTML = '<div class="error-card"><p>' + esc(msg) + '</p><p style="margin-top:12px;color:#64748b;">Call us at <a href="tel:2075720502" style="color:#1e40af;">(207) 572-0502</a></p></div>'
   }
 
   var portalUrl = token ? '/api/client?action=portal&token=' + token : '/api/client?action=portal&clientId=' + clientId
@@ -154,91 +175,137 @@
     .then(function(r) { return r.json() })
     .then(function(data) {
       document.getElementById('loading').style.display = 'none'
-
-      if (data.error) {
-        document.getElementById('error').style.display = 'block'
-        document.getElementById('error').textContent = 'Could not load your information. Please contact us.'
-        return
-      }
+      if (data.error) { showError(data.error); return }
 
       document.getElementById('content').style.display = 'block'
-      document.getElementById('clientName').textContent = 'Welcome, ' + data.client.name
-
+      var firstName = esc((data.client.name || '').split(' ')[0])
+      document.getElementById('welcomeName').textContent = 'Welcome back, ' + firstName
+      document.getElementById('welcomeName').style.display = 'block'
       if (data.client.companyName) {
-        var cn = document.getElementById('companyName')
-        cn.style.display = 'block'
-        cn.textContent = data.client.companyName
+        document.getElementById('welcomeSub').textContent = data.client.companyName
+        document.getElementById('welcomeSub').style.display = 'block'
       }
 
-      // Summary
+      // Summary stats
       var sum = data.summary || {}
-      var summaryDiv = document.getElementById('summarySection')
-      summaryDiv.innerHTML = '<div class="summary-card"><div class="num num-blue">' + (sum.upcomingVisits || 0) + '</div><div class="label">Upcoming</div></div>' +
-        '<div class="summary-card"><div class="num num-green">' + (sum.completedVisits || 0) + '</div><div class="label">Completed</div></div>' +
-        '<div class="summary-card"><div class="num num-yellow">' + (sum.outstanding > 0 ? '$' + sum.outstanding.toFixed(0) : '$0') + '</div><div class="label">Balance</div></div>'
+      document.getElementById('summarySection').innerHTML =
+        '<div class="stat"><div class="stat-num c-blue">' + (sum.upcomingVisits || 0) + '</div><div class="stat-label">Upcoming</div></div>' +
+        '<div class="stat"><div class="stat-num c-green">' + (sum.completedVisits || 0) + '</div><div class="stat-label">Completed</div></div>' +
+        '<div class="stat"><div class="stat-num c-amber">' + (sum.outstanding > 0 ? '$' + Math.round(sum.outstanding) : '$0') + '</div><div class="stat-label">Balance</div></div>'
 
-      // Upcoming jobs
-      var jobsDiv = document.getElementById('jobs')
+      // Build tabs
       var upcoming = data.upcomingJobs || []
-      document.getElementById('upcomingCount').textContent = upcoming.length
+      var quotes = data.quotes || []
+      var completed = data.completedJobs || []
+      var invoices = data.invoices || []
+
+      var tabDefs = [
+        { id: 'upcoming', label: 'Upcoming', count: upcoming.length },
+        { id: 'quotes', label: 'Quotes', count: quotes.length },
+        { id: 'history', label: 'History', count: completed.length },
+        { id: 'invoices', label: 'Invoices', count: invoices.length },
+      ]
+
+      var tabsHtml = ''
+      tabDefs.forEach(function(t, i) {
+        tabsHtml += '<button class="tab' + (i === 0 ? ' active' : '') + '" data-section="' + t.id + '">' + t.label + (t.count > 0 ? '<span class="badge">' + t.count + '</span>' : '') + '</button>'
+      })
+      document.getElementById('tabs').innerHTML = tabsHtml
+
+      // Build sections
+      var sectionsHtml = ''
+
+      // Upcoming
+      sectionsHtml += '<div id="sec-upcoming" class="section active">'
       if (upcoming.length === 0) {
-        jobsDiv.innerHTML = '<p class="empty">No upcoming visits scheduled.</p>'
+        sectionsHtml += '<div class="empty"><div class="empty-icon">📅</div><div class="empty-text">No upcoming visits scheduled</div></div>'
       } else {
         upcoming.forEach(function(j) {
-          var date = new Date(j.date + 'T12:00:00')
-          jobsDiv.innerHTML += '<div class="item"><div><div class="item-title">' + escapeHtml(j.title || '') + '</div><div class="item-sub">' + escapeHtml(date.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })) + (j.startTime ? ' at ' + escapeHtml(j.startTime) : '') + (j.serviceType ? ' &middot; ' + escapeHtml(j.serviceType) : '') + '</div></div><span class="badge badge-' + escapeHtml(j.status || '') + '">' + escapeHtml(j.status || '') + '</span></div>'
+          var dp = dateParts(j.date)
+          var statusClass = 'b-' + (j.status || 'scheduled')
+          sectionsHtml += '<div class="card"><div class="item">' +
+            '<div class="date-badge"><span class="month">' + dp.month + '</span><span class="day">' + dp.day + '</span></div>' +
+            '<div class="item-info"><div class="item-title">' + esc(j.title || 'Cleaning') + '</div>' +
+            '<div class="item-sub">' + fmtDate(j.date) + (j.startTime ? ' at ' + fmtTime(j.startTime) : '') + '</div></div>' +
+            '<span class="badge-pill ' + statusClass + '">' + esc(j.status || 'scheduled') + '</span>' +
+            '</div></div>'
         })
       }
+      sectionsHtml += '</div>'
 
       // Quotes
-      var quotesDiv = document.getElementById('quotesList')
-      var quotes = data.quotes || []
-      document.getElementById('quotesCount').textContent = quotes.length
+      sectionsHtml += '<div id="sec-quotes" class="section">'
       if (quotes.length === 0) {
-        quotesDiv.innerHTML = '<p class="empty">No quotes yet.</p>'
+        sectionsHtml += '<div class="empty"><div class="empty-icon">📋</div><div class="empty-text">No quotes yet</div></div>'
       } else {
         quotes.forEach(function(q) {
-          var price = q.finalPrice > 0 ? '$' + q.finalPrice.toFixed(0) : ('$' + q.estimateMin + ' – $' + q.estimateMax)
+          var price = q.finalPrice > 0 ? '$' + q.finalPrice.toFixed(0) : ('$' + q.estimateMin + '–$' + q.estimateMax)
           var freq = { 'one-time': 'One-Time', 'weekly': 'Weekly', 'biweekly': 'Every 2 Weeks', 'monthly': 'Monthly' }[q.frequency] || q.frequency || ''
-          quotesDiv.innerHTML += '<div class="item"><div><div class="item-title">' + escapeHtml(q.quoteNumber || 'Quote') + '</div><div class="item-sub">' + escapeHtml(q.serviceType || '') + (freq ? ' &middot; ' + escapeHtml(freq) : '') + '</div></div><div style="text-align:right"><div class="amount">' + escapeHtml(price) + '</div><span class="badge badge-' + escapeHtml(q.status || '') + '">' + escapeHtml(q.status || '') + '</span></div></div>'
+          var statusClass = 'b-' + (q.status || 'draft')
+          sectionsHtml += '<div class="card"><div class="item">' +
+            '<div class="item-info"><div class="item-title">' + esc(q.quoteNumber || 'Quote') + '</div>' +
+            '<div class="item-sub">' + esc(q.serviceType || '') + (freq ? ' &middot; ' + esc(freq) : '') + '</div></div>' +
+            '<div class="item-right"><div class="item-amount">' + esc(price) + '</div>' +
+            '<span class="badge-pill ' + statusClass + '">' + esc(q.status || '') + '</span></div>' +
+            '</div></div>'
         })
       }
+      sectionsHtml += '</div>'
 
-      // Completed jobs
-      var completedDiv = document.getElementById('completedJobs')
-      var completed = data.completedJobs || []
-      document.getElementById('historyCount').textContent = completed.length
+      // History
+      sectionsHtml += '<div id="sec-history" class="section">'
       if (completed.length === 0) {
-        completedDiv.innerHTML = '<p class="empty">No completed visits yet.</p>'
+        sectionsHtml += '<div class="empty"><div class="empty-icon">✨</div><div class="empty-text">No completed visits yet</div></div>'
       } else {
         completed.forEach(function(j) {
-          var date = new Date(j.date + 'T12:00:00')
-          completedDiv.innerHTML += '<div class="item"><div><div class="item-title">' + escapeHtml(j.title || '') + '</div><div class="item-sub">' + escapeHtml(date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })) + (j.serviceType ? ' &middot; ' + escapeHtml(j.serviceType) : '') + '</div></div><span class="badge badge-completed">Completed</span></div>'
+          var dp = dateParts(j.date)
+          sectionsHtml += '<div class="card"><div class="item">' +
+            '<div class="date-badge"><span class="month">' + dp.month + '</span><span class="day">' + dp.day + '</span></div>' +
+            '<div class="item-info"><div class="item-title">' + esc(j.title || 'Cleaning') + '</div>' +
+            '<div class="item-sub">' + fmtDate(j.date) + (j.serviceType ? ' &middot; ' + esc(j.serviceType) : '') + '</div></div>' +
+            '<span class="badge-pill b-completed">Completed</span>' +
+            '</div></div>'
         })
       }
+      sectionsHtml += '</div>'
 
       // Invoices
-      var invDiv = document.getElementById('invoicesList')
-      var invoices = data.invoices || []
-      document.getElementById('invoicesCount').textContent = invoices.length
+      sectionsHtml += '<div id="sec-invoices" class="section">'
       if (invoices.length === 0) {
-        invDiv.innerHTML = '<p class="empty">No invoices.</p>'
+        sectionsHtml += '<div class="empty"><div class="empty-icon">💳</div><div class="empty-text">No invoices</div></div>'
       } else {
-        invoices.forEach(function(i) {
-          var safeStatus = escapeHtml(i.status || '')
-          var actions = '<span class="badge badge-' + safeStatus + '">' + safeStatus + '</span>'
-          var safePaymentUrl = sanitizeUrl(i.paymentUrl)
-          if (safePaymentUrl && (i.status === 'sent' || i.status === 'overdue')) {
-            actions = '<a href="' + escapeHtml(safePaymentUrl) + '" class="pay-btn" target="_blank" rel="noopener">Pay $' + i.total.toFixed(2) + '</a>'
+        invoices.forEach(function(inv) {
+          var statusClass = 'b-' + (inv.status || 'draft')
+          var payUrl = sanitizeUrl(inv.paymentUrl)
+          var actionHtml = ''
+          if (payUrl && (inv.status === 'sent' || inv.status === 'overdue')) {
+            actionHtml = '<a href="' + esc(payUrl) + '" class="btn btn-primary btn-sm" target="_blank" rel="noopener">Pay Now</a>'
+          } else {
+            actionHtml = '<span class="badge-pill ' + statusClass + '">' + esc(inv.status || '') + '</span>'
           }
-          invDiv.innerHTML += '<div class="item"><div><div class="item-title">' + escapeHtml(i.invoiceNumber || '') + '</div><div class="item-sub">' + escapeHtml(i.issueDate || '') + (i.dueDate ? ' &middot; Due ' + escapeHtml(i.dueDate) : '') + (i.paidAt ? ' &middot; Paid' : '') + '</div></div><div style="text-align:right"><div class="amount">$' + i.total.toFixed(2) + '</div>' + actions + '</div></div>'
+          sectionsHtml += '<div class="card"><div class="item">' +
+            '<div class="item-info"><div class="item-title">' + esc(inv.invoiceNumber || 'Invoice') + '</div>' +
+            '<div class="item-sub">' + esc(inv.issueDate || '') + (inv.dueDate ? ' &middot; Due ' + esc(inv.dueDate) : '') + '</div></div>' +
+            '<div class="item-right"><div class="item-amount">$' + inv.total.toFixed(2) + '</div>' + actionHtml + '</div>' +
+            '</div></div>'
         })
       }
+      sectionsHtml += '</div>'
+
+      document.getElementById('sections').innerHTML = sectionsHtml
+
+      // Tab switching with animation
+      document.querySelectorAll('.tab').forEach(function(tab) {
+        tab.addEventListener('click', function() {
+          document.querySelectorAll('.tab').forEach(function(t) { t.classList.remove('active') })
+          document.querySelectorAll('.section').forEach(function(s) { s.classList.remove('active') })
+          tab.classList.add('active')
+          document.getElementById('sec-' + tab.dataset.section).classList.add('active')
+        })
+      })
     })
     .catch(function() {
-      document.getElementById('loading').style.display = 'none'
-      document.getElementById('error').style.display = 'block'
-      document.getElementById('error').textContent = 'Something went wrong. Please try again.'
+      showError('Something went wrong. Please try again.')
     })
 })()
 </script>

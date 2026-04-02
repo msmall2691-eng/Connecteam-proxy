@@ -8,7 +8,7 @@ import {
   getScheduleAsync,
 } from '../lib/store'
 import { isSupabaseConfigured, subscribeToTable } from '../lib/supabase'
-import { Skeleton, CardSkeleton, StatusBadge, ProgressBar } from '../components/ui'
+import { Skeleton, CardSkeleton, StatusBadge, ProgressBar, timeAgo } from '../components/ui'
 
 export default function Dashboard() {
   const [data, setData] = useState(null)
@@ -434,7 +434,7 @@ export default function Dashboard() {
                       msg.channel === 'facebook' ? 'bg-indigo-900/30 text-indigo-400' :
                       'bg-gray-800 text-gray-400'
                     }`}>{msg.channel}</span>
-                    <span className="text-xs text-gray-700">{msg.timestamp ? new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}</span>
+                    <span className="text-xs text-gray-700">{timeAgo(msg.timestamp)}</span>
                   </div>
                 </div>
                 <p className="text-xs text-gray-600 truncate">{msg.content?.slice(0, 60)}</p>

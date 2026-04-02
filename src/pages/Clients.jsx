@@ -4,7 +4,7 @@ import { getClients, getClientsAsync, saveClient, saveClientAsync, deleteClient,
   getQuotes, getQuotesAsync, getJobs, getJobsAsync, getInvoices, getInvoicesAsync } from '../lib/store'
 import { isSupabaseConfigured } from '../lib/supabase'
 import ImportClients from '../components/ImportClients'
-import { TableSkeleton, EmptyState, StatusBadge } from '../components/ui'
+import { TableSkeleton, EmptyState, StatusBadge, Checkbox, timeAgo, ConfirmDialog } from '../components/ui'
 
 const STATUS_COLORS = {
   active: 'bg-green-900/40 text-green-400',
@@ -55,6 +55,8 @@ export default function Clients() {
   }, [search, filterStatus, filterSource, filterType, sortBy])
   const [page, setPage] = useState(1)
   const PAGE_SIZE = 25
+  const [selected, setSelected] = useState(new Set())
+  const [confirmBulk, setConfirmBulk] = useState(null)
 
   useEffect(() => { reload() }, [])
 
@@ -368,12 +370,64 @@ export default function Clients() {
         </div>
       )}
 
+      {/* Bulk action bar */}
+      {selected.size > 0 && (
+        <div className="bg-blue-950/40 border border-blue-800/30 rounded-xl p-3 flex items-center justify-between animate-slide-up">
+          <span className="text-sm text-blue-300 font-medium">{selected.size} selected</span>
+          <div className="flex gap-2">
+            <button onClick={async () => {
+              for (const id of selected) {
+                if (isSupabaseConfigured()) await saveClientAsync({ id, status: 'active' })
+              }
+              setSelected(new Set()); reload()
+            }} className="px-3 py-1.5 bg-green-600 hover:bg-green-500 rounded-lg text-xs text-white font-medium">Mark Active</button>
+            <button onClick={async () => {
+              for (const id of selected) {
+                if (isSupabaseConfigured()) await saveClientAsync({ id, status: 'inactive' })
+              }
+              setSelected(new Set()); reload()
+            }} className="px-3 py-1.5 bg-gray-700 hover:bg-gray-600 rounded-lg text-xs text-gray-300">Mark Inactive</button>
+            <button onClick={() => setConfirmBulk('delete')}
+              className="px-3 py-1.5 bg-red-600/20 hover:bg-red-600/30 rounded-lg text-xs text-red-400">Delete</button>
+            <button onClick={() => setSelected(new Set())} className="px-3 py-1.5 text-xs text-gray-500 hover:text-gray-300">Clear</button>
+          </div>
+        </div>
+      )}
+
+      {/* Bulk delete confirmation */}
+      <ConfirmDialog
+        open={confirmBulk === 'delete'}
+        title={`Delete ${selected.size} client${selected.size !== 1 ? 's' : ''}?`}
+        message="This will permanently delete the selected clients and cannot be undone."
+        confirmLabel="Delete"
+        destructive
+        onConfirm={async () => {
+          for (const id of selected) {
+            if (isSupabaseConfigured()) await deleteClientAsync(id); else deleteClient(id)
+          }
+          setSelected(new Set()); setConfirmBulk(null); reload()
+        }}
+        onCancel={() => setConfirmBulk(null)}
+      />
+
       {/* Client List */}
       <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
               <tr className="text-xs text-gray-500 uppercase tracking-wider border-b border-gray-800">
+                <th className="px-3 py-3 w-10">
+                  <Checkbox
+                    checked={paginatedClients.length > 0 && paginatedClients.every(c => selected.has(c.id))}
+                    indeterminate={paginatedClients.some(c => selected.has(c.id)) && !paginatedClients.every(c => selected.has(c.id))}
+                    onChange={e => {
+                      const next = new Set(selected)
+                      if (e.target.checked) paginatedClients.forEach(c => next.add(c.id))
+                      else paginatedClients.forEach(c => next.delete(c.id))
+                      setSelected(next)
+                    }}
+                  />
+                </th>
                 <th className="px-5 py-3 text-left">Client</th>
                 <th className="px-3 py-3 text-left">Contact</th>
                 <th className="px-3 py-3 text-left">Type</th>
@@ -387,7 +441,17 @@ export default function Clients() {
             </thead>
             <tbody className="divide-y divide-gray-800/50">
               {paginatedClients.map(client => (
-                <tr key={client.id} className="text-gray-300 hover:bg-gray-800/30 transition-colors">
+                <tr key={client.id} className={`text-gray-300 hover:bg-gray-800/30 transition-colors ${selected.has(client.id) ? 'bg-blue-950/20' : ''}`}>
+                  <td className="px-3 py-3">
+                    <Checkbox
+                      checked={selected.has(client.id)}
+                      onChange={e => {
+                        const next = new Set(selected)
+                        if (e.target.checked) next.add(client.id); else next.delete(client.id)
+                        setSelected(next)
+                      }}
+                    />
+                  </td>
                   <td className="px-5 py-3">
                     <Link to={`/clients/${client.id}`} className="font-medium text-white hover:text-blue-400 transition-colors">
                       {client.name}
@@ -437,7 +501,7 @@ export default function Clients() {
               ))}
               {filtered.length === 0 && (
                 <tr>
-                  <td colSpan={9} className="px-5 py-12 text-center text-gray-500">
+                  <td colSpan={10} className="px-5 py-12 text-center text-gray-500">
                     {clients.length === 0 ? 'No clients yet. Add your first client to get started.' : 'No clients match your search.'}
                   </td>
                 </tr>

@@ -303,6 +303,36 @@ export function ProgressBar({ value = 0, max = 100, color = 'blue', size = 'sm' 
 }
 
 
+// ─── RELATIVE TIME ───────────────────────────────────────────────────────────
+export function timeAgo(dateStr) {
+  if (!dateStr) return ''
+  const diff = Date.now() - new Date(dateStr).getTime()
+  const mins = Math.floor(diff / 60000)
+  if (mins < 1) return 'just now'
+  if (mins < 60) return `${mins}m ago`
+  const hours = Math.floor(mins / 60)
+  if (hours < 24) return `${hours}h ago`
+  const days = Math.floor(hours / 24)
+  if (days === 1) return 'yesterday'
+  if (days < 7) return `${days}d ago`
+  if (days < 30) return `${Math.floor(days / 7)}w ago`
+  if (days < 365) return `${Math.floor(days / 30)}mo ago`
+  return `${Math.floor(days / 365)}y ago`
+}
+
+
+// ─── CHECKBOX ────────────────────────────────────────────────────────────────
+export function Checkbox({ checked, onChange, indeterminate }) {
+  return (
+    <label className="relative inline-flex items-center cursor-pointer">
+      <input type="checkbox" checked={checked} onChange={onChange}
+        ref={el => { if (el) el.indeterminate = indeterminate }}
+        className="w-4 h-4 rounded border-gray-600 bg-gray-800 text-blue-500 focus:ring-blue-500 focus:ring-offset-0 cursor-pointer" />
+    </label>
+  )
+}
+
+
 // ─── CONFIRM DIALOG ──────────────────────────────────────────────────────────
 export function ConfirmDialog({ open, title, message, confirmLabel = 'Confirm', cancelLabel = 'Cancel', onConfirm, onCancel, destructive = false }) {
   if (!open) return null
