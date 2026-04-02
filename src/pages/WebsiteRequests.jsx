@@ -503,6 +503,31 @@ export default function WebsiteRequests() {
                       </div>
                     )}
 
+                    {/* Linked client info for converted requests */}
+                    {isConverted && r.client_id && linkedInfo && (
+                      <div className="mt-3 bg-green-900/20 border border-green-900/40 rounded-lg p-3">
+                        <div className="flex items-center gap-3 text-xs">
+                          <svg className="w-4 h-4 text-green-500 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4" />
+                          </svg>
+                          <div className="flex items-center gap-4 flex-wrap">
+                            <Link to={`/clients/${r.client_id}`} className="text-green-400 font-medium hover:underline">
+                              {linkedInfo.name}
+                            </Link>
+                            {linkedInfo.latestQuoteStatus && (
+                              <span className="text-gray-400">
+                                Quote: <span className="text-gray-300 capitalize">{linkedInfo.latestQuoteStatus}</span>
+                                {linkedInfo.quoteCount > 1 && <span className="text-gray-500"> (+{linkedInfo.quoteCount - 1} more)</span>}
+                              </span>
+                            )}
+                            <span className="text-gray-400">
+                              {linkedInfo.jobCount} job{linkedInfo.jobCount !== 1 ? 's' : ''} scheduled
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
                     {/* Actions */}
                     <div className="flex gap-2 mt-4 flex-wrap">
                       {/* Primary: Accept as Lead */}
