@@ -703,6 +703,71 @@ export async function getServiceTypesAsync() {
   return []
 }
 
+// Lookup service_type_id from free-text service type string
+// Maps common variations to canonical service_types table names
+const SERVICE_TYPE_MAP = {
+  'standard': 'Standard Clean',
+  'standard-clean': 'Standard Clean',
+  'standard clean': 'Standard Clean',
+  'standard cleaning': 'Standard Clean',
+  'regular': 'Standard Clean',
+  'deep': 'Deep Clean',
+  'deep-clean': 'Deep Clean',
+  'deep clean': 'Deep Clean',
+  'deep cleaning': 'Deep Clean',
+  'move-out': 'Move-Out',
+  'move-in-out': 'Move-Out',
+  'move out': 'Move-Out',
+  'move-in': 'Move-In',
+  'move in': 'Move-In',
+  'turnover': 'Turnover',
+  'airbnb turnover': 'Turnover',
+  'post-construction': 'Post-Construction',
+  'construction': 'Post-Construction',
+  'janitorial': 'Janitorial',
+  'commercial': 'Janitorial',
+  'one-time': 'One-Time',
+  'one time': 'One-Time',
+}
+
+let _serviceTypesCache = null
+let _serviceTypesCacheTime = 0
+
+export async function lookupServiceTypeId(serviceTypeText) {
+  if (!serviceTypeText) return null
+  const sb = getSupabase()
+  if (!sb) return null
+
+  // Cache service types for 5 minutes
+  if (!_serviceTypesCache || Date.now() - _serviceTypesCacheTime > 300000) {
+    const { data } = await sb.from('service_types').select('id,name').eq('active', true)
+    _serviceTypesCache = data || []
+    _serviceTypesCacheTime = Date.now()
+  }
+
+  // Try exact match first
+  const exact = _serviceTypesCache.find(st => st.name.toLowerCase() === serviceTypeText.toLowerCase())
+  if (exact) return exact.id
+
+  // Try mapped name
+  const mapped = SERVICE_TYPE_MAP[serviceTypeText.toLowerCase()]
+  if (mapped) {
+    const found = _serviceTypesCache.find(st => st.name === mapped)
+    if (found) return found.id
+  }
+
+  // Fallback: partial match
+  const partial = _serviceTypesCache.find(st =>
+    serviceTypeText.toLowerCase().includes(st.name.toLowerCase()) ||
+    st.name.toLowerCase().includes(serviceTypeText.toLowerCase())
+  )
+  if (partial) return partial.id
+
+  // Default to Standard Clean
+  const standard = _serviceTypesCache.find(st => st.name === 'Standard Clean')
+  return standard?.id || null
+}
+
 export async function saveServiceTypeAsync(st) {
   const sb = getSupabase()
   if (!sb) return st

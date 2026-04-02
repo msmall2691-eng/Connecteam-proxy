@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Link } from 'react-router-dom'
 import { getApiKey } from '../lib/api'
-import { getClients, getClientsAsync, getJobs, getJobsAsync, getVisitsAsync, getEmployeesAsync } from '../lib/store'
+import { getClients, getClientsAsync, getJobs, getJobsAsync, getVisitsAsync, getScheduleAsync, getEmployeesAsync } from '../lib/store'
 import { isSupabaseConfigured } from '../lib/supabase'
 
 // Rental calendar config (localStorage)
@@ -32,6 +32,7 @@ export default function Schedule() {
   const [creatingEvent, setCreatingEvent] = useState(false)
   const [allClients, setAllClients] = useState([])
   const [crmJobs, setCrmJobs] = useState([])
+  const [crmVisits, setCrmVisits] = useState([])
 
   // New state for improvements
   const [toast, setToast] = useState(null) // { type: 'success'|'error'|'info', message, details }
@@ -57,11 +58,18 @@ export default function Schedule() {
 
   async function loadCrmData() {
     try {
-      const [cls, jbs] = isSupabaseConfigured()
-        ? await Promise.all([getClientsAsync(), getJobsAsync()])
-        : [getClients(), getJobs()]
+      const today = new Date().toISOString().split('T')[0]
+      const sixWeeksOut = new Date(Date.now() + 42 * 86400000).toISOString().split('T')[0]
+      const [cls, jbs, visits] = isSupabaseConfigured()
+        ? await Promise.all([
+            getClientsAsync(),
+            getJobsAsync(),
+            getScheduleAsync({ startDate: today, endDate: sixWeeksOut }),
+          ])
+        : [getClients(), getJobs(), []]
       setAllClients(cls || [])
       setCrmJobs(jbs || [])
+      setCrmVisits(visits || [])
     } catch {}
   }
 

@@ -10,7 +10,7 @@ import {
   getProperties, getPropertiesAsync, saveProperty, savePropertyAsync,
   deleteProperty,
   getQuotes, getQuotesAsync, saveQuote, saveQuoteAsync,
-  generateQuoteNumber,
+  generateQuoteNumber, saveVisitAsync, lookupServiceTypeId,
 } from '../lib/store'
 import { isSupabaseConfigured, getSupabase } from '../lib/supabase'
 import { calculateQuote } from '../lib/quoteEngine'
@@ -542,7 +542,9 @@ function QuotesTab({ client, properties, quotes, jobs, onReload, onSwitchTab }) 
     const prop = properties.find(p => p.id === q.propertyId)
     const endTime = (() => { const [h, m] = acceptTime.split(':'); return `${String(Math.min(23, parseInt(h) + 3)).padStart(2, '0')}:${m}` })()
 
-    await _saveJob({
+    const serviceTypeId = await lookupServiceTypeId(q.serviceType || 'standard')
+
+    const job = await _saveJob({
       clientId: client.id, clientName: client.name,
       propertyId: q.propertyId, quoteId: q.id,
       title: (q.items?.[0]?.description) || 'Cleaning',
@@ -551,11 +553,25 @@ function QuotesTab({ client, properties, quotes, jobs, onReload, onSwitchTab }) 
       status: 'scheduled',
       price: q.finalPrice, priceType: 'flat',
       serviceType: q.serviceType,
+      serviceTypeId,
       address: prop?.addressLine1 || client.address,
       isRecurring: q.frequency !== 'one-time',
       recurrenceRule: q.frequency === 'one-time' ? null : q.frequency,
       recurrenceDay: q.preferredDay || 1,
+      source: 'quote', isActive: true,
+      preferredStartTime: acceptTime, preferredEndTime: endTime,
+      recurrenceStartDate: acceptDate,
     })
+
+    // Create the first visit
+    if (job?.id) {
+      await saveVisitAsync({
+        jobId: job.id, clientId: client.id, propertyId: q.propertyId,
+        scheduledDate: acceptDate, scheduledStartTime: acceptTime, scheduledEndTime: endTime,
+        status: 'scheduled', source: q.frequency !== 'one-time' ? 'recurring' : 'one_off',
+        serviceTypeId, address: prop?.addressLine1 || client.address, clientVisible: true,
+      })
+    }
 
     // Push to Google Calendar
     try {

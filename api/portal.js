@@ -49,7 +49,11 @@ export default async function handler(req, res) {
     const quotesRes = await fetch(`${supabaseUrl}/rest/v1/quotes?client_id=eq.${clientId}&status=in.(sent,accepted,signed,draft)&order=created_at.desc&limit=20`, { headers: sbHeaders })
     const quotes = await quotesRes.json()
 
-    // Fetch all jobs (upcoming + past completed)
+    // Fetch visits (the canonical schedule) with job titles
+    const visitsRes = await fetch(`${supabaseUrl}/rest/v1/visits?client_id=eq.${clientId}&client_visible=eq.true&order=scheduled_date.desc&limit=50&select=*,job:jobs(title,service_type,price)`, { headers: sbHeaders })
+    const visits = await visitsRes.json()
+
+    // Also fetch jobs for backward compat (service agreements)
     const jobsRes = await fetch(`${supabaseUrl}/rest/v1/jobs?client_id=eq.${clientId}&order=date.desc&limit=50`, { headers: sbHeaders })
     const jobs = await jobsRes.json()
 
@@ -94,6 +98,23 @@ export default async function handler(req, res) {
         acceptedAt: q.accepted_at,
         expiresAt: q.expires_at,
       })),
+      upcomingVisits: (visits || []).filter(v => v.scheduled_date >= today && !['cancelled', 'skipped'].includes(v.status)).map(v => ({
+        title: v.job?.title || 'Cleaning',
+        date: v.scheduled_date,
+        startTime: v.scheduled_start_time,
+        endTime: v.scheduled_end_time,
+        status: v.status,
+        serviceType: v.job?.service_type,
+        address: v.address,
+        confirmedAt: v.confirmed_at,
+      })),
+      completedVisits: (visits || []).filter(v => v.status === 'completed').map(v => ({
+        title: v.job?.title || 'Cleaning',
+        date: v.scheduled_date,
+        serviceType: v.job?.service_type,
+        clientRating: v.client_rating,
+      })),
+      // Backward compat: keep job-based fields
       upcomingJobs: (jobs || []).filter(j => j.date >= today && j.status !== 'cancelled').map(j => ({
         title: j.title,
         date: j.date,
@@ -118,8 +139,8 @@ export default async function handler(req, res) {
       summary: {
         totalQuotes: (quotes || []).length,
         acceptedQuotes: (quotes || []).filter(q => q.status === 'accepted' || q.status === 'signed').length,
-        upcomingVisits: (jobs || []).filter(j => j.date >= today && j.status === 'scheduled').length,
-        completedVisits: (jobs || []).filter(j => j.status === 'completed').length,
+        upcomingVisits: (visits || []).filter(v => v.scheduled_date >= today && !['cancelled', 'skipped'].includes(v.status)).length,
+        completedVisits: (visits || []).filter(v => v.status === 'completed').length,
         totalInvoiced: (invoices || []).reduce((s, i) => s + (parseFloat(i.total) || 0), 0),
         totalPaid: (invoices || []).filter(i => i.status === 'paid').reduce((s, i) => s + (parseFloat(i.total) || 0), 0),
         outstanding: (invoices || []).filter(i => i.status === 'sent' || i.status === 'overdue').reduce((s, i) => s + (parseFloat(i.total) || 0), 0),

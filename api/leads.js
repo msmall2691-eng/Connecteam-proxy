@@ -220,7 +220,7 @@ export default async function handler(req, res) {
                   quote_number: qNum,
                   client_id: clientId,
                   property_id: propertyId,
-                  service_type: lead.service || 'standard',
+                  service_type: lead.service || lead.propertyType || 'standard',
                   frequency: lead.frequency || 'one-time',
                   estimate_min: lead.estimateMin,
                   estimate_max: lead.estimateMax,
@@ -666,17 +666,46 @@ export default async function handler(req, res) {
           } catch (e) { console.error('Connecteam failed:', e) }
         }
 
+        // Look up service_type_id
+        let serviceTypeId = null
+        try {
+          const stMap = { 'standard': 'Standard Clean', 'deep': 'Deep Clean', 'move-out': 'Move-Out', 'move-in-out': 'Move-Out', 'turnover': 'Turnover', 'janitorial': 'Janitorial', 'one-time': 'One-Time' }
+          const stName = stMap[(booking.service_type || 'standard').toLowerCase()] || 'Standard Clean'
+          const stRes = await fetch(`${supabaseUrl}/rest/v1/service_types?name=eq.${encodeURIComponent(stName)}&select=id`, { headers: sbHeaders })
+          const stData = await stRes.json()
+          serviceTypeId = stData?.[0]?.id || null
+        } catch {}
+
         let jobId = null
         try {
-          const r = await fetch(`${supabaseUrl}/rest/v1/jobs`, { method: 'POST', headers: { ...sbHeaders, 'Prefer': 'return=representation' }, body: JSON.stringify({ client_id: booking.client_id, client_name: booking.name, title: `${booking.service_type === 'deep' ? 'Deep Clean' : 'Cleaning'} - ${booking.name}`, date: booking.requested_date.split('T')[0], start_time: start, end_time: end, status: 'scheduled', assignee: assignee || null, notes: adminNotes || 'Self-booked via website', price: booking.estimate_min || null, service_type: booking.service_type, address: booking.address, google_event_id: googleEventId }) })
+          const jobDate = booking.requested_date.split('T')[0]
+          const r = await fetch(`${supabaseUrl}/rest/v1/jobs`, { method: 'POST', headers: { ...sbHeaders, 'Prefer': 'return=representation' }, body: JSON.stringify({ client_id: booking.client_id, client_name: booking.name, title: `${booking.service_type === 'deep' ? 'Deep Clean' : 'Cleaning'} - ${booking.name}`, date: jobDate, start_time: start, end_time: end, status: 'scheduled', assignee: assignee || null, notes: adminNotes || 'Self-booked via website', price: booking.estimate_min || null, service_type: booking.service_type, service_type_id: serviceTypeId, source: 'booking_request', is_active: true, address: booking.address, google_event_id: googleEventId }) })
           if (r.ok) { const d = await r.json(); jobId = d[0]?.id }
         } catch (e) { console.error('Job failed:', e) }
+
+        // Create visit (visits are the canonical schedule)
+        let visitId = null
+        if (jobId) {
+          try {
+            const jobDate = booking.requested_date.split('T')[0]
+            const vRes = await fetch(`${supabaseUrl}/rest/v1/visits`, { method: 'POST', headers: { ...sbHeaders, 'Content-Type': 'application/json', 'Prefer': 'return=representation' }, body: JSON.stringify({ job_id: jobId, client_id: booking.client_id, property_id: booking.property_id || null, scheduled_date: jobDate, scheduled_start_time: start, scheduled_end_time: end, status: 'scheduled', source: 'booking', service_type_id: serviceTypeId, address: booking.address, google_event_id: googleEventId, connecteam_shift_id: connecteamShiftId, client_visible: true }) })
+            if (vRes.ok) { const vData = await vRes.json(); visitId = vData[0]?.id }
+          } catch (e) { console.error('Visit creation failed:', e) }
+
+          // Log calendar syncs
+          if (visitId && googleEventId) {
+            await fetch(`${supabaseUrl}/rest/v1/calendar_sync_log`, { method: 'POST', headers: { ...sbHeaders, 'Content-Type': 'application/json' }, body: JSON.stringify({ visit_id: visitId, provider: 'google_calendar', external_id: googleEventId, direction: 'outbound', sync_status: 'synced' }) }).catch(() => {})
+          }
+          if (visitId && connecteamShiftId) {
+            await fetch(`${supabaseUrl}/rest/v1/calendar_sync_log`, { method: 'POST', headers: { ...sbHeaders, 'Content-Type': 'application/json' }, body: JSON.stringify({ visit_id: visitId, provider: 'connecteam', external_id: connecteamShiftId, direction: 'outbound', sync_status: 'synced' }) }).catch(() => {})
+          }
+        }
 
         await fetch(`${supabaseUrl}/rest/v1/booking_requests?id=eq.${bookingId}`, { method: 'PATCH', headers: sbHeaders, body: JSON.stringify({ status: 'approved', admin_notes: adminNotes || null, google_event_id: googleEventId, connecteam_shift_id: connecteamShiftId, job_id: jobId, approved_at: new Date().toISOString() }) })
 
         try { await sendBookingConfirmationEmail(booking, { start, end, adminNotes }) } catch (e) { console.error('Confirm email failed:', e) }
 
-        return res.status(200).json({ success: true, bookingId, jobId, googleEventId, connecteamShiftId })
+        return res.status(200).json({ success: true, bookingId, jobId, visitId, googleEventId, connecteamShiftId })
       } catch (err) {
         console.error('Booking approval error:', err)
         return res.status(500).json({ error: 'Failed to approve booking' })
