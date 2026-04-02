@@ -4,6 +4,7 @@ import { getClients, getClientsAsync, saveClient, saveClientAsync, deleteClient,
   getQuotes, getQuotesAsync, getJobs, getJobsAsync, getInvoices, getInvoicesAsync } from '../lib/store'
 import { isSupabaseConfigured } from '../lib/supabase'
 import ImportClients from '../components/ImportClients'
+import { TableSkeleton, EmptyState, StatusBadge } from '../components/ui'
 
 const STATUS_COLORS = {
   active: 'bg-green-900/40 text-green-400',
@@ -39,13 +40,16 @@ export default function Clients() {
   const [filterType, setFilterType] = useState('all')
   const [sortBy, setSortBy] = useState('name-az')
   const [clientStats, setClientStats] = useState({})
+  const [loading, setLoading] = useState(true)
 
   useEffect(() => { reload() }, [])
 
   async function reload() {
+    setLoading(true)
     const data = isSupabaseConfigured() ? await getClientsAsync() : getClients()
     setClients(data)
     loadStats(data)
+    setLoading(false)
   }
 
   async function loadStats(clientList) {
@@ -124,8 +128,15 @@ export default function Clients() {
     return result
   }, [clients, filterStatus, filterSource, filterType, search, sortBy, clientStats])
 
+  if (loading && clients.length === 0) return (
+    <div className="p-6 max-w-7xl mx-auto space-y-6 animate-fade-in">
+      <div><h1 className="text-2xl font-bold text-white">Clients</h1><p className="text-sm text-gray-500 mt-1">Loading...</p></div>
+      <TableSkeleton rows={8} cols={5} />
+    </div>
+  )
+
   return (
-    <div className="p-6 max-w-7xl mx-auto space-y-6">
+    <div className="p-6 max-w-7xl mx-auto space-y-6 animate-fade-in">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-white">Clients</h1>

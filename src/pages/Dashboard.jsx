@@ -8,6 +8,7 @@ import {
   getScheduleAsync,
 } from '../lib/store'
 import { isSupabaseConfigured } from '../lib/supabase'
+import { Skeleton, CardSkeleton, StatusBadge, ProgressBar } from '../components/ui'
 
 export default function Dashboard() {
   const [data, setData] = useState(null)
@@ -63,6 +64,8 @@ export default function Dashboard() {
     const draftQuotes = quotes.filter(q => q.status === 'draft').slice(0, 5)
     const sentQuotes = quotes.filter(q => q.status === 'sent').slice(0, 5)
     const acceptedQuotes = quotes.filter(q => q.status === 'accepted' || q.status === 'signed')
+    // Stale quotes (sent > 3 days ago, no response)
+    const staleQuotes = quotes.filter(q => q.status === 'sent' && q.sentAt && (Date.now() - new Date(q.sentAt)) > 3 * 86400000).slice(0, 5)
 
     // Today's schedule (prefer visits)
     const todayVisits = (visits || []).filter(v => v.scheduledDate === today && !['cancelled', 'skipped'].includes(v.status))
@@ -116,10 +119,13 @@ export default function Dashboard() {
       totalProperties: properties.length,
     }
 
+    // Action items count (things needing attention)
+    const actionCount = draftQuotes.length + staleQuotes.length + unpushedJobs.length + leads.length + unpaid.filter(i => i.status === 'overdue').length
+
     setData({
       stats: { clients: clients.length, active: clients.filter(c => c.status === 'active').length, leads: leads.length, scheduled: thisWeekJobs.length, paidTotal, outstanding },
-      workflow,
-      todayJobs, thisWeekJobs, unpushedJobs, unpushedCT, draftQuotes, sentQuotes, leads, unpaid,
+      workflow, actionCount,
+      todayJobs, thisWeekJobs, unpushedJobs, unpushedCT, draftQuotes, sentQuotes, staleQuotes, leads, unpaid,
       recentMsgs: recentMsgs.slice(0, 4),
     })
   }
@@ -185,82 +191,109 @@ export default function Dashboard() {
     finally { setLoading(false) }
   }
 
-  if (!data) return null
+  if (!data) return (
+    <div className="p-4 md:p-6 max-w-7xl mx-auto space-y-4 animate-fade-in">
+      <div className="flex items-center justify-between">
+        <div><div className="h-6 w-32 bg-gray-800 rounded animate-pulse" /><div className="h-4 w-48 bg-gray-800/50 rounded animate-pulse mt-2" /></div>
+      </div>
+      <div className="grid grid-cols-3 md:grid-cols-6 gap-2">
+        {Array.from({ length: 6 }).map((_, i) => (
+          <div key={i} className="bg-gray-900 border border-gray-800 rounded-xl p-3 text-center">
+            <div className="h-7 w-12 bg-gray-800 rounded animate-pulse mx-auto" />
+            <div className="h-3 w-16 bg-gray-800/50 rounded animate-pulse mx-auto mt-2" />
+          </div>
+        ))}
+      </div>
+      <CardSkeleton count={3} />
+    </div>
+  )
+
+  const formatTime = (t) => { if (!t) return ''; const [h, m] = t.split(':'); const hr = parseInt(h); if (isNaN(hr)) return t; return `${hr > 12 ? hr - 12 : hr || 12}:${m || '00'}${hr >= 12 ? 'pm' : 'am'}` }
 
   return (
-    <div className="p-4 md:p-6 max-w-7xl mx-auto space-y-4">
+    <div className="p-4 md:p-6 max-w-7xl mx-auto space-y-4 animate-fade-in">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-xl font-bold text-white">Dashboard</h1>
-          <p className="text-xs text-gray-500">{new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}</p>
+          <p className="text-xs text-gray-500">{new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}</p>
         </div>
         <div className="flex gap-2">
-          <Link to="/pipeline" className="px-3 py-1.5 bg-gray-800 hover:bg-gray-700 rounded-lg text-xs text-gray-300">Pipeline</Link>
-          <Link to="/schedule" className="px-3 py-1.5 bg-gray-800 hover:bg-gray-700 rounded-lg text-xs text-gray-300">Schedule</Link>
-          <Link to="/revenue" className="px-3 py-1.5 bg-gray-800 hover:bg-gray-700 rounded-lg text-xs text-gray-300">Revenue</Link>
+          {data.actionCount > 0 && (
+            <span className="px-2.5 py-1.5 bg-amber-600/20 border border-amber-800/30 rounded-lg text-xs text-amber-400 font-medium">
+              {data.actionCount} action{data.actionCount !== 1 ? 's' : ''} needed
+            </span>
+          )}
+          <Link to="/pipeline" className="px-3 py-1.5 bg-gray-800 hover:bg-gray-700 rounded-lg text-xs text-gray-300 transition-colors">Pipeline</Link>
+          <Link to="/schedule" className="px-3 py-1.5 bg-gray-800 hover:bg-gray-700 rounded-lg text-xs text-gray-300 transition-colors">Schedule</Link>
+          <Link to="/revenue" className="px-3 py-1.5 bg-gray-800 hover:bg-gray-700 rounded-lg text-xs text-gray-300 transition-colors">Revenue</Link>
         </div>
       </div>
 
-      {/* Stats */}
+      {/* Stats Row */}
       <div className="grid grid-cols-3 md:grid-cols-6 gap-2">
-        <Stat label="Active" value={data.stats.active} />
-        <Stat label="Leads" value={data.stats.leads} color={data.stats.leads > 0 ? 'text-blue-400' : ''} />
+        <Stat label="Active Clients" value={data.stats.active} icon={<span className="w-2 h-2 rounded-full bg-green-500 inline-block mr-1.5" />} />
+        <Stat label="New Leads" value={data.stats.leads} color={data.stats.leads > 0 ? 'text-blue-400' : ''} pulse={data.stats.leads > 0} />
         <Stat label="This Week" value={data.stats.scheduled} />
-        <Stat label="Revenue" value={`$${data.stats.paidTotal.toFixed(0)}`} color="text-green-400" />
-        <Stat label="Owed" value={`$${data.stats.outstanding.toFixed(0)}`} color={data.stats.outstanding > 0 ? 'text-yellow-400' : ''} />
-        <Stat label="Clients" value={data.stats.clients} />
+        <Stat label="Revenue" value={`$${data.stats.paidTotal.toLocaleString()}`} color="text-green-400" />
+        <Stat label="Outstanding" value={`$${data.stats.outstanding.toLocaleString()}`} color={data.stats.outstanding > 0 ? 'text-amber-400' : 'text-gray-500'} />
+        <Stat label="Total Clients" value={data.stats.clients} />
       </div>
 
-      {/* Workflow Funnel */}
+      {/* Workflow Pipeline — visual funnel with progress */}
       <div className="bg-gray-900 border border-gray-800 rounded-xl p-4">
         <div className="flex items-center justify-between mb-3">
           <h2 className="text-sm font-semibold text-white">Workflow Pipeline</h2>
-          <Link to="/pipeline" className="text-xs text-gray-500 hover:text-gray-300">View Pipeline</Link>
+          <Link to="/pipeline" className="text-xs text-gray-500 hover:text-gray-300 transition-colors">View All &rarr;</Link>
         </div>
         <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
-          <Link to="/website-requests" className="bg-gray-800/50 rounded-lg p-3 hover:bg-gray-800 transition-colors">
-            <div className="flex items-center gap-2 mb-1">
-              <span className="w-2 h-2 rounded-full bg-blue-500" />
-              <span className="text-xs text-gray-400">Leads</span>
-            </div>
-            <p className="text-lg font-bold text-blue-400">{data.workflow.leads}</p>
-            <p className="text-xs text-gray-600">new inquiries</p>
-          </Link>
-          <Link to="/pipeline" className="bg-gray-800/50 rounded-lg p-3 hover:bg-gray-800 transition-colors">
-            <div className="flex items-center gap-2 mb-1">
-              <span className="w-2 h-2 rounded-full bg-purple-500" />
-              <span className="text-xs text-gray-400">Quotes</span>
-            </div>
-            <p className="text-lg font-bold text-purple-400">{data.workflow.draftQuotes + data.workflow.sentQuotes}</p>
-            <p className="text-xs text-gray-600">{data.workflow.draftQuotes} draft, {data.workflow.sentQuotes} sent</p>
-          </Link>
-          <Link to="/schedule" className="bg-gray-800/50 rounded-lg p-3 hover:bg-gray-800 transition-colors">
-            <div className="flex items-center gap-2 mb-1">
-              <span className="w-2 h-2 rounded-full bg-cyan-500" />
-              <span className="text-xs text-gray-400">Scheduled</span>
-            </div>
-            <p className="text-lg font-bold text-cyan-400">{data.workflow.scheduledJobs}</p>
-            <p className="text-xs text-gray-600">{data.workflow.completedJobs} completed</p>
-          </Link>
-          <Link to="/invoices" className="bg-gray-800/50 rounded-lg p-3 hover:bg-gray-800 transition-colors">
-            <div className="flex items-center gap-2 mb-1">
-              <span className="w-2 h-2 rounded-full bg-yellow-500" />
-              <span className="text-xs text-gray-400">Invoiced</span>
-            </div>
-            <p className="text-lg font-bold text-yellow-400">{data.workflow.sentInvoices + data.workflow.draftInvoices}</p>
-            <p className="text-xs text-gray-600">{data.workflow.overdueInvoices > 0 ? `${data.workflow.overdueInvoices} overdue` : `${data.workflow.draftInvoices} draft`}</p>
-          </Link>
-          <Link to="/revenue" className="bg-gray-800/50 rounded-lg p-3 hover:bg-gray-800 transition-colors">
-            <div className="flex items-center gap-2 mb-1">
-              <span className="w-2 h-2 rounded-full bg-green-500" />
-              <span className="text-xs text-gray-400">Paid</span>
-            </div>
-            <p className="text-lg font-bold text-green-400">{data.workflow.paidInvoices}</p>
-            <p className="text-xs text-gray-600">${data.stats.paidTotal.toFixed(0)} total</p>
-          </Link>
+          {[
+            { to: '/pipeline', dot: 'bg-blue-500', label: 'Leads', value: data.workflow.leads, sub: 'new inquiries', color: 'text-blue-400', bar: { value: data.workflow.leads, max: Math.max(data.workflow.leads, data.stats.clients || 1), color: 'blue' } },
+            { to: '/pipeline', dot: 'bg-purple-500', label: 'Quotes', value: data.workflow.draftQuotes + data.workflow.sentQuotes, sub: `${data.workflow.draftQuotes} draft, ${data.workflow.sentQuotes} sent`, color: 'text-purple-400', bar: { value: data.workflow.acceptedQuotes, max: data.workflow.totalQuotes || 1, color: 'purple' } },
+            { to: '/schedule', dot: 'bg-cyan-500', label: 'Scheduled', value: data.workflow.scheduledJobs, sub: `${data.workflow.completedJobs} completed`, color: 'text-cyan-400', bar: { value: data.workflow.completedJobs, max: data.workflow.scheduledJobs + data.workflow.completedJobs || 1, color: 'green' } },
+            { to: '/invoices', dot: 'bg-amber-500', label: 'Invoiced', value: data.workflow.sentInvoices + data.workflow.draftInvoices, sub: data.workflow.overdueInvoices > 0 ? `${data.workflow.overdueInvoices} overdue` : `${data.workflow.draftInvoices} draft`, color: 'text-amber-400', bar: { value: data.workflow.paidInvoices, max: data.workflow.paidInvoices + data.workflow.sentInvoices + data.workflow.draftInvoices || 1, color: 'amber' } },
+            { to: '/revenue', dot: 'bg-green-500', label: 'Paid', value: data.workflow.paidInvoices, sub: `$${data.stats.paidTotal.toLocaleString()}`, color: 'text-green-400', bar: { value: data.workflow.paidInvoices, max: data.workflow.paidInvoices || 1, color: 'green' } },
+          ].map(stage => (
+            <Link key={stage.label} to={stage.to} className="bg-gray-800/40 hover:bg-gray-800/70 rounded-xl p-3 transition-all duration-200 group">
+              <div className="flex items-center gap-2 mb-1.5">
+                <span className={`w-2 h-2 rounded-full ${stage.dot}`} />
+                <span className="text-xs text-gray-400 group-hover:text-gray-300 transition-colors">{stage.label}</span>
+              </div>
+              <p className={`text-xl font-bold ${stage.color}`}>{stage.value}</p>
+              <p className="text-[11px] text-gray-600 mt-0.5">{stage.sub}</p>
+              <div className="mt-2"><ProgressBar {...stage.bar} size="xs" /></div>
+            </Link>
+          ))}
         </div>
       </div>
+
+      {/* Stale Quotes Warning — quotes sent > 3 days with no response */}
+      {data.staleQuotes.length > 0 && (
+        <div className="bg-amber-950/20 border border-amber-800/30 rounded-xl p-4 animate-fade-in">
+          <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center gap-2">
+              <span className="text-amber-400 text-sm">Needs Follow-Up</span>
+              <span className="px-1.5 py-0.5 bg-amber-600/20 text-amber-400 rounded text-xs font-medium">{data.staleQuotes.length}</span>
+            </div>
+            <Link to="/pipeline" className="text-xs text-gray-500 hover:text-gray-300">View in Pipeline</Link>
+          </div>
+          <div className="space-y-1.5">
+            {data.staleQuotes.map(q => {
+              const daysAgo = Math.floor((Date.now() - new Date(q.sentAt)) / 86400000)
+              return (
+                <Link key={q.id} to={`/clients/${q.clientId}?tab=quotes`}
+                  className="flex items-center justify-between py-2 px-3 bg-gray-900/50 rounded-lg hover:bg-gray-800/50 transition-colors">
+                  <div className="min-w-0">
+                    <p className="text-sm text-white truncate">{q.quoteNumber}</p>
+                    <p className="text-xs text-gray-500">${q.finalPrice || q.estimateMax || 0} &middot; {q.frequency}</p>
+                  </div>
+                  <span className="shrink-0 text-xs text-amber-400 font-medium">{daysAgo}d ago — no response</span>
+                </Link>
+              )
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Pending Bookings */}
       {pendingCount > 0 && (
@@ -332,11 +365,11 @@ export default function Dashboard() {
           <Panel title="Today" icon="📅" count={data.todayJobs.length} linkTo="/schedule" color="cyan">
             {data.todayJobs.map(j => (
               <div key={j.id} className="flex justify-between py-1.5">
-                <div className="min-w-0"><p className="text-sm text-white truncate">{j.title}</p><p className="text-xs text-gray-500">{j.clientName} {j.startTime ? `@ ${j.startTime}` : ''}</p></div>
-                <span className={`shrink-0 px-1.5 py-0.5 rounded text-xs ${j.status === 'completed' ? 'bg-green-900/30 text-green-400' : 'bg-cyan-900/30 text-cyan-400'}`}>{j.status}</span>
+                <div className="min-w-0"><p className="text-sm text-white truncate">{j.title}</p><p className="text-xs text-gray-500">{j.clientName} {j.startTime ? `@ ${formatTime(j.startTime)}` : ''}</p></div>
+                <StatusBadge status={j.status} />
               </div>
             ))}
-            {data.todayJobs.length === 0 && <p className="text-xs text-gray-700">No jobs today</p>}
+            {data.todayJobs.length === 0 && <p className="text-xs text-gray-600 py-2 text-center">No jobs scheduled for today</p>}
           </Panel>
 
           {/* Push to Google Calendar */}
@@ -436,11 +469,11 @@ export default function Dashboard() {
   )
 }
 
-function Stat({ label, value, color = '' }) {
+function Stat({ label, value, color = '', icon, pulse }) {
   return (
-    <div className="bg-gray-900 border border-gray-800 rounded-lg px-3 py-2 text-center">
-      <p className={`text-lg font-bold ${color || 'text-white'}`}>{value}</p>
-      <p className="text-xs text-gray-600">{label}</p>
+    <div className={`bg-gray-900 border border-gray-800 rounded-xl px-3 py-2.5 text-center transition-all hover:border-gray-700 ${pulse ? 'ring-1 ring-blue-800/30' : ''}`}>
+      <p className={`text-lg font-bold tabular-nums ${color || 'text-white'}`}>{icon}{value}</p>
+      <p className="text-[11px] text-gray-500 mt-0.5">{label}</p>
     </div>
   )
 }

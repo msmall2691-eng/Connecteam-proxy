@@ -1,6 +1,8 @@
 import { Routes, Route, NavLink } from 'react-router-dom'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useAuth } from './lib/auth'
+import { getClientsAsync, getClients } from './lib/store'
+import { isSupabaseConfigured } from './lib/supabase'
 import Login from './pages/Login'
 import Dashboard from './pages/Dashboard'
 import Reports from './pages/Reports'
@@ -16,6 +18,7 @@ import Setup from './pages/Setup'
 import Revenue from './pages/Revenue'
 import MyWebsite from './pages/MyWebsite'
 import AgentChat from './components/AgentChat'
+import { ToastProvider, CommandPalette } from './components/ui'
 
 const navItems = [
   { to: '/', label: 'Dashboard', icon: 'M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6' },
@@ -34,6 +37,29 @@ export default function App() {
   const { user, loading, signOut } = useAuth()
   const [chatOpen, setChatOpen] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [cmdKOpen, setCmdKOpen] = useState(false)
+  const [allClients, setAllClients] = useState([])
+
+  // Load clients for Cmd+K search
+  useEffect(() => {
+    if (user) {
+      (isSupabaseConfigured() ? getClientsAsync() : Promise.resolve(getClients()))
+        .then(c => setAllClients(c || []))
+        .catch(() => {})
+    }
+  }, [user])
+
+  // Global Cmd+K keyboard shortcut
+  useEffect(() => {
+    function handleKeyDown(e) {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+        e.preventDefault()
+        setCmdKOpen(prev => !prev)
+      }
+    }
+    document.addEventListener('keydown', handleKeyDown)
+    return () => document.removeEventListener('keydown', handleKeyDown)
+  }, [])
 
   // Show loading while checking auth
   if (loading) {
@@ -50,7 +76,10 @@ export default function App() {
   }
 
   return (
+    <ToastProvider>
     <div className="flex h-screen bg-gray-950 text-gray-100">
+      {/* Cmd+K search palette */}
+      <CommandPalette clients={allClients} isOpen={cmdKOpen} onClose={() => setCmdKOpen(false)} />
       {/* Mobile hamburger button */}
       <button
         onClick={() => setSidebarOpen(!sidebarOpen)}
@@ -84,6 +113,15 @@ export default function App() {
           <h1 className="text-lg font-bold text-white tracking-tight">Workflow HQ</h1>
           <p className="text-xs text-gray-500 mt-0.5">CRM & Operations</p>
         </div>
+        {/* Search trigger */}
+        <button onClick={() => setCmdKOpen(true)}
+          className="mx-3 mt-3 mb-1 flex items-center gap-2 w-[calc(100%-1.5rem)] px-3 py-2 bg-gray-800/50 border border-gray-700/50 rounded-lg text-sm text-gray-500 hover:text-gray-300 hover:bg-gray-800 transition-colors">
+          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
+          </svg>
+          <span className="flex-1 text-left">Search...</span>
+          <kbd className="hidden md:inline text-[10px] px-1.5 py-0.5 bg-gray-700/50 rounded font-mono">{'\u2318'}K</kbd>
+        </button>
         <nav className="flex-1 p-3 space-y-1 overflow-y-auto">
           {navItems.map(item => (
             <NavLink key={item.to} to={item.to} end={item.to === '/'}
@@ -174,5 +212,6 @@ export default function App() {
       {/* AI Agent panel */}
       {chatOpen && <AgentChat onClose={() => setChatOpen(false)} />}
     </div>
+    </ToastProvider>
   )
 }
