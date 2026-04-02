@@ -49,6 +49,7 @@ export default async function handler(req, res) {
 
       // Auto-create invoice if job has a price
       let invoice = null
+      let squareResult = null
       const price = visit.job?.price
       if (price && price > 0) {
         const invNum = `INV-${new Date().getFullYear()}${String(new Date().getMonth() + 1).padStart(2, '0')}-${String(Math.floor(Math.random() * 9999)).padStart(4, '0')}`
@@ -71,9 +72,27 @@ export default async function handler(req, res) {
           const invData = await invRes.json()
           invoice = invData[0]
         }
+
+        // Auto-send via Square if token is configured and client has email
+        const SQUARE_TOKEN = process.env.SQUARE_ACCESS_TOKEN
+        const client = visit.client
+        if (SQUARE_TOKEN && invoice && client?.email) {
+          try {
+            squareResult = await sendInvoiceViaSquare({
+              squareToken: SQUARE_TOKEN,
+              squareBase: process.env.SQUARE_ENVIRONMENT === 'production'
+                ? 'https://connect.squareup.com' : 'https://connect.squareupsandbox.com',
+              supabaseUrl, sbHeaders,
+              invoice, client, visit, price,
+            })
+          } catch (e) {
+            console.error('Square auto-send failed (invoice still created as draft):', e.message)
+            squareResult = { error: e.message }
+          }
+        }
       }
 
-      return res.status(200).json({ success: true, visitId, status: 'completed', invoice })
+      return res.status(200).json({ success: true, visitId, status: 'completed', invoice, square: squareResult })
     } catch (err) {
       return res.status(500).json({ error: err.message })
     }
@@ -419,4 +438,139 @@ async function getAccessToken({ clientId, clientSecret, refreshToken }) {
   })
   const data = await res.json()
   return data.access_token || null
+}
+
+// Auto-send invoice via Square: create customer (if needed) → create order → create invoice → publish
+async function sendInvoiceViaSquare({ squareToken, squareBase, supabaseUrl, sbHeaders, invoice, client, visit, price }) {
+  const sqHeaders = {
+    Authorization: `Bearer ${squareToken}`,
+    'Content-Type': 'application/json',
+    'Square-Version': '2024-01-18',
+  }
+
+  // 1. Get location
+  const locRes = await fetch(`${squareBase}/v2/locations`, { headers: sqHeaders })
+  const locData = await locRes.json()
+  const locationId = locData.locations?.[0]?.id
+  if (!locationId) throw new Error('No Square location found')
+
+  // 2. Find or create Square customer
+  let customerId = null
+
+  // Check if client already has a square_customer_id
+  const clientRes = await fetch(
+    `${supabaseUrl}/rest/v1/clients?id=eq.${visit.client_id}&select=square_customer_id`,
+    { headers: sbHeaders }
+  )
+  const clientRows = await clientRes.json()
+  customerId = clientRows?.[0]?.square_customer_id
+
+  if (!customerId && client.email) {
+    // Search Square by email
+    const searchRes = await fetch(`${squareBase}/v2/customers/search`, {
+      method: 'POST', headers: sqHeaders,
+      body: JSON.stringify({ query: { filter: { email_address: { exact: client.email } } } }),
+    })
+    const searchData = await searchRes.json()
+    customerId = searchData.customers?.[0]?.id
+  }
+
+  if (!customerId) {
+    // Create new customer in Square
+    const nameParts = (client.name || '').split(' ')
+    const createRes = await fetch(`${squareBase}/v2/customers`, {
+      method: 'POST', headers: sqHeaders,
+      body: JSON.stringify({
+        idempotency_key: `cust_${visit.client_id}_${Date.now()}`,
+        given_name: nameParts[0] || '',
+        family_name: nameParts.slice(1).join(' ') || '',
+        email_address: client.email || undefined,
+        phone_number: client.phone || undefined,
+      }),
+    })
+    const createData = await createRes.json()
+    if (createData.errors) throw new Error(createData.errors[0]?.detail || 'Customer creation failed')
+    customerId = createData.customer?.id
+  }
+
+  // Save square_customer_id back to client
+  if (customerId) {
+    await fetch(`${supabaseUrl}/rest/v1/clients?id=eq.${visit.client_id}`, {
+      method: 'PATCH', headers: sbHeaders,
+      body: JSON.stringify({ square_customer_id: customerId }),
+    }).catch(() => {})
+  }
+
+  // 3. Create order
+  const orderRes = await fetch(`${squareBase}/v2/orders`, {
+    method: 'POST', headers: sqHeaders,
+    body: JSON.stringify({
+      idempotency_key: `order_${invoice.id}_${Date.now()}`,
+      order: {
+        location_id: locationId,
+        customer_id: customerId,
+        line_items: [{
+          name: visit.job?.title || 'Cleaning Service',
+          quantity: '1',
+          base_price_money: { amount: Math.round(price * 100), currency: 'USD' },
+        }],
+      },
+    }),
+  })
+  const orderData = await orderRes.json()
+  if (orderData.errors) throw new Error(orderData.errors[0]?.detail || 'Order creation failed')
+  const orderId = orderData.order?.id
+
+  // 4. Create invoice
+  const invCreateRes = await fetch(`${squareBase}/v2/invoices`, {
+    method: 'POST', headers: sqHeaders,
+    body: JSON.stringify({
+      idempotency_key: `inv_${invoice.id}_${Date.now()}`,
+      invoice: {
+        location_id: locationId,
+        order_id: orderId,
+        title: `${visit.job?.title || 'Cleaning Service'} — ${visit.scheduled_date}`,
+        payment_requests: [{
+          request_type: 'BALANCE',
+          due_date: invoice.due_date,
+          automatic_payment_source: 'NONE',
+          reminders: [
+            { relative_scheduled_days: -1, message: 'Your invoice is due tomorrow.' },
+            { relative_scheduled_days: 0, message: 'Your invoice is due today.' },
+          ],
+        }],
+        delivery_method: 'EMAIL',
+        accepted_payment_methods: { card: true, square_gift_card: false, bank_account: true },
+        primary_recipient: { customer_id: customerId },
+      },
+    }),
+  })
+  const invData = await invCreateRes.json()
+  if (invData.errors) throw new Error(invData.errors[0]?.detail || 'Invoice creation failed')
+
+  const squareInvoiceId = invData.invoice?.id
+  const version = invData.invoice?.version || 0
+
+  // 5. Publish (send) the invoice
+  const pubRes = await fetch(`${squareBase}/v2/invoices/${squareInvoiceId}/publish`, {
+    method: 'POST', headers: sqHeaders,
+    body: JSON.stringify({ idempotency_key: `pub_${invoice.id}_${Date.now()}`, version }),
+  })
+  const pubData = await pubRes.json()
+  if (pubData.errors) throw new Error(pubData.errors[0]?.detail || 'Invoice publish failed')
+
+  const publicUrl = pubData.invoice?.public_url || invData.invoice?.public_url || ''
+
+  // 6. Update our invoice with Square IDs and mark as sent
+  await fetch(`${supabaseUrl}/rest/v1/invoices?id=eq.${invoice.id}`, {
+    method: 'PATCH', headers: sbHeaders,
+    body: JSON.stringify({
+      status: 'sent',
+      square_invoice_id: squareInvoiceId,
+      square_public_url: publicUrl,
+      sent_at: new Date().toISOString(),
+    }),
+  })
+
+  return { sent: true, squareInvoiceId, publicUrl }
 }
