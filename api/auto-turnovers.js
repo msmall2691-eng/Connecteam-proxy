@@ -80,6 +80,7 @@ export default async function handler(req, res) {
 
     const turnovers = []
     const created = []
+    const errors = []
 
     // ── PHASE 1: Batch-read all Google Calendars (fast, one API call each) ──
     // Group properties by source: Google Calendar vs iCal fallback
@@ -236,9 +237,22 @@ export default async function handler(req, res) {
         // Create visit if scanning and not already scheduled
         if (action === 'scan' && !alreadyScheduled && turnoverJobId) {
           try {
+            // Use property-specific cleaning duration (default 3 hours)
+            const duration = parseInt(prop.cleaning_duration) || 3
             const [h, m] = cleaningTime.split(':').map(Number)
-            const endH = String(Math.min(h + 3, 23)).padStart(2, '0')
+            const endH = String(Math.min(h + duration, 23)).padStart(2, '0')
             const endTime = `${endH}:${m.toString().padStart(2, '0')}`
+
+            // Build instructions from guest info + property details
+            const instrLines = []
+            if (checkout.guest) instrLines.push(`Guest: ${checkout.guest}`)
+            instrLines.push(`Checkout: ${checkoutTime}`)
+            if (checkout.checkIn) instrLines.push(`Next check-in: ${checkout.checkIn}`)
+            if (prop.access_notes) instrLines.push(`Access: ${prop.access_notes}`)
+            if (prop.parking_instructions) instrLines.push(`Parking: ${prop.parking_instructions}`)
+            if (prop.pet_details) instrLines.push(`Pets: ${prop.pet_details}`)
+            if (prop.cleaning_notes) instrLines.push(`Notes: ${prop.cleaning_notes}`)
+            if (prop.do_not_areas) instrLines.push(`Do not clean: ${prop.do_not_areas}`)
 
             const visitRes = await fetch(`${supabaseUrl}/rest/v1/visits`, {
               method: 'POST',
@@ -254,7 +268,7 @@ export default async function handler(req, res) {
                 source: 'ical_sync',
                 service_type_id: turnoverServiceTypeId,
                 ical_event_uid: checkout.uid || null,
-                instructions: `Guest: ${checkout.guest}\nCheckout: ${checkoutTime}\nCheck-in: ${checkout.checkIn || 'same day'}`,
+                instructions: instrLines.join('\n'),
                 address: prop.address_line1,
                 client_visible: true,
               }),
@@ -305,6 +319,7 @@ export default async function handler(req, res) {
             }
           } catch (e) {
             console.error('Failed to create turnover visit:', e)
+            errors.push({ property: prop.name || prop.address_line1, date: checkout.date, error: e.message })
           }
         }
       }
@@ -327,7 +342,9 @@ export default async function handler(req, res) {
       alreadyScheduled: turnovers.filter(t => t.alreadyScheduled).length,
       newTurnovers: turnovers.filter(t => !t.alreadyScheduled).length,
       created: created.length,
+      errors: errors.length,
       turnovers,
+      ...(errors.length > 0 ? { errorDetails: errors } : {}),
     })
   } catch (err) {
     return res.status(500).json({ error: err.message })

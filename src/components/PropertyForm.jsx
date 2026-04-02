@@ -27,6 +27,7 @@ export default function PropertyForm({ property, onSave, onCancel }) {
     googleCalendarId: property?.googleCalendarId || '',
     checkoutTime: property?.checkoutTime || '10:00',
     cleaningTime: property?.cleaningTime || '11:00',
+    cleaningDuration: property?.cleaningDuration || '3',
     rentalPlatform: property?.rentalPlatform || '',
   })
 
@@ -136,16 +137,27 @@ export default function PropertyForm({ property, onSave, onCancel }) {
               </select>
             </div>
           </div>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-3 gap-3">
             <div>
               <label className="block text-xs text-gray-500 mb-1">Checkout Time</label>
               <input type="time" value={form.checkoutTime} onChange={e => setForm({ ...form, checkoutTime: e.target.value })}
                 className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500" />
             </div>
             <div>
-              <label className="block text-xs text-gray-500 mb-1">Cleaning Time</label>
+              <label className="block text-xs text-gray-500 mb-1">Cleaning Start</label>
               <input type="time" value={form.cleaningTime} onChange={e => setForm({ ...form, cleaningTime: e.target.value })}
                 className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Duration (hrs)</label>
+              <select value={form.cleaningDuration} onChange={e => setForm({ ...form, cleaningDuration: e.target.value })}
+                className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+                <option value="2">2 hours</option>
+                <option value="3">3 hours</option>
+                <option value="4">4 hours</option>
+                <option value="5">5 hours</option>
+                <option value="6">6 hours</option>
+              </select>
             </div>
           </div>
         </div>

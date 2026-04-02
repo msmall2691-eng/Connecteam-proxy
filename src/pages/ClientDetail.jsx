@@ -418,8 +418,11 @@ function PropertiesTab({ clientId, properties, onReload }) {
               {prop.bathrooms && <span>{prop.bathrooms} bath</span>}
               {prop.petHair && prop.petHair !== 'none' && <span>Pet hair: {prop.petHair}</span>}
             </div>
-            {prop.type === 'rental' && prop.icalUrl && (
-              <p className="text-xs text-orange-400 mb-2">iCal linked ({prop.rentalPlatform || 'rental'})</p>
+            {prop.type === 'rental' && prop.googleCalendarId && (
+              <p className="text-xs text-blue-400 mb-2">Google Calendar linked ({prop.rentalPlatform || 'rental'})</p>
+            )}
+            {prop.type === 'rental' && !prop.googleCalendarId && prop.icalUrl && (
+              <p className="text-xs text-orange-400 mb-2">iCal linked ({prop.rentalPlatform || 'rental'}) — add Google Calendar ID for better reliability</p>
             )}
             {prop.accessNotes && <p className="text-xs text-gray-600 mb-2">Access: {prop.accessNotes}</p>}
             <div className="flex gap-2 mt-2">

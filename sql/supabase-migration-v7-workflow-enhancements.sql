@@ -79,3 +79,9 @@ COMMENT ON COLUMN jobs.end_time IS 'DEPRECATED v7: Use jobs.preferred_end_time o
 COMMENT ON COLUMN jobs.status IS 'DEPRECATED v7: Job-level status is active/paused. Per-occurrence status lives on visits.';
 COMMENT ON COLUMN jobs.google_event_id IS 'DEPRECATED v7: Calendar sync tracked via calendar_sync_log on visits.';
 COMMENT ON COLUMN jobs.service_type IS 'DEPRECATED v7: Use jobs.service_type_id FK instead.';
+
+-- ══════════════════════════════════════════
+-- G. CLEANING DURATION (per-property)
+-- ══════════════════════════════════════════
+ALTER TABLE properties ADD COLUMN IF NOT EXISTS cleaning_duration INTEGER DEFAULT 3;
+COMMENT ON COLUMN properties.cleaning_duration IS 'Estimated cleaning duration in hours. Used by auto-turnovers to set visit end time.';

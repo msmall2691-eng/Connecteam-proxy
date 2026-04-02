@@ -1305,6 +1305,7 @@ function normalizeProperty(row) {
     accessType: row.access_type, doNotAreas: row.do_not_areas,
     cleaningNotes: row.cleaning_notes, photos: row.photos || [],
     stories: row.stories,
+    cleaningDuration: row.cleaning_duration,
     googleCalendarId: row.google_calendar_id,
     autoScheduleTurnovers: row.auto_schedule_turnovers,
     lastIcalSyncAt: row.last_ical_sync_at,
@@ -1322,7 +1323,7 @@ function propertyToSnake(p) {
     bathrooms: p.bathrooms ? parseInt(p.bathrooms) : null,
     pet_hair: p.petHair || 'none', condition: p.condition || 'maintenance',
     access_notes: p.accessNotes, is_primary: p.isPrimary || false,
-    ical_url: p.icalUrl, checkout_time: p.checkoutTime, cleaning_time: p.cleaningTime,
+    ical_url: p.icalUrl, checkout_time: p.checkoutTime, cleaning_time: p.cleaningTime, cleaning_duration: p.cleaningDuration ? parseInt(p.cleaningDuration) : 3,
     rental_platform: p.rentalPlatform,
     // v5 fields
     latitude: p.latitude || null, longitude: p.longitude || null,

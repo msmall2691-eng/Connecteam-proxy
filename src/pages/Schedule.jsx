@@ -155,7 +155,7 @@ export default function Schedule() {
           setToast({
             type: 'info',
             message: 'No rental properties found',
-            details: 'Add rental properties with iCal URLs in client Properties tab first.',
+            details: 'Add rental properties with a Google Calendar ID in client Properties tab first.',
           })
         } else if (createdCount > 0) {
           setToast({
@@ -704,7 +704,7 @@ export default function Schedule() {
             <div className="text-center py-4">
               <p className="text-xs text-gray-500">No upcoming turnovers detected.</p>
               <p className="text-xs text-gray-600 mt-1">
-                Add rental properties with iCal URLs in Settings or client Properties tab,
+                Add a Google Calendar ID to rental properties in client Properties tab,
                 then click <span className="text-orange-400">Auto-Scan</span> to detect checkouts.
               </p>
             </div>
