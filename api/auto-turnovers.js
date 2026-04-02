@@ -101,10 +101,13 @@ export default async function handler(req, res) {
           )
           if (calRes.ok) {
             const calData = await calRes.json()
+            // Google Calendar all-day events use EXCLUSIVE end dates (RFC 5545).
+            // A reservation Apr 16-18 has end.date = "2026-04-19" (the checkout day).
+            // This is correct — we schedule the cleaning ON end.date (checkout day).
             gcalEvents[prop.id] = (calData.items || [])
               .filter(ev => ev.start?.date && ev.end?.date)
               .map(ev => ({
-                date: ev.end.date,
+                date: ev.end.date,    // Checkout day = cleaning day
                 guest: ev.summary || 'Guest',
                 checkIn: ev.start.date,
                 uid: ev.iCalUID || ev.id,
@@ -174,18 +177,25 @@ export default async function handler(req, res) {
           const icalRes = await fetch(prop.ical_url, { signal: AbortSignal.timeout(5000) })
           if (icalRes.ok) {
             const icalText = await icalRes.text()
+            // iCal all-day events use EXCLUSIVE DTEND (RFC 5545).
+            // DTEND 20260419 means guest checks out Apr 19 = cleaning day.
+            // Handle multiple DTSTART/DTEND formats:
+            //   DTSTART;VALUE=DATE:20260416
+            //   DTSTART:20260416
+            //   DTSTART;TZID=...:20260416T...
             const events = icalText.split('BEGIN:VEVENT')
             for (const ev of events.slice(1)) {
-              const dtstart = ev.match(/DTSTART;VALUE=DATE:(\d{4})(\d{2})(\d{2})/)?.[0]
-              const dtend = ev.match(/DTEND;VALUE=DATE:(\d{4})(\d{2})(\d{2})/)?.[0]
+              // Match DTEND in any format — extract 8-digit date
+              const dtendRaw = ev.match(/DTEND[^:]*:(\d{4})(\d{2})(\d{2})/)?.[0]
+              const dtstartRaw = ev.match(/DTSTART[^:]*:(\d{4})(\d{2})(\d{2})/)?.[0]
               const summary = ev.match(/SUMMARY:(.*)/)?.[1]?.trim()
               const uid = ev.match(/UID:(.*)/)?.[1]?.trim()
 
-              if (dtend) {
-                const endMatch = dtend.match(/(\d{4})(\d{2})(\d{2})/)
+              if (dtendRaw) {
+                const endMatch = dtendRaw.match(/(\d{4})(\d{2})(\d{2})/)
                 if (endMatch) {
                   const date = `${endMatch[1]}-${endMatch[2]}-${endMatch[3]}`
-                  const startMatch = dtstart?.match(/(\d{4})(\d{2})(\d{2})/)
+                  const startMatch = dtstartRaw?.match(/(\d{4})(\d{2})(\d{2})/)
                   const checkIn = startMatch ? `${startMatch[1]}-${startMatch[2]}-${startMatch[3]}` : null
 
                   if (date >= today && date <= futureDate) {
