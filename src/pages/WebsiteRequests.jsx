@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useCallback } from 'react'
 import { Link } from 'react-router-dom'
-import { saveClient, saveClientAsync, getClientAsync, saveProperty, savePropertyAsync, getPropertiesAsync, getQuotesAsync, getJobsAsync, saveQuote, saveQuoteAsync, saveJobAsync, saveJob, generateQuoteNumber } from '../lib/store'
+import { saveClient, saveClientAsync, getClientAsync, saveProperty, savePropertyAsync, getPropertiesAsync, getQuotesAsync, getJobsAsync, saveQuote, saveQuoteAsync, saveJobAsync, saveJob, saveVisitAsync, generateQuoteNumber, lookupServiceTypeId } from '../lib/store'
 import { isSupabaseConfigured, getSupabase } from '../lib/supabase'
 
 const STATUS_OPTIONS = [
@@ -334,19 +334,36 @@ export default function WebsiteRequests() {
         }
       }
 
-      // 4. Create job
+      // 4. Create job + visit
       if (client && booking) {
+        const serviceTypeId = await lookupServiceTypeId(req.service || 'standard')
+        const jobDate = booking.requested_date ? booking.requested_date.split('T')[0] : new Date().toISOString().split('T')[0]
         const jobData = {
           clientId: client.id, clientName: client.name,
           title: `Cleaning - ${client.name}`,
-          date: booking.requested_date ? booking.requested_date.split('T')[0] : new Date().toISOString().split('T')[0],
+          date: jobDate,
           startTime: bookingStartTime, endTime: bookingEndTime,
           status: 'scheduled', serviceType: req.service || 'standard',
+          serviceTypeId,
           address: req.address, price: req.estimate_min ? parseInt(req.estimate_min) : null,
           notes: 'Booked via website self-booking',
           assignee: bookingAssignee || null,
+          source: 'booking_request', isActive: true,
         }
-        try { isSupabaseConfigured() ? await saveJobAsync(jobData) : saveJob(jobData) } catch (e) { console.error('Job creation failed:', e) }
+        let savedJob = null
+        try { savedJob = isSupabaseConfigured() ? await saveJobAsync(jobData) : saveJob(jobData) } catch (e) { console.error('Job creation failed:', e) }
+
+        // Create corresponding visit
+        if (savedJob?.id) {
+          try {
+            await saveVisitAsync({
+              jobId: savedJob.id, clientId: client.id,
+              scheduledDate: jobDate, scheduledStartTime: bookingStartTime, scheduledEndTime: bookingEndTime,
+              status: 'scheduled', source: 'booking',
+              serviceTypeId, address: req.address, clientVisible: true,
+            })
+          } catch (e) { console.error('Visit creation failed:', e) }
+        }
       }
 
       // 5. Approve booking in CRM

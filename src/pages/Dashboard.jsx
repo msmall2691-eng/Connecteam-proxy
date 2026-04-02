@@ -5,6 +5,7 @@ import {
   getClients, getClientsAsync, getJobs, getJobsAsync,
   getConversations, getConversationsAsync, getInvoices, getInvoicesAsync,
   getQuotes, getQuotesAsync, getProperties, getPropertiesAsync,
+  getScheduleAsync,
 } from '../lib/store'
 import { isSupabaseConfigured } from '../lib/supabase'
 
@@ -26,35 +27,55 @@ export default function Dashboard() {
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages])
 
   async function loadDashboard() {
-    let clients, jobs, invoices, quotes, convos, properties
+    let clients, jobs, invoices, quotes, convos, properties, visits
+    const today = new Date().toISOString().split('T')[0]
+    const weekEnd = new Date(); weekEnd.setDate(weekEnd.getDate() + 7)
+    const weekStr = weekEnd.toISOString().split('T')[0]
+
     if (isSupabaseConfigured()) {
-      ;[clients, jobs, invoices, quotes, convos, properties] = await Promise.all([
+      ;[clients, jobs, invoices, quotes, convos, properties, visits] = await Promise.all([
         getClientsAsync(), getJobsAsync(), getInvoicesAsync(),
         getQuotesAsync(), getConversationsAsync(), getPropertiesAsync(),
+        getScheduleAsync({ startDate: today, endDate: weekStr }),
       ])
     } else {
       clients = getClients(); jobs = getJobs(); invoices = getInvoices()
       quotes = getQuotes(); convos = getConversations(); properties = getProperties()
+      visits = []
     }
 
-    const today = new Date().toISOString().split('T')[0]
     const paidTotal = invoices.filter(i => i.status === 'paid').reduce((s, i) => s + (i.total || 0), 0)
     const outstanding = invoices.filter(i => i.status === 'sent' || i.status === 'overdue').reduce((s, i) => s + (i.total || 0), 0)
 
-    // Jobs needing calendar push
-    const unpushedJobs = jobs.filter(j => j.status === 'scheduled' && j.date >= today && !j.googleEventId).slice(0, 8)
-    // Jobs needing Connecteam push
-    const unpushedCT = jobs.filter(j => j.status === 'scheduled' && j.date >= today && !j.connecteamShiftId).slice(0, 8)
+    // Visits needing calendar push (no google_event_id)
+    const unpushedVisits = (visits || []).filter(v => v.status === 'scheduled' && !v.googleEventId).slice(0, 8)
+    // Visits needing Connecteam push
+    const unpushedCTVisits = (visits || []).filter(v => v.status === 'scheduled' && !v.connecteamShiftId).slice(0, 8)
+    // Fallback to jobs if no visits loaded yet
+    const unpushedJobs = unpushedVisits.length > 0
+      ? unpushedVisits.map(v => ({ ...v, title: v.job?.title || 'Cleaning', date: v.scheduledDate, startTime: v.scheduledStartTime, googleEventId: v.googleEventId }))
+      : jobs.filter(j => j.status === 'scheduled' && j.date >= today && !j.googleEventId).slice(0, 8)
+    const unpushedCT = unpushedCTVisits.length > 0
+      ? unpushedCTVisits.map(v => ({ ...v, title: v.job?.title || 'Cleaning', date: v.scheduledDate, connecteamShiftId: v.connecteamShiftId }))
+      : jobs.filter(j => j.status === 'scheduled' && j.date >= today && !j.connecteamShiftId).slice(0, 8)
+
     // Quotes to send or follow up
     const draftQuotes = quotes.filter(q => q.status === 'draft').slice(0, 5)
     const sentQuotes = quotes.filter(q => q.status === 'sent').slice(0, 5)
     const acceptedQuotes = quotes.filter(q => q.status === 'accepted' || q.status === 'signed')
-    // Today
-    const todayJobs = jobs.filter(j => j.date === today && j.status !== 'cancelled')
-    // Upcoming this week
-    const weekEnd = new Date(); weekEnd.setDate(weekEnd.getDate() + 7)
-    const weekStr = weekEnd.toISOString().split('T')[0]
-    const thisWeekJobs = jobs.filter(j => j.date >= today && j.date <= weekStr && j.status === 'scheduled')
+
+    // Today's schedule (prefer visits)
+    const todayVisits = (visits || []).filter(v => v.scheduledDate === today && !['cancelled', 'skipped'].includes(v.status))
+    const todayJobs = todayVisits.length > 0
+      ? todayVisits.map(v => ({ ...v, title: v.job?.title || 'Cleaning', date: v.scheduledDate, startTime: v.scheduledStartTime, status: v.status }))
+      : jobs.filter(j => j.date === today && j.status !== 'cancelled')
+
+    // This week (prefer visits)
+    const thisWeekVisits = (visits || []).filter(v => v.scheduledDate >= today && v.scheduledDate <= weekStr && v.status === 'scheduled')
+    const thisWeekJobs = thisWeekVisits.length > 0
+      ? thisWeekVisits.map(v => ({ ...v, title: v.job?.title || 'Cleaning', date: v.scheduledDate, startTime: v.scheduledStartTime }))
+      : jobs.filter(j => j.date >= today && j.date <= weekStr && j.status === 'scheduled')
+
     // New leads
     const leads = clients.filter(c => c.status === 'lead').slice(0, 5)
     // Unpaid
@@ -70,7 +91,14 @@ export default function Dashboard() {
     }
     recentMsgs.sort((a, b) => new Date(b.timestamp || 0) - new Date(a.timestamp || 0))
 
-    // Workflow funnel stats
+    // Workflow funnel stats (use visits for scheduling metrics)
+    const scheduledCount = (visits || []).length > 0
+      ? (visits || []).filter(v => v.status === 'scheduled').length
+      : jobs.filter(j => j.status === 'scheduled').length
+    const completedCount = (visits || []).length > 0
+      ? (visits || []).filter(v => v.status === 'completed').length
+      : jobs.filter(j => j.status === 'completed').length
+
     const workflow = {
       leads: clients.filter(c => c.status === 'lead').length,
       quoted: clients.filter(c => c.status === 'prospect').length,
@@ -79,8 +107,8 @@ export default function Dashboard() {
       draftQuotes: quotes.filter(q => q.status === 'draft').length,
       sentQuotes: quotes.filter(q => q.status === 'sent').length,
       acceptedQuotes: acceptedQuotes.length,
-      scheduledJobs: jobs.filter(j => j.status === 'scheduled').length,
-      completedJobs: jobs.filter(j => j.status === 'completed').length,
+      scheduledJobs: scheduledCount,
+      completedJobs: completedCount,
       draftInvoices: invoices.filter(i => i.status === 'draft').length,
       sentInvoices: invoices.filter(i => i.status === 'sent').length,
       paidInvoices: invoices.filter(i => i.status === 'paid').length,

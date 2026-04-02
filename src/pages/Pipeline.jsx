@@ -4,7 +4,7 @@ import {
   getClientsAsync, saveClientAsync,
   getJobsAsync, getInvoicesAsync,
   getPropertiesAsync, getQuotesAsync, saveQuoteAsync, saveJobAsync,
-  savePropertyAsync, generateQuoteNumber,
+  savePropertyAsync, generateQuoteNumber, saveVisitAsync, lookupServiceTypeId,
 } from '../lib/store'
 import { isSupabaseConfigured, getSupabase } from '../lib/supabase'
 
@@ -273,25 +273,40 @@ export default function Pipeline() {
     reload()
   }
 
-  // Stage 3: Approved → Create Job
+  // Stage 3: Approved → Create Job + Visit
   async function createJob(card) {
     setActing(card.id)
     try {
       const quote = card.latestQuote
-      await saveJobAsync({
+      const serviceTypeId = await lookupServiceTypeId(card.serviceType || 'standard')
+      const today = new Date().toISOString().split('T')[0]
+      const job = await saveJobAsync({
         clientId: card.id,
         clientName: card.name,
         title: `${card.serviceType || 'Cleaning'} — ${card.name}`,
-        date: new Date().toISOString().split('T')[0],
+        date: today,
         startTime: '09:00',
         endTime: '12:00',
         status: 'scheduled',
         price: quote?.finalPrice || quote?.estimateMax || quote?.estimateMin || null,
         serviceType: card.serviceType,
+        serviceTypeId,
         address: card.address,
         isRecurring: card.frequency && card.frequency !== 'one-time',
         recurrenceRule: card.frequency === 'weekly' ? 'weekly' : card.frequency === 'biweekly' ? 'biweekly' : card.frequency === 'monthly' ? 'monthly' : null,
+        source: 'manual', isActive: true,
+        preferredStartTime: '09:00', preferredEndTime: '12:00',
+        recurrenceStartDate: today,
       })
+      // Create first visit
+      if (job?.id) {
+        await saveVisitAsync({
+          jobId: job.id, clientId: card.id,
+          scheduledDate: today, scheduledStartTime: '09:00', scheduledEndTime: '12:00',
+          status: 'scheduled', source: card.frequency && card.frequency !== 'one-time' ? 'recurring' : 'one_off',
+          serviceTypeId, address: card.address, clientVisible: true,
+        })
+      }
       await saveClientAsync({ id: card.id, status: 'active' })
       setToast({ type: 'success', message: `Job created for ${card.name}` })
     } catch (e) {

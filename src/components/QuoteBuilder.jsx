@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { saveInvoice, generateInvoiceNumber, saveJob, saveClient } from '../lib/store'
+import { saveInvoice, generateInvoiceNumber, saveJob, saveJobAsync, saveVisitAsync, saveClient, lookupServiceTypeId } from '../lib/store'
 import { calculateQuote } from '../lib/quoteEngine'
 
 const SERVICE_TEMPLATES = [
@@ -138,15 +138,33 @@ export default function QuoteBuilder({ client, onSave, onSend }) {
       unitPrice: quote?.perClean || subtotal, total: quote?.perClean || subtotal, priceType: 'flat',
     }]
 
+    // Look up service_type_id
+    const stText = quote?.isDeep ? 'deep' : serviceType || 'standard'
+    const serviceTypeId = await lookupServiceTypeId(stText)
+    const today = new Date().toISOString().split('T')[0]
+
     for (const item of finalItems) {
-      saveJob({
+      const job = await saveJobAsync({
         clientId: client.id, clientName: client.name, title: item.description,
-        date: new Date().toISOString().split('T')[0], status: 'scheduled',
+        date: today, startTime: '09:00', endTime: '12:00', status: 'scheduled',
         price: item.unitPrice, priceType: item.priceType || 'flat',
         isRecurring: frequency !== 'one-time',
         recurrenceRule: frequency === 'one-time' ? null : frequency,
         recurrenceDay: preferredDay, notes,
+        serviceTypeId, source: 'manual', isActive: true,
+        preferredStartTime: '09:00', preferredEndTime: '12:00',
+        recurrenceStartDate: today,
       })
+
+      // Create the first visit
+      if (job?.id) {
+        await saveVisitAsync({
+          jobId: job.id, clientId: client.id,
+          scheduledDate: today, scheduledStartTime: '09:00', scheduledEndTime: '12:00',
+          status: 'scheduled', source: frequency === 'one-time' ? 'one_off' : 'recurring',
+          serviceTypeId, address: client.address || '', clientVisible: true,
+        })
+      }
 
       try {
         await fetch('/api/google?action=calendar-create', {
@@ -155,8 +173,8 @@ export default function QuoteBuilder({ client, onSave, onSend }) {
           body: JSON.stringify({
             summary: `${item.description} — ${client.name}`,
             description: `Client: ${client.name}\nAddress: ${client.address || ''}\nPhone: ${client.phone || ''}\nPrice: $${item.unitPrice}\n${notes}`,
-            startDateTime: `${new Date().toISOString().split('T')[0]}T09:00:00`,
-            endDateTime: `${new Date().toISOString().split('T')[0]}T12:00:00`,
+            startDateTime: `${today}T09:00:00`,
+            endDateTime: `${today}T12:00:00`,
             location: client.address || '',
           }),
         })
