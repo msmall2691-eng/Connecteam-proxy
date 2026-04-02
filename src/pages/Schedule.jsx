@@ -375,16 +375,16 @@ export default function Schedule() {
         headers: { 'Content-Type': 'application/json', ...(apiKey && { 'X-API-KEY': apiKey }) },
         body: JSON.stringify({
           title: `Turnover Clean — ${turnover.property}`,
-          startTime: startUnix,
-          endTime: endUnix,
-          description: [
-            `Property: ${turnover.property}`,
-            turnover.address ? `Address: ${turnover.address}` : '',
+          date: turnover.checkOut,
+          startTime: cleanTime,
+          endTime: (() => { const [h, m] = cleanTime.split(':').map(Number); return `${String(Math.min(h + 3, 23)).padStart(2, '0')}:${String(m).padStart(2, '0')}` })(),
+          address: turnover.address || '',
+          clientName: turnover.clientName || '',
+          propertyName: turnover.property,
+          notes: [
             `Guest: ${turnover.guestName}`,
-            `Checkout: ${turnover.checkoutTime}`,
-            turnover.clientName ? `Client: ${turnover.clientName}` : '',
+            `Checkout: ${formatTime(turnover.checkoutTime)}`,
           ].filter(Boolean).join('\n'),
-          location: turnover.address || '',
         }),
       })
 
@@ -466,10 +466,12 @@ export default function Schedule() {
         headers: { 'Content-Type': 'application/json', ...(apiKey && { 'X-API-KEY': apiKey }) },
         body: JSON.stringify({
           title: `${title}${clientName ? ' — ' + clientName : ''}`,
-          startTime: startUnix,
-          endTime: endUnix,
-          description: [clientName, address, item.instructions].filter(Boolean).join('\n'),
-          location: address,
+          date,
+          startTime: stripSeconds(startTime) || '09:00',
+          endTime: stripSeconds(endTime) || '12:00',
+          address,
+          clientName,
+          notes: item.instructions || '',
           visitId: item.scheduledDate ? item.id : undefined,
         }),
       })
