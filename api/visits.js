@@ -81,9 +81,9 @@ export default async function handler(req, res) {
         const end = new Date(endDate + 'T12:00:00')
         let created = 0
 
-        // If monthly, step by month
+        // If monthly, step by month (recurrenceDay 0-6 = day-of-week for weekly; for monthly use start date's day-of-month)
         if (interval === 'monthly') {
-          const dayOfMonth = recurrenceDay || current.getDate()
+          const dayOfMonth = (recurrenceDay != null && recurrenceDay > 6) ? recurrenceDay : current.getDate()
           current = new Date(current.getFullYear(), current.getMonth(), dayOfMonth)
           if (current < new Date(today + 'T00:00:00')) {
             current.setMonth(current.getMonth() + 1)

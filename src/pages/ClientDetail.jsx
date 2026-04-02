@@ -1100,14 +1100,33 @@ function JobsTab({ clientId, clientName, clientAddress, jobs, properties, invoic
   async function handleSubmit(e) {
     e.preventDefault()
     const prop = (properties || []).find(p => p.id === form.propertyId)
-    await _saveJob({
+    const address = prop?.addressLine1 || clientAddress || ''
+    const savedJob = await _saveJob({
       ...form,
       clientId,
       clientName,
-      address: prop?.addressLine1 || clientAddress || '',
+      address,
       price: form.price ? parseFloat(form.price) : null,
       recurrenceDay: parseInt(form.recurrenceDay),
     })
+    // Create the first visit so it appears on the schedule immediately
+    if (savedJob?.id && form.date) {
+      try {
+        await saveVisitAsync({
+          jobId: savedJob.id,
+          clientId,
+          propertyId: form.propertyId || null,
+          scheduledDate: form.date,
+          scheduledStartTime: form.startTime || '09:00',
+          scheduledEndTime: form.endTime || '12:00',
+          status: 'scheduled',
+          source: form.isRecurring ? 'recurring' : 'one_off',
+          serviceTypeId: form.serviceTypeId || null,
+          address,
+          clientVisible: true,
+        })
+      } catch (err) { console.error('First visit creation failed:', err) }
+    }
     setForm({ title: '', date: '', status: 'scheduled', notes: '', assignee: '', isRecurring: false, recurrenceRule: 'weekly', recurrenceDay: 1, price: '', priceType: 'flat', startTime: '09:00', endTime: '12:00', propertyId: '' })
     setShowNew(false)
     onReload()
