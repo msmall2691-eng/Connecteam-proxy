@@ -53,6 +53,37 @@ python3 scripts/dashboard.py --weeks 4                       # Last 4 weeks
 - **Attendance**: late clock-ins (>10min), early leaves (>15min), missed shifts (no clock-in), scheduled vs actual hours
 - **Client Job History**: every location serviced, times cleaned, who cleaned, employee notes
 
+## Campaigns & Automation
+
+### Blast Campaigns (one-time bulk SMS/email)
+Create and send via `/campaigns` page or API:
+```
+POST /api/campaigns?action=create   — create blast or sequence
+POST /api/campaigns?action=send-blast — send blast to audience
+GET  /api/campaigns?action=list     — list all campaigns
+```
+Audience filtering: by client status (lead/prospect/active), type (residential/commercial/rental), tags.
+Personalization: `{first_name}`, `{name}` in message body/subject.
+
+### Drip Sequences (automated multi-step campaigns)
+- Define multi-step sequences with delay_days between steps
+- Auto-enroll clients via database trigger on status changes (e.g., lead → prospect)
+- Cron runs daily at 12 PM UTC: `/api/campaigns?action=run-sequences`
+- Manual enrollment: `POST /api/campaigns?action=trigger-sequence`
+
+### Review Requests (automated post-visit)
+- Cron runs daily at 2 PM UTC: `/api/visits?action=review-request`
+- Sends SMS + email with Google review link 2 days after visit completion
+- Only sends if follow-up was already sent (ensures thank-you goes first)
+- Set `GOOGLE_REVIEW_URL` env var for your business review link
+
+### Schema: `sql/supabase-migration-v8-campaigns.sql`
+- `campaigns` — blast or sequence definitions with audience targeting
+- `campaign_steps` — individual steps in a drip sequence
+- `campaign_enrollments` — tracks which clients are in which sequences
+- `sequence_triggers` — auto-enroll rules (on status change, tag add, etc.)
+- `visits.review_request_sent_at` — tracks review request delivery
+
 ## API Proxy
 The Vercel proxy is at: `https://connecteam-proxy.vercel.app/api/connecteam`
 
@@ -112,6 +143,7 @@ Or pass directly: `python3 scripts/report.py --api-key YOUR_KEY`
 - `sql/supabase-migration-v5-schema-cleanup.sql` — Employees, visits, service types, checklists, extras, enriched messages
 - `sql/supabase-migration-v6-scheduling-redesign.sql` — Visits as single source of truth, calendar sync log, client portal tokens, visit reminders, recurring visit generation functions
 - `sql/supabase-migration-v7-workflow-enhancements.sql` — Visit status history, zone fields, Turno integration, confirmation tokens, deprecation comments on jobs
+- `sql/supabase-migration-v8-campaigns.sql` — Campaigns (blast + sequence), campaign steps, enrollments, sequence triggers, review request tracking
 
 ### Scheduling Architecture (v6+v7)
 - **Jobs** = service agreements (what, who, how often, price). NOT individual occurrences.

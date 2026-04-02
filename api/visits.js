@@ -151,6 +151,124 @@ export default async function handler(req, res) {
   }
 
   // ════════════════════════════════════════════════
+  // ACTION: review-request — send Google review request 2 days after completion
+  // GET /api/visits?action=review-request
+  // ════════════════════════════════════════════════
+  if (action === 'review-request') {
+    try {
+      const twoDaysAgo = new Date(Date.now() - 2 * 86400000).toISOString().split('T')[0]
+      const vRes = await fetch(
+        `${supabaseUrl}/rest/v1/visits?status=eq.completed&scheduled_date=eq.${twoDaysAgo}&review_request_sent_at=is.null&follow_up_sent_at=not.is.null&select=*,client:clients(id,name,email,phone,preferred_contact),job:jobs(title)`,
+        { headers: sbHeaders }
+      )
+      const visits = (await vRes.json()) || []
+      if (!visits.length) return res.status(200).json({ message: 'No review requests needed', sent: 0 })
+
+      const googleReviewUrl = process.env.GOOGLE_REVIEW_URL || 'https://g.page/r/mainecleaningco/review'
+      let sent = 0
+      const gmailCreds = getGmailCreds()
+      const token = gmailCreds ? await getAccessToken(gmailCreds) : null
+      const { TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_PHONE_NUMBER } = process.env
+      const hasTwilio = TWILIO_ACCOUNT_SID && TWILIO_AUTH_TOKEN && TWILIO_PHONE_NUMBER
+
+      for (const visit of visits) {
+        const client = visit.client || {}
+        const firstName = (client.name || '').split(' ')[0] || 'there'
+        const jobTitle = visit.job?.title || 'cleaning'
+        let sentChannel = null
+
+        // Send SMS review request (preferred for review requests — higher open rate)
+        if (client.phone && hasTwilio) {
+          const smsBody = `Hi ${firstName}! We loved taking care of your ${jobTitle}. If we did a great job, would you mind leaving us a quick review? It really helps!\n\n${googleReviewUrl}\n\nThank you!\n— The Maine Cleaning Co.`
+          try {
+            const twilioRes = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${TWILIO_ACCOUNT_SID}/Messages.json`, {
+              method: 'POST',
+              headers: {
+                Authorization: 'Basic ' + Buffer.from(`${TWILIO_ACCOUNT_SID}:${TWILIO_AUTH_TOKEN}`).toString('base64'),
+                'Content-Type': 'application/x-www-form-urlencoded',
+              },
+              body: new URLSearchParams({ From: TWILIO_PHONE_NUMBER, To: client.phone, Body: smsBody }),
+            })
+            if (twilioRes.ok) {
+              const twilioData = await twilioRes.json()
+              sentChannel = 'sms'
+              // Log to messages table
+              if (client.id) {
+                const convRes = await fetch(
+                  `${supabaseUrl}/rest/v1/conversations?client_id=eq.${client.id}&channel=eq.text&limit=1&order=updated_at.desc`,
+                  { headers: sbHeaders }
+                )
+                const convos = (await convRes.json()) || []
+                const convoId = convos[0]?.id
+                if (convoId) {
+                  await fetch(`${supabaseUrl}/rest/v1/messages`, {
+                    method: 'POST', headers: sbHeaders,
+                    body: JSON.stringify({
+                      conversation_id: convoId, content: smsBody, direction: 'outbound',
+                      sender: 'System', channel: 'sms', twilio_sid: twilioData.sid,
+                      visit_id: visit.id, is_automated: true, automation_trigger: 'review_request',
+                    }),
+                  }).catch(() => {})
+                }
+              }
+              // Log to visit_reminders
+              await fetch(`${supabaseUrl}/rest/v1/visit_reminders`, {
+                method: 'POST', headers: sbHeaders,
+                body: JSON.stringify({
+                  visit_id: visit.id, client_id: client.id,
+                  channel: 'sms', status: 'sent', message_id: twilioData.sid,
+                }),
+              }).catch(() => {})
+            }
+          } catch (e) { console.error('Review SMS failed:', e.message) }
+        }
+
+        // Also send email review request
+        if (client.email && token) {
+          const subject = `How did we do, ${firstName}?`
+          const emailBody = `Hi ${firstName},\n\nWe hope you're enjoying your freshly cleaned space! Your ${jobTitle} was completed a couple of days ago, and we'd love to hear how it went.\n\nIf you have 30 seconds, a Google review means the world to our small business:\n\n${googleReviewUrl}\n\nThank you for choosing us — we truly appreciate your support!\n\n— The Maine Cleaning Co.\n(207) 572-0502`
+
+          const raw = Buffer.from(
+            `To: ${client.email}\r\nFrom: The Maine Cleaning Co. <office@mainecleaningco.com>\r\nReply-To: office@mainecleaningco.com\r\nSubject: ${subject}\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n${emailBody}`
+          ).toString('base64url')
+
+          try {
+            const emailRes = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/messages/send', {
+              method: 'POST',
+              headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+              body: JSON.stringify({ raw }),
+            })
+            if (emailRes.ok) {
+              const emailData = await emailRes.json()
+              if (!sentChannel) sentChannel = 'email'
+              // Log to visit_reminders
+              await fetch(`${supabaseUrl}/rest/v1/visit_reminders`, {
+                method: 'POST', headers: sbHeaders,
+                body: JSON.stringify({
+                  visit_id: visit.id, client_id: client.id,
+                  channel: 'email', status: 'sent', message_id: emailData.id,
+                }),
+              }).catch(() => {})
+            }
+          } catch (e) { console.error('Review email failed:', e.message) }
+        }
+
+        if (sentChannel) {
+          await fetch(`${supabaseUrl}/rest/v1/visits?id=eq.${visit.id}`, {
+            method: 'PATCH', headers: sbHeaders,
+            body: JSON.stringify({ review_request_sent_at: new Date().toISOString() }),
+          }).catch(() => {})
+          sent++
+        }
+      }
+
+      return res.status(200).json({ sent, total: visits.length })
+    } catch (err) {
+      return res.status(500).json({ error: err.message })
+    }
+  }
+
+  // ════════════════════════════════════════════════
   // ACTION: sync-visit — push a visit to Google Calendar + Connecteam
   // POST /api/visits?action=sync-visit&visitId=xxx
   // ════════════════════════════════════════════════
