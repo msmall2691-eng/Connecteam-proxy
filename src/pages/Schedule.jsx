@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Link } from 'react-router-dom'
 import { getApiKey } from '../lib/api'
-import { getClients, getClientsAsync, getJobs, getJobsAsync, getVisitsAsync, getScheduleAsync, getEmployeesAsync, saveVisitAsync, saveJobAsync, getPropertiesAsync } from '../lib/store'
+import { getClients, getClientsAsync, getJobs, getJobsAsync, getVisitsAsync, getScheduleAsync, getEmployeesAsync, saveVisitAsync, saveJobAsync, getPropertiesAsync, savePropertyAsync } from '../lib/store'
 import { isSupabaseConfigured } from '../lib/supabase'
 
 // DST-safe timezone offset for America/New_York
@@ -58,6 +58,10 @@ export default function Schedule() {
   const [pushingToConnecteam, setPushingToConnecteam] = useState(null)
   const [pushingVisitToCal, setPushingVisitToCal] = useState(null)
   const [pushingVisitToCT, setPushingVisitToCT] = useState(null)
+  const [unlinkedCals, setUnlinkedCals] = useState([])
+  const [linkingCal, setLinkingCal] = useState(null)
+  const [linkClientId, setLinkClientId] = useState('')
+  const [linkPropertyName, setLinkPropertyName] = useState('')
   const [rentalStays, setRentalStays] = useState([])
   const [showStays, setShowStays] = useState(true)
   const [batchSyncing, setBatchSyncing] = useState(false)
@@ -94,6 +98,24 @@ export default function Schedule() {
       setCrmVisits(visits || [])
     } catch {}
   }
+
+  async function loadUnlinkedCalendars() {
+    if (!isSupabaseConfigured()) return
+    try {
+      const props = await getPropertiesAsync()
+      const linkedIds = new Set(props.filter(p => p.googleCalendarId).map(p => p.googleCalendarId))
+      const unlinked = allCalendars.filter(c =>
+        !c.primary && !linkedIds.has(c.id) &&
+        !rentalCals.some(rc => rc.calendarId === c.id)
+      )
+      setUnlinkedCals(unlinked)
+    } catch {}
+  }
+
+  // Load unlinked calendars when settings opened or calendars change
+  useEffect(() => {
+    if (showSettings && allCalendars.length > 0) loadUnlinkedCalendars()
+  }, [showSettings, allCalendars.length])
 
   async function loadRentalStays() {
     try {
@@ -807,6 +829,73 @@ export default function Schedule() {
             <button type="submit" disabled={!newRental.calendarId}
               className="px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 rounded-lg text-sm font-medium text-white">Add</button>
           </form>
+        </div>
+      )}
+
+      {/* Unlinked Calendars — Google Calendars not yet linked to a client property */}
+      {showSettings && unlinkedCals.length > 0 && (
+        <div className="bg-yellow-900/10 border border-yellow-800/50 rounded-xl p-4 space-y-3">
+          <h3 className="text-sm font-semibold text-yellow-400">Unlinked Rental Calendars</h3>
+          <p className="text-xs text-gray-500">These Google Calendars aren't linked to a client property yet. Link them to enable automatic turnover detection.</p>
+          <div className="space-y-2">
+            {unlinkedCals.map(cal => (
+              <div key={cal.id} className="bg-gray-800/50 rounded-lg px-3 py-2.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-white">{cal.summaryOverride || cal.summary}</span>
+                  {linkingCal !== cal.id ? (
+                    <button onClick={() => { setLinkingCal(cal.id); setLinkPropertyName(cal.summaryOverride || cal.summary || '') }}
+                      className="px-2.5 py-1 bg-yellow-600 hover:bg-yellow-500 rounded-lg text-xs text-white font-medium">
+                      Link to Client
+                    </button>
+                  ) : (
+                    <button onClick={() => setLinkingCal(null)} className="text-xs text-gray-500">Cancel</button>
+                  )}
+                </div>
+                {linkingCal === cal.id && (
+                  <div className="mt-2 grid grid-cols-1 sm:grid-cols-3 gap-2 items-end">
+                    <div>
+                      <label className="block text-xs text-gray-500 mb-1">Client</label>
+                      <select value={linkClientId} onChange={e => setLinkClientId(e.target.value)}
+                        className="w-full px-2 py-1.5 bg-gray-800 border border-gray-700 rounded-lg text-xs text-white">
+                        <option value="">Select client...</option>
+                        {allClients.filter(c => c.status === 'active').map(c => (
+                          <option key={c.id} value={c.id}>{c.name}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs text-gray-500 mb-1">Property Name</label>
+                      <input value={linkPropertyName} onChange={e => setLinkPropertyName(e.target.value)}
+                        className="w-full px-2 py-1.5 bg-gray-800 border border-gray-700 rounded-lg text-xs text-white" />
+                    </div>
+                    <button disabled={!linkClientId} onClick={async () => {
+                      try {
+                        await savePropertyAsync({
+                          clientId: linkClientId,
+                          name: linkPropertyName || cal.summaryOverride || cal.summary,
+                          type: 'rental',
+                          googleCalendarId: cal.id,
+                          checkoutTime: '10:00',
+                          cleaningTime: '11:00',
+                          isPrimary: false,
+                        })
+                        setToast({ type: 'success', message: `Linked "${linkPropertyName}" to client`, details: 'This calendar will now be scanned for turnovers. Click Auto-Scan to detect checkouts.' })
+                        setLinkingCal(null)
+                        setLinkClientId('')
+                        setLinkPropertyName('')
+                        // Refresh unlinked list
+                        loadUnlinkedCalendars()
+                      } catch (e) {
+                        setToast({ type: 'error', message: 'Failed to link calendar', details: e.message })
+                      }
+                    }} className="px-3 py-1.5 bg-green-600 hover:bg-green-500 disabled:opacity-50 rounded-lg text-xs text-white font-medium">
+                      Save Property
+                    </button>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
         </div>
       )}
 
