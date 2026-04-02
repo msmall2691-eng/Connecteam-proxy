@@ -65,13 +65,33 @@ export default async function handler(req, res) {
     // Fetch existing visits (not jobs) to avoid duplicates
     const today = new Date().toISOString().split('T')[0]
     const futureDate = new Date(Date.now() + daysAhead * 86400000).toISOString().split('T')[0]
-    const visitsRes = await fetch(
-      `${supabaseUrl}/rest/v1/visits?scheduled_date=gte.${today}&scheduled_date=lte.${futureDate}&source=in.(ical_sync,turno)&select=scheduled_date,property_id,ical_event_uid`,
-      { headers: sbHeaders }
-    )
-    const existingVisits = await visitsRes.json() || []
+    let existingVisits = []
+    try {
+      const visitsRes = await fetch(
+        `${supabaseUrl}/rest/v1/visits?scheduled_date=gte.${today}&scheduled_date=lte.${futureDate}&source=in.(ical_sync,turno)&select=scheduled_date,property_id,ical_event_uid`,
+        { headers: sbHeaders }
+      )
+      const visitsData = await visitsRes.json()
+      existingVisits = Array.isArray(visitsData) ? visitsData : []
+    } catch {
+      // visits table may not exist yet (pre-v6) — continue with empty set
+      existingVisits = []
+    }
     const existingSet = new Set(existingVisits.map(v => `${v.property_id}|${v.scheduled_date}`))
     const existingUids = new Set(existingVisits.map(v => v.ical_event_uid).filter(Boolean))
+
+    // Also check existing jobs for backward compat (pre-v6 dedup)
+    let existingJobSet = new Set()
+    try {
+      const jobsRes = await fetch(
+        `${supabaseUrl}/rest/v1/jobs?date=gte.${today}&date=lte.${futureDate}&service_type=eq.turnover&select=date,property_id`,
+        { headers: sbHeaders }
+      )
+      const jobsData = await jobsRes.json()
+      if (Array.isArray(jobsData)) {
+        existingJobSet = new Set(jobsData.map(j => `${j.property_id}|${j.date}`))
+      }
+    } catch {}
 
     // Fetch turnover service_type id
     const stRes = await fetch(`${supabaseUrl}/rest/v1/service_types?name=eq.Turnover&select=id`, { headers: sbHeaders })
@@ -225,7 +245,7 @@ export default async function handler(req, res) {
         const key = `${prop.id}|${checkout.date}`
         const cleaningTime = prop.cleaning_time || '11:00'
         const checkoutTime = prop.checkout_time || '10:00'
-        const alreadyScheduled = existingSet.has(key) || (checkout.uid && existingUids.has(checkout.uid))
+        const alreadyScheduled = existingSet.has(key) || existingJobSet.has(key) || (checkout.uid && existingUids.has(checkout.uid))
 
         const turnover = {
           propertyId: prop.id,
@@ -264,25 +284,50 @@ export default async function handler(req, res) {
             if (prop.cleaning_notes) instrLines.push(`Notes: ${prop.cleaning_notes}`)
             if (prop.do_not_areas) instrLines.push(`Do not clean: ${prop.do_not_areas}`)
 
-            const visitRes = await fetch(`${supabaseUrl}/rest/v1/visits`, {
-              method: 'POST',
-              headers: { ...sbHeaders, 'Content-Type': 'application/json', 'Prefer': 'return=representation' },
-              body: JSON.stringify({
-                job_id: turnoverJobId,
-                client_id: prop.client_id,
-                property_id: prop.id,
-                scheduled_date: checkout.date,
-                scheduled_start_time: cleaningTime,
-                scheduled_end_time: endTime,
-                status: 'scheduled',
-                source: 'ical_sync',
-                service_type_id: turnoverServiceTypeId,
-                ical_event_uid: checkout.uid || null,
-                instructions: instrLines.join('\n'),
-                address: prop.address_line1,
-                client_visible: true,
-              }),
-            })
+            // Try creating visit with v6 fields; fall back to minimal if columns don't exist
+            let visitRes
+            try {
+              visitRes = await fetch(`${supabaseUrl}/rest/v1/visits`, {
+                method: 'POST',
+                headers: { ...sbHeaders, 'Content-Type': 'application/json', 'Prefer': 'return=representation' },
+                body: JSON.stringify({
+                  job_id: turnoverJobId,
+                  client_id: prop.client_id,
+                  property_id: prop.id,
+                  scheduled_date: checkout.date,
+                  scheduled_start_time: cleaningTime,
+                  scheduled_end_time: endTime,
+                  status: 'scheduled',
+                  source: 'ical_sync',
+                  service_type_id: turnoverServiceTypeId,
+                  ical_event_uid: checkout.uid || null,
+                  instructions: instrLines.join('\n'),
+                  address: prop.address_line1,
+                  client_visible: true,
+                }),
+              })
+              // If visit creation fails (e.g. missing v6 columns), try minimal insert
+              if (!visitRes.ok) {
+                const errBody = await visitRes.text()
+                console.error('Visit creation failed, trying minimal:', errBody)
+                visitRes = await fetch(`${supabaseUrl}/rest/v1/visits`, {
+                  method: 'POST',
+                  headers: { ...sbHeaders, 'Content-Type': 'application/json', 'Prefer': 'return=representation' },
+                  body: JSON.stringify({
+                    job_id: turnoverJobId,
+                    client_id: prop.client_id,
+                    property_id: prop.id,
+                    scheduled_date: checkout.date,
+                    scheduled_start_time: cleaningTime,
+                    scheduled_end_time: endTime,
+                    status: 'scheduled',
+                  }),
+                })
+              }
+            } catch (insertErr) {
+              console.error('Visit insert error:', insertErr.message)
+              visitRes = { ok: false }
+            }
 
             if (visitRes.ok) {
               const visit = await visitRes.json()
