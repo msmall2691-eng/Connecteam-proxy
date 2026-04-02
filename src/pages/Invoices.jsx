@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { Link } from 'react-router-dom'
-import { getInvoices, getInvoicesAsync, saveInvoice, saveInvoiceAsync, getClients, getClientsAsync, getJobs, getJobsAsync, generateInvoiceNumber } from '../lib/store'
+import { getInvoices, getInvoicesAsync, saveInvoice, saveInvoiceAsync, getClients, getClientsAsync, saveClientAsync, getJobs, getJobsAsync, generateInvoiceNumber } from '../lib/store'
 import { isSupabaseConfigured } from '../lib/supabase'
 
 function buildInvoiceEmailHtml(inv) {
@@ -89,6 +89,90 @@ async function sendInvoiceEmail(inv) {
   return res.json();
 }
 
+async function sendViaSquare(inv) {
+  const allClients = isSupabaseConfigured() ? await getClientsAsync() : getClients()
+  const client = allClients.find(c => c.id === inv.clientId)
+  if (!client) throw new Error('Client not found')
+  if (!client.email && !client.phone) throw new Error('Client needs an email or phone number for Square invoicing')
+
+  // 1. Get Square location
+  const locRes = await fetch('/api/square?action=location')
+  const locData = await locRes.json()
+  if (locData.error) throw new Error(locData.error)
+  const locationId = locData.locations?.[0]?.id
+  if (!locationId) throw new Error('No Square location found. Check your Square account setup.')
+
+  // 2. Find or create Square customer
+  let customerId = client.squareCustomerId
+  if (!customerId) {
+    // Search by email first
+    if (client.email) {
+      const searchRes = await fetch('/api/square?action=search-customer', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: client.email }),
+      })
+      const searchData = await searchRes.json()
+      customerId = searchData.customers?.[0]?.id
+    }
+    // Create if not found
+    if (!customerId) {
+      const createRes = await fetch('/api/square?action=create-customer', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: client.name, email: client.email, phone: client.phone }),
+      })
+      const createData = await createRes.json()
+      if (createData.error) throw new Error(`Square customer creation failed: ${createData.error}`)
+      customerId = createData.customerId
+    }
+    // Save Square customer ID back to client
+    if (customerId && isSupabaseConfigured()) {
+      await saveClientAsync({ ...client, squareCustomerId: customerId })
+    }
+  }
+
+  // 3. Create Square invoice
+  const createRes = await fetch('/api/square?action=create', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      locationId,
+      customerId,
+      items: (inv.items || []).map(item => ({
+        description: item.description,
+        quantity: item.quantity || 1,
+        unitPrice: parseFloat(item.unitPrice) || 0,
+      })),
+      dueDate: inv.dueDate || undefined,
+      title: `Invoice ${inv.invoiceNumber}`,
+      note: inv.notes || '',
+    }),
+  })
+  const createData = await createRes.json()
+  if (createData.error) throw new Error(`Square invoice creation failed: ${createData.error}`)
+
+  const squareInvoiceId = createData.invoiceId
+  const version = createData.invoice?.version || 0
+
+  // 4. Publish (send) the invoice
+  const sendRes = await fetch('/api/square?action=send', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ invoiceId: squareInvoiceId, version }),
+  })
+  const sendData = await sendRes.json()
+  if (sendData.error) throw new Error(`Square invoice send failed: ${sendData.error}`)
+
+  // 5. Save Square IDs back to our invoice
+  const updated = {
+    ...inv,
+    status: 'sent',
+    squareInvoiceId: squareInvoiceId,
+    squarePublicUrl: sendData.publicUrl || createData.publicUrl || '',
+    sentAt: new Date().toISOString(),
+  }
+  if (isSupabaseConfigured()) { await saveInvoiceAsync(updated) } else { saveInvoice(updated) }
+
+  return { publicUrl: sendData.publicUrl || createData.publicUrl }
+}
+
 const STATUS_COLORS = {
   draft: 'bg-gray-800 text-gray-400',
   sent: 'bg-blue-900/40 text-blue-400',
@@ -104,6 +188,7 @@ export default function Invoices() {
   const [activeInvoice, setActiveInvoice] = useState(null)
   const [filterStatus, setFilterStatus] = useState('all')
   const [sendingId, setSendingId] = useState(null)
+  const [squareSendingId, setSquareSendingId] = useState(null)
   const [emailStatus, setEmailStatus] = useState({})
   const [searchQuery, setSearchQuery] = useState('')
   const [filterClient, setFilterClient] = useState('all')
@@ -332,6 +417,7 @@ export default function Invoices() {
                 <td className="px-3 py-3 text-right font-mono">${inv.total.toFixed(2)}</td>
                 <td className="px-3 py-3 text-center">
                   <span className={`px-2 py-0.5 rounded text-xs font-medium ${STATUS_COLORS[inv.status]}`}>{inv.status}</span>
+                  {inv.squareInvoiceId && <span className="block text-[10px] text-emerald-500 mt-0.5">Square</span>}
                 </td>
                 <td className="px-5 py-3 text-right">
                   <div className="flex gap-2 justify-end">
@@ -361,12 +447,37 @@ export default function Invoices() {
                       </button>
                     )}
                     {inv.status === 'draft' && (
+                      <button
+                        disabled={squareSendingId === inv.id}
+                        onClick={async () => {
+                          setSquareSendingId(inv.id)
+                          setEmailStatus(prev => ({ ...prev, [inv.id]: null }))
+                          try {
+                            const result = await sendViaSquare(inv)
+                            setEmailStatus(prev => ({ ...prev, [inv.id]: 'square-sent' }))
+                            reload()
+                          } catch (err) {
+                            setEmailStatus(prev => ({ ...prev, [inv.id]: err.message }))
+                          } finally {
+                            setSquareSendingId(null)
+                          }
+                        }}
+                        className="text-xs text-emerald-400 hover:text-emerald-300 disabled:opacity-50"
+                      >
+                        {squareSendingId === inv.id ? 'Sending...' : emailStatus[inv.id] === 'square-sent' ? 'Sent via Square' : 'Send via Square'}
+                      </button>
+                    )}
+                    {inv.status === 'draft' && (
                       <button onClick={async () => { isSupabaseConfigured() ? await saveInvoiceAsync({ ...inv, status: 'sent' }) : saveInvoice({ ...inv, status: 'sent' }); reload() }}
                         className="text-xs text-gray-500 hover:text-green-400">Mark Sent Only</button>
                     )}
                     {inv.status === 'sent' && (
                       <button onClick={async () => { isSupabaseConfigured() ? await saveInvoiceAsync({ ...inv, status: 'paid', paidAt: new Date().toISOString() }) : saveInvoice({ ...inv, status: 'paid', paidAt: new Date().toISOString() }); reload() }}
                         className="text-xs text-gray-500 hover:text-green-400">Mark Paid</button>
+                    )}
+                    {inv.squarePublicUrl && (inv.status === 'sent' || inv.status === 'overdue') && (
+                      <a href={inv.squarePublicUrl} target="_blank" rel="noopener noreferrer"
+                        className="text-xs text-emerald-400 hover:text-emerald-300">Pay Link</a>
                     )}
                     {(inv.status === 'sent' || inv.status === 'overdue') && (
                       <button
