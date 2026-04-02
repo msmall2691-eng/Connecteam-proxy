@@ -1,3 +1,6 @@
 node_modules
 dist
 .vite/
+# Generated report outputs
+*-report.md
+weekly-report.md

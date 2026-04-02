@@ -4,27 +4,27 @@
 
 ### Weekly Employee Report (hours, mileage, pay per employee per week)
 ```bash
-python3 report.py                                    # Last 4 weeks
-python3 report.py --weeks 2                          # Last 2 weeks
-python3 report.py --start 2026-03-01 --end 2026-03-31
+python3 scripts/report.py                                    # Last 4 weeks
+python3 scripts/report.py --weeks 2                          # Last 2 weeks
+python3 scripts/report.py --start 2026-03-01 --end 2026-03-31
 ```
 
 ### Payroll Prep + Mileage Reimbursement (ready for Square Payroll)
 ```bash
-python3 payroll.py                                   # Last 2 weeks (current pay period)
-python3 payroll.py --weeks 1                         # Last week only
-python3 payroll.py --start 2026-03-16 --end 2026-03-29
-python3 payroll.py --rate 0.70 --threshold 35        # Custom IRS rate / threshold
+python3 scripts/payroll.py                                   # Last 2 weeks (current pay period)
+python3 scripts/payroll.py --weeks 1                         # Last week only
+python3 scripts/payroll.py --start 2026-03-16 --end 2026-03-29
+python3 scripts/payroll.py --rate 0.70 --threshold 35        # Custom IRS rate / threshold
 ```
 Mileage rules: reimburse miles over 35 to first job of day + all between-job miles at $0.70/mi (IRS rate).
 
 ### Operations Dashboard (schedule coverage, attendance, client job history)
 ```bash
-python3 dashboard.py                                 # All reports, last 2 weeks
-python3 dashboard.py --report schedule               # Schedule coverage only
-python3 dashboard.py --report attendance             # Attendance tracker only
-python3 dashboard.py --report jobs                   # Client job history only
-python3 dashboard.py --weeks 4                       # Last 4 weeks
+python3 scripts/dashboard.py                                 # All reports, last 2 weeks
+python3 scripts/dashboard.py --report schedule               # Schedule coverage only
+python3 scripts/dashboard.py --report attendance             # Attendance tracker only
+python3 scripts/dashboard.py --report jobs                   # Client job history only
+python3 scripts/dashboard.py --weeks 4                       # Last 4 weeks
 ```
 
 ### All scripts support:
@@ -68,7 +68,7 @@ Example endpoints (pass as `?path=`):
 
 ## API Key
 Set via environment variable: `CONNECTEAM_API_KEY`
-Or pass directly: `python3 report.py --api-key YOUR_KEY`
+Or pass directly: `python3 scripts/report.py --api-key YOUR_KEY`
 
 ## Notes
 - Connecteam API rate limits to ~5 requests per 10 seconds
