@@ -155,18 +155,22 @@ export default function Schedule() {
     try {
       // Primary: load from Supabase rental properties (persists across devices)
       const allProps = isSupabaseConfigured() ? await getPropertiesAsync() : []
-      const rentalProps = allProps.filter(p => p.type === 'rental' && p.googleCalendarId)
+      const rentalProps = allProps.filter(p => p.type === 'rental' && (p.googleCalendarId || p.icalUrl))
 
       // Fallback: also include legacy localStorage calendars
       const legacyCals = rentalCals.filter(c =>
         !rentalProps.some(p => p.googleCalendarId === c.calendarId)
       )
 
+      // Only include properties with Google Calendar IDs in the Google API call
+      const gcalRentalProps = rentalProps.filter(p => p.googleCalendarId)
       const calEntries = [
-        ...rentalProps.map(p => ({ calendarId: p.googleCalendarId, name: p.name || p.addressLine1, clientId: p.clientId, propertyId: p.id, address: p.addressLine1 })),
+        ...gcalRentalProps.map(p => ({ calendarId: p.googleCalendarId, name: p.name || p.addressLine1, clientId: p.clientId, propertyId: p.id, address: p.addressLine1 })),
         ...legacyCals.map(c => ({ calendarId: c.calendarId, name: c.name, clientId: null, propertyId: null, address: '' })),
       ]
 
+      // If no Google Calendar entries but we have iCal-only properties, just return
+      // (they'll be picked up by Auto-Scan which uses the /api/auto-turnovers endpoint)
       if (calEntries.length === 0) return
 
       const calParam = calEntries.map(c => `${c.calendarId}|${c.name}`).join(',')
@@ -231,29 +235,32 @@ export default function Schedule() {
           setScannedTurnovers(data.turnovers)
         }
 
+        const errCount = data.errors || 0
         if (propCount === 0) {
           setToast({
             type: 'info',
             message: 'No rental properties found',
-            details: 'Add rental properties with a Google Calendar ID in client Properties tab first.',
+            details: 'Add rental properties (type=rental) with a Google Calendar ID or iCal URL in the Properties tab.',
           })
         } else if (createdCount > 0) {
           setToast({
             type: 'success',
-            message: `Created ${createdCount} new turnover cleaning${createdCount !== 1 ? 's' : ''}`,
-            details: `Scanned ${propCount} properties. ${totalCount} total turnovers found, ${alreadyCount} already scheduled.`,
+            message: `Created ${createdCount} new turnover${createdCount !== 1 ? 's' : ''}`,
+            details: `Scanned ${propCount} properties. ${totalCount} found, ${alreadyCount} already scheduled.${errCount ? ` ${errCount} errors.` : ''}`,
           })
         } else if (totalCount > 0) {
           setToast({
             type: 'info',
             message: 'All turnovers already scheduled',
-            details: `${propCount} properties scanned. ${alreadyCount} turnovers already have jobs.`,
+            details: `${propCount} properties scanned. ${alreadyCount} turnovers already have visits.`,
           })
         } else {
           setToast({
             type: 'info',
-            message: 'No upcoming turnovers found',
-            details: `Scanned ${propCount} properties with iCal feeds. No checkouts in the next 30 days.`,
+            message: `No turnovers found (${propCount} properties scanned)`,
+            details: propCount > 0
+              ? `Check that your rental properties have iCal/Google Calendar data with upcoming reservations. No checkouts detected in next ${daysAhead} days.`
+              : 'Add rental properties with a Google Calendar ID or iCal URL in the Properties tab.',
           })
         }
 
