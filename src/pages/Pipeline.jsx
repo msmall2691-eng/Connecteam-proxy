@@ -7,7 +7,7 @@ import {
   savePropertyAsync, generateQuoteNumber, saveVisitAsync, lookupServiceTypeId,
 } from '../lib/store'
 import { isSupabaseConfigured, getSupabase } from '../lib/supabase'
-import { CardSkeleton, StatusBadge } from '../components/ui'
+import { CardSkeleton, StatusBadge, Avatar } from '../components/ui'
 
 // Linear workflow: Request → Quote Sent → Approved → Scheduled
 const STAGES = [
@@ -494,51 +494,51 @@ export default function Pipeline() {
                   <div key={card.id} draggable
                     onDragStart={() => handleDragStart(card, stage.id)}
                     onDragEnd={handleDragEnd}
-                    className={`bg-gray-900 border border-gray-800 rounded-lg p-3 hover:border-gray-700 transition-all cursor-grab active:cursor-grabbing ${
+                    className={`bg-gray-900 border border-gray-800 rounded-xl p-3 hover:border-gray-700 hover:shadow-lg hover:shadow-black/20 transition-all cursor-grab active:cursor-grabbing ${
                       dragCard?.id === card.id ? 'opacity-40 scale-95' : ''
                     }`}>
-                    {/* Name + link */}
-                    {card.type === 'client' ? (
-                      <Link to={`/clients/${card.id}`} className="text-sm font-medium text-white hover:text-blue-400 block">{card.name}</Link>
-                    ) : (
-                      <span className="text-sm font-medium text-white block">{card.name}</span>
-                    )}
+                    {/* Header: Avatar + Name */}
+                    <div className="flex items-center gap-2.5">
+                      <Avatar name={card.name} size="sm" />
+                      <div className="min-w-0 flex-1">
+                        {card.type === 'client' ? (
+                          <Link to={`/clients/${card.id}`} className="text-sm font-medium text-white hover:text-blue-400 block truncate">{card.name}</Link>
+                        ) : (
+                          <span className="text-sm font-medium text-white block truncate">{card.name}</span>
+                        )}
+                        {(card.email || card.phone) && (
+                          <p className="text-[11px] text-gray-500 truncate">{card.email || card.phone}</p>
+                        )}
+                      </div>
+                    </div>
 
-                    {/* Contact */}
-                    {(card.email || card.phone) && (
-                      <p className="text-xs text-gray-500 mt-0.5 truncate">{card.email || card.phone}</p>
-                    )}
-
-                    {/* Service + address */}
+                    {/* Tags: service type + frequency */}
                     {card.serviceType && (
-                      <p className="text-xs text-gray-400 mt-1">{card.serviceType}{card.frequency && card.frequency !== 'one-time' ? ` · ${card.frequency}` : ''}</p>
-                    )}
-                    {card.address && (
-                      <p className="text-xs text-gray-600 mt-0.5 truncate">{card.address}</p>
+                      <div className="flex flex-wrap gap-1 mt-2">
+                        <span className="px-2 py-0.5 bg-blue-500/10 text-blue-400 rounded-md text-[10px] font-medium">{card.serviceType}</span>
+                        {card.frequency && card.frequency !== 'one-time' && (
+                          <span className="px-2 py-0.5 bg-purple-500/10 text-purple-400 rounded-md text-[10px] font-medium">{card.frequency}</span>
+                        )}
+                      </div>
                     )}
 
-                    {/* Price */}
+                    {/* Price + Revenue */}
                     {(card.finalPrice || card.estimateMin) && (
-                      <p className="text-xs font-mono mt-1.5">
-                        <span className={stage.id === 'scheduled' ? 'text-green-400' : 'text-blue-400'}>
+                      <div className="mt-2 flex items-center justify-between">
+                        <span className={`text-sm font-bold tabular-nums ${stage.id === 'scheduled' ? 'text-green-400' : 'text-white'}`}>
                           {card.finalPrice ? `$${card.finalPrice}` : `$${card.estimateMin}–$${card.estimateMax}`}
                         </span>
-                        {card.frequency && card.frequency !== 'one-time' && (
-                          <span className="text-gray-600 ml-1">/{card.frequency}</span>
+                        {card.revenue > 0 && (
+                          <span className="text-[10px] text-green-500/70">${card.revenue.toFixed(0)} earned</span>
                         )}
-                      </p>
+                      </div>
                     )}
 
-                    {/* Revenue for scheduled */}
-                    {card.revenue > 0 && (
-                      <p className="text-xs text-green-500/70 mt-0.5">${card.revenue.toFixed(0)} earned</p>
-                    )}
-
-                    {/* Source + age */}
-                    <div className="flex items-center justify-between mt-2">
-                      <span className="text-xs text-gray-700">{card.source || ''}</span>
-                      <span className="text-xs text-gray-700">
-                        {card.createdAt ? `${Math.floor((Date.now() - new Date(card.createdAt)) / 86400000)}d` : ''}
+                    {/* Footer: source + age */}
+                    <div className="flex items-center justify-between mt-2 pt-2 border-t border-gray-800/50">
+                      <span className="text-[10px] text-gray-600">{card.source || ''}</span>
+                      <span className="text-[10px] text-gray-600">
+                        {card.createdAt ? `${Math.floor((Date.now() - new Date(card.createdAt)) / 86400000)}d ago` : ''}
                       </span>
                     </div>
 

@@ -303,6 +303,81 @@ export function ProgressBar({ value = 0, max = 100, color = 'blue', size = 'sm' 
 }
 
 
+// ─── AVATAR ──────────────────────────────────────────────────────────────────
+const AVATAR_COLORS = [
+  'from-blue-500 to-cyan-400',
+  'from-purple-500 to-pink-400',
+  'from-green-500 to-emerald-400',
+  'from-amber-500 to-orange-400',
+  'from-rose-500 to-red-400',
+  'from-indigo-500 to-violet-400',
+  'from-teal-500 to-cyan-400',
+  'from-fuchsia-500 to-purple-400',
+]
+
+export function Avatar({ name, size = 'md', className = '' }) {
+  const initials = (name || '?').split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase()
+  const colorIdx = (name || '').split('').reduce((s, c) => s + c.charCodeAt(0), 0) % AVATAR_COLORS.length
+  const sizes = { xs: 'w-6 h-6 text-[10px]', sm: 'w-8 h-8 text-xs', md: 'w-10 h-10 text-sm', lg: 'w-12 h-12 text-base' }
+  return (
+    <div className={`${sizes[size]} rounded-full bg-gradient-to-br ${AVATAR_COLORS[colorIdx]} flex items-center justify-center font-bold text-white shrink-0 ${className}`}>
+      {initials}
+    </div>
+  )
+}
+
+
+// ─── GRADIENT BUTTON ─────────────────────────────────────────────────────────
+export function GradientButton({ children, onClick, disabled, className = '', variant = 'primary', size = 'md' }) {
+  const variants = {
+    primary: 'bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 text-white shadow-lg shadow-blue-500/20 hover:shadow-blue-500/30',
+    purple: 'bg-gradient-to-r from-purple-600 to-pink-500 hover:from-purple-500 hover:to-pink-400 text-white shadow-lg shadow-purple-500/20',
+    success: 'bg-gradient-to-r from-green-600 to-emerald-500 hover:from-green-500 hover:to-emerald-400 text-white shadow-lg shadow-green-500/20',
+    outline: 'bg-transparent border border-gray-700 text-gray-300 hover:bg-gray-800 hover:border-gray-600',
+  }
+  const sizes = { sm: 'px-3 py-1.5 text-xs', md: 'px-4 py-2 text-sm', lg: 'px-6 py-2.5 text-base' }
+  return (
+    <button onClick={onClick} disabled={disabled}
+      className={`${sizes[size]} ${variants[variant]} rounded-xl font-medium transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed disabled:shadow-none ${className}`}>
+      {children}
+    </button>
+  )
+}
+
+
+// ─── INSIGHT CARD (AI recommendation style) ──────────────────────────────────
+export function InsightCard({ icon, title, description, action, actionLabel, color = 'blue', urgent }) {
+  const colors = {
+    blue: 'border-blue-800/30 bg-blue-950/20',
+    purple: 'border-purple-800/30 bg-purple-950/20',
+    amber: 'border-amber-800/30 bg-amber-950/20',
+    red: 'border-red-800/30 bg-red-950/20',
+    green: 'border-green-800/30 bg-green-950/20',
+  }
+  const dotColors = { blue: 'bg-blue-500', purple: 'bg-purple-500', amber: 'bg-amber-500', red: 'bg-red-500', green: 'bg-green-500' }
+  return (
+    <div className={`border rounded-xl p-3.5 ${colors[color]} ${urgent ? 'animate-glow' : ''}`}>
+      <div className="flex items-start gap-3">
+        <div className={`w-2 h-2 rounded-full mt-1.5 shrink-0 ${dotColors[color]} ${urgent ? 'animate-pulse' : ''}`} />
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2">
+            {icon && <span className="text-sm">{icon}</span>}
+            <p className="text-sm font-medium text-white">{title}</p>
+          </div>
+          {description && <p className="text-xs text-gray-400 mt-0.5">{description}</p>}
+        </div>
+        {action && (
+          <button onClick={action}
+            className="shrink-0 px-3 py-1 bg-white/5 hover:bg-white/10 border border-white/10 rounded-lg text-xs text-gray-300 transition-colors">
+            {actionLabel || 'View'}
+          </button>
+        )}
+      </div>
+    </div>
+  )
+}
+
+
 // ─── RELATIVE TIME ───────────────────────────────────────────────────────────
 export function timeAgo(dateStr) {
   if (!dateStr) return ''

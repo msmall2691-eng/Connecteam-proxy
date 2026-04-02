@@ -109,6 +109,30 @@ export default function App() {
   const [showShortcuts, setShowShortcuts] = useState(false)
   const location = useLocation()
 
+  function renderNavItem(item) {
+    const badgeCount = item.to === '/pipeline' ? navBadges.pipeline
+      : item.to === '/invoices' ? navBadges.invoices
+      : item.label === 'Clients' ? navBadges.leads : 0
+    const badgeColor = item.to === '/invoices' ? 'red' : item.to === '/pipeline' ? 'amber' : 'blue'
+    return (
+      <NavLink key={item.to} to={item.to} end={item.to === '/'}
+        onClick={() => setSidebarOpen(false)}
+        className={({ isActive }) =>
+          `flex items-center gap-3 px-3 py-2 rounded-xl text-[13px] transition-all duration-150 ${
+            isActive
+              ? 'bg-gradient-to-r from-blue-600/20 to-purple-600/10 text-white font-medium shadow-sm'
+              : 'text-gray-400 hover:bg-white/5 hover:text-gray-200'
+          }`
+        }>
+        <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
+          <path strokeLinecap="round" strokeLinejoin="round" d={item.icon} />
+        </svg>
+        <span className="flex-1">{item.label}</span>
+        <Badge count={badgeCount} color={badgeColor} />
+      </NavLink>
+    )
+  }
+
   // Scroll to top on route change
   useEffect(() => {
     const main = document.querySelector('main')
@@ -158,14 +182,19 @@ export default function App() {
 
       {/* Sidebar */}
       <aside className={`
-        fixed inset-y-0 left-0 z-40 w-56 bg-gray-900 border-r border-gray-800 flex flex-col shrink-0
+        fixed inset-y-0 left-0 z-40 w-60 bg-gray-950 border-r border-gray-800/50 flex flex-col shrink-0
         transform transition-transform duration-200 ease-in-out
         md:relative md:translate-x-0
         ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}
       `}>
-        <div className="p-4 border-b border-gray-800">
-          <h1 className="text-lg font-bold text-white tracking-tight">Workflow HQ</h1>
-          <p className="text-xs text-gray-500 mt-0.5">CRM & Operations</p>
+        <div className="p-4 border-b border-gray-800/50">
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white font-bold text-sm shadow-lg shadow-blue-500/20">W</div>
+            <div>
+              <h1 className="text-sm font-bold text-white tracking-tight">Workflow HQ</h1>
+              <p className="text-[10px] text-gray-500">CRM & Operations</p>
+            </div>
+          </div>
         </div>
         {/* Search trigger */}
         <button onClick={() => setCmdKOpen(true)}
@@ -176,41 +205,42 @@ export default function App() {
           <span className="flex-1 text-left">Search...</span>
           <kbd className="hidden md:inline text-[10px] px-1.5 py-0.5 bg-gray-700/50 rounded font-mono">{'\u2318'}K</kbd>
         </button>
-        <nav className="flex-1 p-3 space-y-1 overflow-y-auto">
-          {navItems.map(item => {
-            const badgeCount = item.to === '/pipeline' ? navBadges.pipeline
-              : item.to === '/invoices' ? navBadges.invoices
-              : item.label === 'Clients' ? navBadges.leads : 0
-            const badgeColor = item.to === '/invoices' ? 'red' : item.to === '/pipeline' ? 'amber' : 'blue'
-            return (
-              <NavLink key={item.to} to={item.to} end={item.to === '/'}
-                onClick={() => setSidebarOpen(false)}
-                className={({ isActive }) =>
-                  `flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors ${
-                    isActive ? 'bg-blue-600/20 text-blue-400' : 'text-gray-400 hover:bg-gray-800 hover:text-gray-200'
-                  }`
-                }>
-                <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d={item.icon} />
-                </svg>
-                <span className="flex-1">{item.label}</span>
-                <Badge count={badgeCount} color={badgeColor} />
-              </NavLink>
-            )
-          })}
+        <nav className="flex-1 p-2.5 overflow-y-auto">
+          {/* Main nav group */}
+          <div className="space-y-0.5">
+            <p className="px-3 py-1.5 text-[10px] text-gray-600 uppercase tracking-wider font-medium">Main</p>
+            {navItems.slice(0, 1).map(item => renderNavItem(item))}
+          </div>
+          {/* Sales group */}
+          <div className="space-y-0.5 mt-3">
+            <p className="px-3 py-1.5 text-[10px] text-gray-600 uppercase tracking-wider font-medium">Sales</p>
+            {navItems.filter(i => ['/pipeline', '/clients', '/communications'].includes(i.to)).map(item => renderNavItem(item))}
+          </div>
+          {/* Operations group */}
+          <div className="space-y-0.5 mt-3">
+            <p className="px-3 py-1.5 text-[10px] text-gray-600 uppercase tracking-wider font-medium">Operations</p>
+            {navItems.filter(i => ['/schedule', '/invoices', '/payroll'].includes(i.to)).map(item => renderNavItem(item))}
+          </div>
+          {/* Analytics group */}
+          <div className="space-y-0.5 mt-3">
+            <p className="px-3 py-1.5 text-[10px] text-gray-600 uppercase tracking-wider font-medium">Analytics</p>
+            {navItems.filter(i => ['/reports', '/revenue', '/my-website'].includes(i.to)).map(item => renderNavItem(item))}
+          </div>
         </nav>
 
         {/* Bottom actions */}
-        <div className="p-3 border-t border-gray-800 space-y-1">
+        <div className="p-2.5 border-t border-gray-800/50 space-y-1">
           <button onClick={() => setChatOpen(!chatOpen)}
-            className={`flex items-center gap-3 w-full px-3 py-2 rounded-lg text-sm transition-colors ${
-              chatOpen ? 'bg-purple-600/20 text-purple-400' : 'text-gray-400 hover:bg-gray-800 hover:text-gray-200'
+            className={`flex items-center gap-3 w-full px-3 py-2.5 rounded-xl text-[13px] font-medium transition-all duration-200 ${
+              chatOpen
+                ? 'bg-gradient-to-r from-purple-600/30 to-pink-600/20 text-purple-300 shadow-sm'
+                : 'bg-gradient-to-r from-purple-600/10 to-pink-600/5 text-gray-400 hover:from-purple-600/20 hover:to-pink-600/10 hover:text-purple-300'
             }`}>
             <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09zM18.259 8.715L18 9.75l-.259-1.035a3.375 3.375 0 00-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 002.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 002.455 2.456L21.75 6l-1.036.259a3.375 3.375 0 00-2.455 2.456z" />
             </svg>
             AI Agent
-            {chatOpen && <span className="ml-auto text-xs text-purple-400">open</span>}
+            {chatOpen && <span className="ml-auto text-[10px] text-purple-400 bg-purple-500/20 px-1.5 py-0.5 rounded">ON</span>}
           </button>
           <NavLink to="/setup"
             className={({ isActive }) =>

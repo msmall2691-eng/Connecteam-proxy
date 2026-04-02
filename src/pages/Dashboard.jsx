@@ -8,7 +8,7 @@ import {
   getScheduleAsync,
 } from '../lib/store'
 import { isSupabaseConfigured, subscribeToTable } from '../lib/supabase'
-import { Skeleton, CardSkeleton, StatusBadge, ProgressBar, timeAgo } from '../components/ui'
+import { Skeleton, CardSkeleton, StatusBadge, ProgressBar, timeAgo, InsightCard, Avatar } from '../components/ui'
 
 export default function Dashboard() {
   const [data, setData] = useState(null)
@@ -251,6 +251,36 @@ export default function Dashboard() {
         <Stat label="Outstanding" value={`$${data.stats.outstanding.toLocaleString()}`} color={data.stats.outstanding > 0 ? 'text-amber-400' : 'text-gray-500'} />
         <Stat label="Total Clients" value={data.stats.clients} />
       </div>
+
+      {/* AI Insights — actionable recommendations */}
+      {(data.draftQuotes.length > 0 || data.staleQuotes.length > 0 || data.unpushedJobs.length > 0 || data.unpaid.filter(i => i.status === 'overdue').length > 0) && (
+        <div className="card-glow bg-gray-900 border border-gray-800 rounded-2xl p-4 space-y-2">
+          <div className="flex items-center gap-2 mb-1">
+            <div className="w-5 h-5 rounded-lg bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center">
+              <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z" />
+              </svg>
+            </div>
+            <span className="text-sm font-semibold text-white">Smart Recommendations</span>
+          </div>
+          {data.unpaid.filter(i => i.status === 'overdue').length > 0 && (
+            <InsightCard color="red" urgent title={`${data.unpaid.filter(i => i.status === 'overdue').length} overdue invoice${data.unpaid.filter(i => i.status === 'overdue').length !== 1 ? 's' : ''}`}
+              description="Send payment reminders to avoid aging receivables" actionLabel="View" action={() => window.location.href = '/invoices'} />
+          )}
+          {data.draftQuotes.length > 0 && (
+            <InsightCard color="purple" title={`${data.draftQuotes.length} quote${data.draftQuotes.length !== 1 ? 's' : ''} ready to send`}
+              description="Draft quotes waiting — send to convert leads" actionLabel="Pipeline" action={() => window.location.href = '/pipeline'} />
+          )}
+          {data.staleQuotes.length > 0 && (
+            <InsightCard color="amber" title={`${data.staleQuotes.length} quote${data.staleQuotes.length !== 1 ? 's' : ''} need follow-up`}
+              description="Sent 3+ days ago with no response" actionLabel="Follow Up" action={() => window.location.href = '/pipeline'} />
+          )}
+          {data.unpushedJobs.length > 0 && (
+            <InsightCard color="blue" title={`${data.unpushedJobs.length} visit${data.unpushedJobs.length !== 1 ? 's' : ''} not on calendar`}
+              description="Sync to Google Calendar so your team sees them" actionLabel="Schedule" action={() => window.location.href = '/schedule'} />
+          )}
+        </div>
+      )}
 
       {/* Workflow Pipeline — visual funnel with progress */}
       <div className="bg-gray-900 border border-gray-800 rounded-xl p-4">
