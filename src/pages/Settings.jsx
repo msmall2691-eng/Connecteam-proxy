@@ -511,11 +511,20 @@ export default function Settings() {
         </p>
       </Section>
 
-      {/* Save all */}
-      <div className="flex justify-end">
-        <button onClick={handleSaveAll} className="px-6 py-2.5 bg-blue-600 hover:bg-blue-500 rounded-lg text-sm font-medium text-white">
-          Save All Settings
-        </button>
+      {/* Spacer for sticky save bar */}
+      <div className="h-20" />
+
+      {/* Sticky save bar — always visible at bottom */}
+      <div className="fixed bottom-0 left-0 right-0 z-30 bg-gray-900/95 backdrop-blur border-t border-gray-800 px-6 py-3">
+        <div className="max-w-4xl mx-auto flex items-center justify-between">
+          <p className="text-xs text-gray-500">Changes are saved to your browser. Click Save to apply.</p>
+          <div className="flex items-center gap-3">
+            {saved && <span className="text-sm text-green-400 font-medium">{saved}</span>}
+            <button onClick={handleSaveAll} className="px-6 py-2.5 bg-blue-600 hover:bg-blue-500 rounded-lg text-sm font-medium text-white shadow-lg">
+              Save All Settings
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   )
