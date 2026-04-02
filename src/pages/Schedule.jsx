@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Link } from 'react-router-dom'
 import { getApiKey } from '../lib/api'
-import { getClients, getClientsAsync, getJobs, getJobsAsync, getVisitsAsync, getScheduleAsync, getEmployeesAsync } from '../lib/store'
+import { getClients, getClientsAsync, getJobs, getJobsAsync, getVisitsAsync, getScheduleAsync, getEmployeesAsync, saveVisitAsync, saveJobAsync } from '../lib/store'
 import { isSupabaseConfigured } from '../lib/supabase'
 
 // Rental calendar config (localStorage)
@@ -41,6 +41,8 @@ export default function Schedule() {
   const [showShifts, setShowShifts] = useState(false)
   const [loadingShifts, setLoadingShifts] = useState(false)
   const [pushingToConnecteam, setPushingToConnecteam] = useState(null)
+  const [pushingVisitToCal, setPushingVisitToCal] = useState(null)
+  const [pushingVisitToCT, setPushingVisitToCT] = useState(null)
 
   // Auto-dismiss toast after 6s
   useEffect(() => {
@@ -272,6 +274,99 @@ export default function Schedule() {
       setToast({ type: 'error', message: 'Failed to push to Connecteam', details: err.message })
     } finally {
       setPushingToConnecteam(null)
+    }
+  }
+
+  // Push a visit/job to Google Calendar
+  async function pushVisitToCalendar(item) {
+    setPushingVisitToCal(item.id)
+    try {
+      const date = item.scheduledDate || item.date
+      const startTime = item.scheduledStartTime || item.startTime || '09:00'
+      const endTime = item.scheduledEndTime || item.endTime || '12:00'
+      const title = item.job?.title || item.title || 'Cleaning'
+      const clientName = item.client?.name || item.clientName || ''
+      const address = item.address || item.client?.address || item.property?.address_line1 || ''
+
+      const res = await fetch('/api/google?action=calendar-create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          summary: `${title}${clientName ? ' — ' + clientName : ''}`,
+          description: [clientName, address, item.instructions].filter(Boolean).join('\n'),
+          startDateTime: `${date}T${startTime.replace(/:\d{2}$/, '')}:00`,
+          endDateTime: `${date}T${endTime.replace(/:\d{2}$/, '')}:00`,
+          location: address,
+        }),
+      })
+      if (res.ok) {
+        const calData = await res.json()
+        // Update the visit with the google_event_id
+        if (item.scheduledDate) {
+          await saveVisitAsync({ id: item.id, googleEventId: calData.id })
+        } else {
+          await saveJobAsync({ id: item.id, googleEventId: calData.id })
+        }
+        setToast({ type: 'success', message: `Added to Google Calendar`, details: `${title} on ${new Date(date).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}` })
+        loadCrmData()
+      } else {
+        setToast({ type: 'error', message: 'Failed to add to calendar' })
+      }
+    } catch (err) {
+      setToast({ type: 'error', message: 'Failed to add to calendar', details: err.message })
+    } finally {
+      setPushingVisitToCal(null)
+    }
+  }
+
+  // Push a visit/job to Connecteam
+  async function pushVisitToConnecteam(item) {
+    const apiKey = getApiKey()
+    if (!apiKey) {
+      setToast({ type: 'error', message: 'Connecteam API key not set' })
+      return
+    }
+    setPushingVisitToCT(item.id)
+    try {
+      const date = item.scheduledDate || item.date
+      const startTime = item.scheduledStartTime || item.startTime || '09:00'
+      const endTime = item.scheduledEndTime || item.endTime || '12:00'
+      const title = item.job?.title || item.title || 'Cleaning'
+      const clientName = item.client?.name || item.clientName || ''
+      const address = item.address || item.client?.address || ''
+
+      const startStr = `${date}T${startTime.replace(/:\d{2}$/, '')}:00-04:00`
+      const startUnix = Math.floor(new Date(startStr).getTime() / 1000)
+      const endStr = `${date}T${endTime.replace(/:\d{2}$/, '')}:00-04:00`
+      const endUnix = Math.floor(new Date(endStr).getTime() / 1000)
+
+      const res = await fetch('/api/connecteam?action=shift', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-API-KEY': apiKey },
+        body: JSON.stringify({
+          title: `${title}${clientName ? ' — ' + clientName : ''}`,
+          startTime: startUnix,
+          endTime: endUnix,
+          description: [clientName, address, item.instructions].filter(Boolean).join('\n'),
+          location: address,
+        }),
+      })
+      if (res.ok) {
+        const data = await res.json()
+        if (item.scheduledDate) {
+          await saveVisitAsync({ id: item.id, connecteamShiftId: data.shift?.id || 'synced' })
+        } else {
+          await saveJobAsync({ id: item.id, connecteamShiftId: data.shift?.id || 'synced' })
+        }
+        setToast({ type: 'success', message: 'Pushed to Connecteam', details: title })
+        loadCrmData()
+      } else {
+        setToast({ type: 'error', message: 'Failed to push to Connecteam' })
+      }
+    } catch (err) {
+      setToast({ type: 'error', message: 'Failed to push to Connecteam', details: err.message })
+    } finally {
+      setPushingVisitToCT(null)
     }
   }
 
@@ -707,45 +802,106 @@ export default function Schedule() {
         </div>
       )}
 
-      {/* CRM Scheduled Jobs */}
-      {crmJobs.filter(j => j.status === 'scheduled' && j.date >= new Date().toISOString().split('T')[0]).length > 0 && (
-        <div className="bg-gray-900 border border-gray-800 rounded-xl p-4">
-          <div className="flex items-center justify-between mb-3">
-            <h3 className="text-sm font-semibold text-white">Upcoming CRM Jobs</h3>
-            <span className="text-xs text-gray-500">{crmJobs.filter(j => j.status === 'scheduled' && j.date >= new Date().toISOString().split('T')[0]).length} scheduled</span>
-          </div>
-          <div className="space-y-1.5">
-            {crmJobs
-              .filter(j => j.status === 'scheduled' && j.date >= new Date().toISOString().split('T')[0])
-              .sort((a, b) => (a.date || '').localeCompare(b.date || ''))
-              .slice(0, 15)
-              .map(j => (
-                <div key={j.id} className="flex items-center justify-between bg-gray-800/50 rounded-lg px-3 py-2">
+      {/* Upcoming Schedule (visits-first, fallback to jobs) */}
+      {(() => {
+        const today = new Date().toISOString().split('T')[0]
+        const formatTime = (t) => {
+          if (!t) return ''
+          const [h, m] = t.split(':')
+          const hr = parseInt(h)
+          return `${hr > 12 ? hr - 12 : hr || 12}:${m || '00'}${hr >= 12 ? 'pm' : 'am'}`
+        }
+        // Use visits if available, fall back to jobs
+        const items = crmVisits.length > 0
+          ? crmVisits
+              .filter(v => !['cancelled', 'skipped'].includes(v.status))
+              .map(v => ({
+                id: v.id, type: 'visit',
+                title: v.job?.title || 'Cleaning',
+                date: v.scheduledDate,
+                startTime: v.scheduledStartTime,
+                endTime: v.scheduledEndTime,
+                clientName: v.client?.name || '',
+                clientId: v.clientId,
+                address: v.address || v.property?.address_line1 || '',
+                googleEventId: v.googleEventId,
+                connecteamShiftId: v.connecteamShiftId,
+                status: v.status,
+                source: v.source,
+                scheduledDate: v.scheduledDate,
+                scheduledStartTime: v.scheduledStartTime,
+                scheduledEndTime: v.scheduledEndTime,
+                job: v.job, client: v.client, property: v.property,
+                instructions: v.instructions,
+              }))
+          : crmJobs
+              .filter(j => j.status === 'scheduled' && j.date >= today)
+              .map(j => ({
+                id: j.id, type: 'job',
+                title: j.title, date: j.date,
+                startTime: j.startTime, endTime: j.endTime,
+                clientName: j.clientName, clientId: j.clientId,
+                address: j.address,
+                googleEventId: j.googleEventId,
+                connecteamShiftId: j.connecteamShiftId,
+                status: j.status,
+              }))
+        const sorted = items.sort((a, b) => (a.date || '').localeCompare(b.date || '')).slice(0, 20)
+
+        if (sorted.length === 0) return null
+        return (
+          <div className="bg-gray-900 border border-gray-800 rounded-xl p-4">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-sm font-semibold text-white">Upcoming Schedule</h3>
+              <span className="text-xs text-gray-500">{sorted.length} upcoming</span>
+            </div>
+            <div className="space-y-1.5">
+              {sorted.map(item => (
+                <div key={item.id} className="flex flex-col sm:flex-row sm:items-center justify-between bg-gray-800/50 rounded-lg px-3 py-2.5 gap-2">
                   <div className="min-w-0">
-                    <p className="text-sm text-white truncate">{j.title}</p>
+                    <div className="flex items-center gap-2">
+                      <p className="text-sm text-white truncate">{item.title}</p>
+                      {item.source === 'ical_sync' && <span className="text-[10px] px-1.5 py-0.5 bg-orange-600/20 text-orange-400 rounded">turnover</span>}
+                      {item.source === 'recurring' && <span className="text-[10px] px-1.5 py-0.5 bg-blue-600/20 text-blue-400 rounded">recurring</span>}
+                      {item.source === 'booking' && <span className="text-[10px] px-1.5 py-0.5 bg-green-600/20 text-green-400 rounded">booking</span>}
+                    </div>
                     <p className="text-xs text-gray-500">
-                      {new Date(j.date).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
-                      {j.startTime && ` @ ${j.startTime}`}
-                      {j.clientName && <span className="text-gray-600"> &middot; {j.clientName}</span>}
-                      {j.assignee && <span className="text-gray-600"> &middot; {j.assignee}</span>}
+                      {new Date(item.date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
+                      {item.startTime && ` @ ${formatTime(item.startTime)}`}
+                      {item.endTime && ` – ${formatTime(item.endTime)}`}
+                      {item.clientName && <span className="text-gray-600"> &middot; {item.clientName}</span>}
+                      {item.address && <span className="text-gray-600"> &middot; {item.address.split(',')[0]}</span>}
                     </p>
                   </div>
-                  <div className="flex items-center gap-2 shrink-0">
-                    {!j.googleEventId && (
-                      <span className="text-xs text-yellow-500">Not on calendar</span>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    {!item.googleEventId && (
+                      <button onClick={() => pushVisitToCalendar(item)} disabled={pushingVisitToCal === item.id}
+                        className="px-2.5 py-1.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 rounded-lg text-xs text-white font-medium">
+                        {pushingVisitToCal === item.id ? '...' : 'Google Cal'}
+                      </button>
                     )}
-                    {j.googleEventId && (
-                      <span className="text-xs text-green-500">On calendar</span>
+                    {item.googleEventId && (
+                      <span className="text-xs text-green-500 px-1.5">On cal</span>
                     )}
-                    {j.clientId && (
-                      <Link to={`/clients/${j.clientId}?tab=jobs`} className="text-xs text-blue-400 hover:text-blue-300">View</Link>
+                    {!item.connecteamShiftId && (
+                      <button onClick={() => pushVisitToConnecteam(item)} disabled={pushingVisitToCT === item.id}
+                        className="px-2.5 py-1.5 bg-purple-600 hover:bg-purple-500 disabled:opacity-50 rounded-lg text-xs text-white font-medium">
+                        {pushingVisitToCT === item.id ? '...' : 'Connecteam'}
+                      </button>
+                    )}
+                    {item.connecteamShiftId && (
+                      <span className="text-xs text-purple-400 px-1.5">Synced</span>
+                    )}
+                    {item.clientId && (
+                      <Link to={`/clients/${item.clientId}?tab=jobs`} className="text-xs text-gray-500 hover:text-gray-300">View</Link>
                     )}
                   </div>
                 </div>
               ))}
+            </div>
           </div>
-        </div>
-      )}
+        )
+      })()}
 
       {/* Legend + links */}
       {calendarConnected && (
