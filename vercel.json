@@ -26,6 +26,14 @@
     {
       "path": "/api/visits?action=follow-up",
       "schedule": "0 10 * * *"
+    },
+    {
+      "path": "/api/visits?action=review-request",
+      "schedule": "0 14 * * *"
+    },
+    {
+      "path": "/api/campaigns?action=run-sequences",
+      "schedule": "0 12 * * *"
     }
   ]
 }
