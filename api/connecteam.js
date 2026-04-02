@@ -112,7 +112,7 @@ export default async function handler(req, res) {
 
     const SCHEDULER_ID = 15248539
 
-    const { title, date, startTime, endTime, notes, address, clientName, clientPhone, clientEmail, price, propertyName, assignee } = req.body
+    const { title, date, startTime, endTime, notes, address, clientName, clientPhone, clientEmail, price, propertyName, assignee, visitId } = req.body
     if (!title || !date) return res.status(400).json({ error: 'title and date required' })
 
     const start = startTime || '09:00'
@@ -162,6 +162,35 @@ export default async function handler(req, res) {
 
       let parsed
       try { parsed = JSON.parse(data) } catch { parsed = { raw: data } }
+
+      // Log sync to calendar_sync_log if visitId provided
+      if (visitId) {
+        const supabaseUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL
+        const supabaseKey = process.env.SUPABASE_SERVICE_KEY || process.env.VITE_SUPABASE_ANON_KEY
+        if (supabaseUrl && supabaseKey) {
+          try {
+            await fetch(`${supabaseUrl}/rest/v1/calendar_sync_log`, {
+              method: 'POST',
+              headers: {
+                apikey: supabaseKey,
+                Authorization: `Bearer ${supabaseKey}`,
+                'Content-Type': 'application/json',
+                Prefer: 'resolution=merge-duplicates',
+              },
+              body: JSON.stringify({
+                visit_id: visitId,
+                provider: 'connecteam',
+                external_id: parsed?.id || parsed?.shiftId || null,
+                direction: 'outbound',
+                sync_status: 'synced',
+                last_synced_at: new Date().toISOString(),
+              }),
+            })
+          } catch (syncErr) {
+            console.error('Failed to log Connecteam sync:', syncErr.message)
+          }
+        }
+      }
 
       return res.status(200).json({ success: true, shift: parsed })
     } catch (err) {

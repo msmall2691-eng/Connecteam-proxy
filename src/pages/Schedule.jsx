@@ -4,6 +4,21 @@ import { getApiKey } from '../lib/api'
 import { getClients, getClientsAsync, getJobs, getJobsAsync, getVisitsAsync, getScheduleAsync, getEmployeesAsync, saveVisitAsync, saveJobAsync, getPropertiesAsync } from '../lib/store'
 import { isSupabaseConfigured } from '../lib/supabase'
 
+// DST-safe timezone offset for America/New_York
+function easternOffset(dateStr) {
+  const d = new Date(dateStr + 'T12:00:00Z')
+  const fmt = new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', timeZoneName: 'shortOffset' })
+  const parts = fmt.formatToParts(d)
+  const tzPart = parts.find(p => p.type === 'timeZoneName')
+  // e.g. "GMT-4" or "GMT-5" → "-04:00" or "-05:00"
+  const m = tzPart?.value?.match(/GMT([+-]?\d+)/)
+  if (m) {
+    const h = parseInt(m[1], 10)
+    return `${h <= 0 ? '-' : '+'}${String(Math.abs(h)).padStart(2, '0')}:00`
+  }
+  return '-05:00' // fallback EST
+}
+
 // Rental calendar config (localStorage)
 const RENTAL_CAL_KEY = 'workflowhq_rental_calendars'
 function getRentalCalendars() {
@@ -308,7 +323,7 @@ export default function Schedule() {
     setPushingToConnecteam(turnover.eventId)
     try {
       const startDateTime = `${turnover.checkOut}T${turnover.cleaningTime}:00`
-      const startUnix = Math.floor(new Date(startDateTime + '-04:00').getTime() / 1000)
+      const startUnix = Math.floor(new Date(startDateTime + easternOffset(turnover.checkOut)).getTime() / 1000)
       const endUnix = startUnix + 3 * 3600 // 3 hours
 
       const res = await fetch(`/api/connecteam?action=shift`, {
@@ -400,9 +415,10 @@ export default function Schedule() {
       const clientName = item.client?.name || item.clientName || ''
       const address = item.address || item.client?.address || ''
 
-      const startStr = `${date}T${startTime.replace(/:\d{2}$/, '')}:00-04:00`
+      const tzOff = easternOffset(date)
+      const startStr = `${date}T${startTime.replace(/:\d{2}$/, '')}:00${tzOff}`
       const startUnix = Math.floor(new Date(startStr).getTime() / 1000)
-      const endStr = `${date}T${endTime.replace(/:\d{2}$/, '')}:00-04:00`
+      const endStr = `${date}T${endTime.replace(/:\d{2}$/, '')}:00${tzOff}`
       const endUnix = Math.floor(new Date(endStr).getTime() / 1000)
 
       const res = await fetch('/api/connecteam?action=shift', {
@@ -414,6 +430,7 @@ export default function Schedule() {
           endTime: endUnix,
           description: [clientName, address, item.instructions].filter(Boolean).join('\n'),
           location: address,
+          visitId: item.scheduledDate ? item.id : undefined,
         }),
       })
       if (res.ok) {
