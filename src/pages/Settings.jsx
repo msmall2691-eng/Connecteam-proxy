@@ -1,7 +1,13 @@
 import { useState, useEffect } from 'react'
 import { getApiKey, setApiKey } from '../lib/api'
 import { isSupabaseConfigured } from '../lib/supabase'
-import { exportData, importData } from '../lib/store'
+import { exportData, importData,
+  getServiceTypesAsync, saveServiceTypeAsync, deleteServiceTypeAsync,
+  getExtrasAsync, saveExtraAsync, deleteExtraAsync,
+  getChecklistTemplatesAsync, saveChecklistTemplateAsync,
+  getEmployeesAsync, saveEmployeeAsync, deleteEmployeeAsync,
+  getTeamsAsync, saveTeamAsync, deleteTeamAsync,
+} from '../lib/store'
 
 const SETTINGS_KEY = 'workflowhq_settings'
 
@@ -483,6 +489,15 @@ export default function Settings() {
         </div>
       </Section>
 
+      {/* ── SERVICE CATALOG ── */}
+      <ServiceCatalogSettings />
+
+      {/* ── EMPLOYEES & TEAMS ── */}
+      <EmployeeSettings />
+
+      {/* ── CHECKLISTS ── */}
+      <ChecklistSettings />
+
       {/* ── DATA ── */}
       <Section title="Data Management" desc="Export or import your CRM data.">
         <div className="flex gap-3">
@@ -653,6 +668,545 @@ function GoogleCalendarSettings() {
           </button>
         </form>
       </div>
+    </Section>
+  )
+}
+
+// ══════════════════════════════════════════
+// SERVICE CATALOG (service types + extras)
+// ══════════════════════════════════════════
+function ServiceCatalogSettings() {
+  const [serviceTypes, setServiceTypes] = useState([])
+  const [extras, setExtras] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [editing, setEditing] = useState(null)
+  const [editingExtra, setEditingExtra] = useState(null)
+
+  useEffect(() => { load() }, [])
+
+  async function load() {
+    setLoading(true)
+    try {
+      const [st, ex] = await Promise.all([getServiceTypesAsync(), getExtrasAsync()])
+      setServiceTypes(st)
+      setExtras(ex)
+    } catch {}
+    setLoading(false)
+  }
+
+  async function saveType(st) {
+    const saved = await saveServiceTypeAsync(st)
+    setServiceTypes(prev => st.id ? prev.map(s => s.id === saved.id ? saved : s) : [...prev, saved])
+    setEditing(null)
+  }
+
+  async function removeType(id) {
+    if (!confirm('Remove this service type?')) return
+    await deleteServiceTypeAsync(id)
+    setServiceTypes(prev => prev.filter(s => s.id !== id))
+  }
+
+  async function saveExtra(ex) {
+    const saved = await saveExtraAsync(ex)
+    setExtras(prev => ex.id ? prev.map(e => e.id === saved.id ? saved : e) : [...prev, saved])
+    setEditingExtra(null)
+  }
+
+  async function removeExtra(id) {
+    await deleteExtraAsync(id)
+    setExtras(prev => prev.filter(e => e.id !== id))
+  }
+
+  return (
+    <Section title="Service Catalog" desc="Standardize your service types and add-on extras. Used in quotes, jobs, and booking forms.">
+      {loading ? <p className="text-sm text-gray-500">Loading...</p> : (
+        <>
+          <div>
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-xs text-gray-500 uppercase tracking-wider">Service Types</h3>
+              <button onClick={() => setEditing({ name: '', description: '', baseDurationMinutes: 120, isRecurringEligible: true })}
+                className="px-3 py-1 bg-blue-600 hover:bg-blue-500 rounded-lg text-xs text-white">+ Add</button>
+            </div>
+            <div className="space-y-1">
+              {serviceTypes.map(st => (
+                <div key={st.id} className="flex items-center justify-between bg-gray-800/50 rounded-lg px-3 py-2">
+                  <div>
+                    <span className="text-sm text-white">{st.name}</span>
+                    <span className="text-xs text-gray-500 ml-2">{st.baseDurationMinutes}min</span>
+                    {st.isRecurringEligible && <span className="text-xs text-blue-400/60 ml-2">recurring</span>}
+                  </div>
+                  <div className="flex gap-2">
+                    <button onClick={() => setEditing(st)} className="text-xs text-gray-400 hover:text-white">Edit</button>
+                    <button onClick={() => removeType(st.id)} className="text-xs text-gray-500 hover:text-red-400">Remove</button>
+                  </div>
+                </div>
+              ))}
+              {serviceTypes.length === 0 && <p className="text-xs text-gray-600">No service types yet. Run the v5 migration to seed defaults.</p>}
+            </div>
+          </div>
+
+          {editing && (
+            <div className="bg-gray-800 rounded-lg p-4 space-y-3">
+              <h4 className="text-sm font-medium text-white">{editing.id ? 'Edit' : 'Add'} Service Type</h4>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">Name</label>
+                  <input value={editing.name} onChange={e => setEditing({ ...editing, name: e.target.value })}
+                    className="w-full px-3 py-1.5 bg-gray-900 border border-gray-700 rounded-lg text-sm text-white" />
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">Duration (min)</label>
+                  <input type="number" value={editing.baseDurationMinutes} onChange={e => setEditing({ ...editing, baseDurationMinutes: parseInt(e.target.value) || 0 })}
+                    className="w-full px-3 py-1.5 bg-gray-900 border border-gray-700 rounded-lg text-sm text-white" />
+                </div>
+              </div>
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">Description</label>
+                <input value={editing.description || ''} onChange={e => setEditing({ ...editing, description: e.target.value })}
+                  className="w-full px-3 py-1.5 bg-gray-900 border border-gray-700 rounded-lg text-sm text-white" />
+              </div>
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input type="checkbox" checked={editing.isRecurringEligible} onChange={e => setEditing({ ...editing, isRecurringEligible: e.target.checked })} />
+                <span className="text-xs text-gray-400">Eligible for recurring scheduling</span>
+              </label>
+              <div className="flex gap-2">
+                <button onClick={() => saveType(editing)} className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 rounded-lg text-xs text-white">Save</button>
+                <button onClick={() => setEditing(null)} className="px-3 py-1.5 bg-gray-700 rounded-lg text-xs text-gray-300">Cancel</button>
+              </div>
+            </div>
+          )}
+
+          <hr className="border-gray-800" />
+
+          <div>
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-xs text-gray-500 uppercase tracking-wider">Add-On Extras</h3>
+              <button onClick={() => setEditingExtra({ name: '', price: 0, priceType: 'flat', durationMinutes: 0 })}
+                className="px-3 py-1 bg-blue-600 hover:bg-blue-500 rounded-lg text-xs text-white">+ Add</button>
+            </div>
+            <div className="space-y-1">
+              {extras.map(ex => (
+                <div key={ex.id} className="flex items-center justify-between bg-gray-800/50 rounded-lg px-3 py-2">
+                  <div>
+                    <span className="text-sm text-white">{ex.name}</span>
+                    <span className="text-xs text-gray-500 ml-2">${ex.price} {ex.priceType === 'per_unit' ? `/ ${ex.unitLabel || 'unit'}` : 'flat'}</span>
+                    <span className="text-xs text-gray-600 ml-2">+{ex.durationMinutes}min</span>
+                  </div>
+                  <div className="flex gap-2">
+                    <button onClick={() => setEditingExtra(ex)} className="text-xs text-gray-400 hover:text-white">Edit</button>
+                    <button onClick={() => removeExtra(ex.id)} className="text-xs text-gray-500 hover:text-red-400">Remove</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {editingExtra && (
+            <div className="bg-gray-800 rounded-lg p-4 space-y-3">
+              <h4 className="text-sm font-medium text-white">{editingExtra.id ? 'Edit' : 'Add'} Extra</h4>
+              <div className="grid grid-cols-4 gap-3">
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">Name</label>
+                  <input value={editingExtra.name} onChange={e => setEditingExtra({ ...editingExtra, name: e.target.value })}
+                    className="w-full px-3 py-1.5 bg-gray-900 border border-gray-700 rounded-lg text-sm text-white" />
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">Price ($)</label>
+                  <input type="number" step="0.01" value={editingExtra.price} onChange={e => setEditingExtra({ ...editingExtra, price: parseFloat(e.target.value) || 0 })}
+                    className="w-full px-3 py-1.5 bg-gray-900 border border-gray-700 rounded-lg text-sm text-white" />
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">Price Type</label>
+                  <select value={editingExtra.priceType} onChange={e => setEditingExtra({ ...editingExtra, priceType: e.target.value })}
+                    className="w-full px-3 py-1.5 bg-gray-900 border border-gray-700 rounded-lg text-sm text-white">
+                    <option value="flat">Flat fee</option>
+                    <option value="per_unit">Per unit</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">Extra time (min)</label>
+                  <input type="number" value={editingExtra.durationMinutes} onChange={e => setEditingExtra({ ...editingExtra, durationMinutes: parseInt(e.target.value) || 0 })}
+                    className="w-full px-3 py-1.5 bg-gray-900 border border-gray-700 rounded-lg text-sm text-white" />
+                </div>
+              </div>
+              {editingExtra.priceType === 'per_unit' && (
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">Unit label</label>
+                  <input value={editingExtra.unitLabel || ''} onChange={e => setEditingExtra({ ...editingExtra, unitLabel: e.target.value })}
+                    placeholder="e.g. per window, per load"
+                    className="w-full max-w-xs px-3 py-1.5 bg-gray-900 border border-gray-700 rounded-lg text-sm text-white" />
+                </div>
+              )}
+              <div className="flex gap-2">
+                <button onClick={() => saveExtra(editingExtra)} className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 rounded-lg text-xs text-white">Save</button>
+                <button onClick={() => setEditingExtra(null)} className="px-3 py-1.5 bg-gray-700 rounded-lg text-xs text-gray-300">Cancel</button>
+              </div>
+            </div>
+          )}
+        </>
+      )}
+    </Section>
+  )
+}
+
+// ══════════════════════════════════════════
+// EMPLOYEES & TEAMS
+// ══════════════════════════════════════════
+function EmployeeSettings() {
+  const [employees, setEmployees] = useState([])
+  const [teams, setTeams] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [editing, setEditing] = useState(null)
+  const [editingTeam, setEditingTeam] = useState(null)
+
+  useEffect(() => { load() }, [])
+
+  async function load() {
+    setLoading(true)
+    try {
+      const [emps, tms] = await Promise.all([getEmployeesAsync(), getTeamsAsync()])
+      setEmployees(emps)
+      setTeams(tms)
+    } catch {}
+    setLoading(false)
+  }
+
+  async function saveEmp(emp) {
+    const saved = await saveEmployeeAsync(emp)
+    setEmployees(prev => emp.id ? prev.map(e => e.id === saved.id ? saved : e) : [...prev, saved])
+    setEditing(null)
+  }
+
+  async function removeEmp(id) {
+    if (!confirm('Remove this employee?')) return
+    await deleteEmployeeAsync(id)
+    setEmployees(prev => prev.filter(e => e.id !== id))
+  }
+
+  async function saveTm(team) {
+    const saved = await saveTeamAsync(team)
+    setTeams(prev => team.id ? prev.map(t => t.id === saved.id ? saved : t) : [...prev, saved])
+    setEditingTeam(null)
+  }
+
+  async function removeTm(id) {
+    if (!confirm('Remove this team?')) return
+    await deleteTeamAsync(id)
+    setTeams(prev => prev.filter(t => t.id !== id))
+  }
+
+  const roleColors = { admin: 'text-red-400', manager: 'text-yellow-400', technician: 'text-blue-400', dispatcher: 'text-purple-400' }
+
+  return (
+    <Section title="Employees & Teams" desc="Manage your team members and crew assignments. Links to Connecteam employee IDs.">
+      {loading ? <p className="text-sm text-gray-500">Loading...</p> : (
+        <>
+          <div>
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-xs text-gray-500 uppercase tracking-wider">Employees</h3>
+              <button onClick={() => setEditing({ firstName: '', lastName: '', role: 'technician', hourlyRate: 0, status: 'active', skills: [], zones: [] })}
+                className="px-3 py-1 bg-blue-600 hover:bg-blue-500 rounded-lg text-xs text-white">+ Add</button>
+            </div>
+            <div className="space-y-1">
+              {employees.map(emp => (
+                <div key={emp.id} className="flex items-center justify-between bg-gray-800/50 rounded-lg px-3 py-2">
+                  <div className="flex items-center gap-3">
+                    {emp.color && <span className="w-3 h-3 rounded-full" style={{ backgroundColor: emp.color }} />}
+                    <div>
+                      <span className="text-sm text-white">{emp.firstName} {emp.lastName}</span>
+                      <span className={`text-xs ml-2 ${roleColors[emp.role] || 'text-gray-500'}`}>{emp.role}</span>
+                      {emp.hourlyRate > 0 && <span className="text-xs text-gray-500 ml-2">${emp.hourlyRate}/hr</span>}
+                      {emp.status !== 'active' && <span className="text-xs text-red-400/60 ml-2">{emp.status}</span>}
+                    </div>
+                  </div>
+                  <div className="flex gap-2">
+                    <button onClick={() => setEditing(emp)} className="text-xs text-gray-400 hover:text-white">Edit</button>
+                    <button onClick={() => removeEmp(emp.id)} className="text-xs text-gray-500 hover:text-red-400">Remove</button>
+                  </div>
+                </div>
+              ))}
+              {employees.length === 0 && <p className="text-xs text-gray-600">No employees added yet.</p>}
+            </div>
+          </div>
+
+          {editing && (
+            <div className="bg-gray-800 rounded-lg p-4 space-y-3">
+              <h4 className="text-sm font-medium text-white">{editing.id ? 'Edit' : 'Add'} Employee</h4>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">First Name</label>
+                  <input value={editing.firstName} onChange={e => setEditing({ ...editing, firstName: e.target.value })}
+                    className="w-full px-3 py-1.5 bg-gray-900 border border-gray-700 rounded-lg text-sm text-white" />
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">Last Name</label>
+                  <input value={editing.lastName} onChange={e => setEditing({ ...editing, lastName: e.target.value })}
+                    className="w-full px-3 py-1.5 bg-gray-900 border border-gray-700 rounded-lg text-sm text-white" />
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">Role</label>
+                  <select value={editing.role} onChange={e => setEditing({ ...editing, role: e.target.value })}
+                    className="w-full px-3 py-1.5 bg-gray-900 border border-gray-700 rounded-lg text-sm text-white">
+                    <option value="technician">Technician</option>
+                    <option value="manager">Manager</option>
+                    <option value="admin">Admin</option>
+                    <option value="dispatcher">Dispatcher</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">Hourly Rate ($)</label>
+                  <input type="number" step="0.01" value={editing.hourlyRate} onChange={e => setEditing({ ...editing, hourlyRate: parseFloat(e.target.value) || 0 })}
+                    className="w-full px-3 py-1.5 bg-gray-900 border border-gray-700 rounded-lg text-sm text-white" />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">Email</label>
+                  <input value={editing.email || ''} onChange={e => setEditing({ ...editing, email: e.target.value })}
+                    className="w-full px-3 py-1.5 bg-gray-900 border border-gray-700 rounded-lg text-sm text-white" />
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">Phone</label>
+                  <input value={editing.phone || ''} onChange={e => setEditing({ ...editing, phone: e.target.value })}
+                    className="w-full px-3 py-1.5 bg-gray-900 border border-gray-700 rounded-lg text-sm text-white" />
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">Connecteam ID</label>
+                  <input value={editing.connecteamUserId || ''} onChange={e => setEditing({ ...editing, connecteamUserId: e.target.value })}
+                    placeholder="Optional"
+                    className="w-full px-3 py-1.5 bg-gray-900 border border-gray-700 rounded-lg text-sm text-white" />
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">Color</label>
+                  <input type="color" value={editing.color || '#3b82f6'} onChange={e => setEditing({ ...editing, color: e.target.value })}
+                    className="w-full h-[34px] bg-gray-900 border border-gray-700 rounded-lg cursor-pointer" />
+                </div>
+              </div>
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">Skills (comma-separated)</label>
+                <input value={(editing.skills || []).join(', ')} onChange={e => setEditing({ ...editing, skills: e.target.value.split(',').map(s => s.trim()).filter(Boolean) })}
+                  placeholder="e.g. deep_clean, post_construction, commercial"
+                  className="w-full px-3 py-1.5 bg-gray-900 border border-gray-700 rounded-lg text-sm text-white" />
+              </div>
+              <div className="flex gap-2">
+                <button onClick={() => saveEmp(editing)} className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 rounded-lg text-xs text-white">Save</button>
+                <button onClick={() => setEditing(null)} className="px-3 py-1.5 bg-gray-700 rounded-lg text-xs text-gray-300">Cancel</button>
+              </div>
+            </div>
+          )}
+
+          <hr className="border-gray-800" />
+
+          <div>
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-xs text-gray-500 uppercase tracking-wider">Teams / Crews</h3>
+              <button onClick={() => setEditingTeam({ name: '', memberIds: [], zone: '' })}
+                className="px-3 py-1 bg-blue-600 hover:bg-blue-500 rounded-lg text-xs text-white">+ Add</button>
+            </div>
+            <div className="space-y-1">
+              {teams.map(tm => (
+                <div key={tm.id} className="flex items-center justify-between bg-gray-800/50 rounded-lg px-3 py-2">
+                  <div>
+                    <span className="text-sm text-white">{tm.name}</span>
+                    {tm.zone && <span className="text-xs text-gray-500 ml-2">{tm.zone}</span>}
+                    <span className="text-xs text-gray-600 ml-2">{(tm.memberIds || []).length} members</span>
+                  </div>
+                  <div className="flex gap-2">
+                    <button onClick={() => setEditingTeam(tm)} className="text-xs text-gray-400 hover:text-white">Edit</button>
+                    <button onClick={() => removeTm(tm.id)} className="text-xs text-gray-500 hover:text-red-400">Remove</button>
+                  </div>
+                </div>
+              ))}
+              {teams.length === 0 && <p className="text-xs text-gray-600">No teams created yet.</p>}
+            </div>
+          </div>
+
+          {editingTeam && (
+            <div className="bg-gray-800 rounded-lg p-4 space-y-3">
+              <h4 className="text-sm font-medium text-white">{editingTeam.id ? 'Edit' : 'Add'} Team</h4>
+              <div className="grid grid-cols-3 gap-3">
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">Team Name</label>
+                  <input value={editingTeam.name} onChange={e => setEditingTeam({ ...editingTeam, name: e.target.value })}
+                    className="w-full px-3 py-1.5 bg-gray-900 border border-gray-700 rounded-lg text-sm text-white" />
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">Zone</label>
+                  <input value={editingTeam.zone || ''} onChange={e => setEditingTeam({ ...editingTeam, zone: e.target.value })}
+                    placeholder="e.g. Naples, Portland"
+                    className="w-full px-3 py-1.5 bg-gray-900 border border-gray-700 rounded-lg text-sm text-white" />
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">Color</label>
+                  <input type="color" value={editingTeam.color || '#3b82f6'} onChange={e => setEditingTeam({ ...editingTeam, color: e.target.value })}
+                    className="w-full h-[34px] bg-gray-900 border border-gray-700 rounded-lg cursor-pointer" />
+                </div>
+              </div>
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">Team Lead</label>
+                <select value={editingTeam.leadEmployeeId || ''} onChange={e => setEditingTeam({ ...editingTeam, leadEmployeeId: e.target.value || null })}
+                  className="w-full max-w-xs px-3 py-1.5 bg-gray-900 border border-gray-700 rounded-lg text-sm text-white">
+                  <option value="">None</option>
+                  {employees.map(e => <option key={e.id} value={e.id}>{e.firstName} {e.lastName}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">Members</label>
+                <div className="flex flex-wrap gap-2">
+                  {employees.map(emp => (
+                    <label key={emp.id} className="flex items-center gap-1.5 px-2 py-1 bg-gray-900 rounded cursor-pointer text-xs">
+                      <input type="checkbox" checked={(editingTeam.memberIds || []).includes(emp.id)}
+                        onChange={e => {
+                          const ids = editingTeam.memberIds || []
+                          setEditingTeam({ ...editingTeam, memberIds: e.target.checked ? [...ids, emp.id] : ids.filter(id => id !== emp.id) })
+                        }} />
+                      <span className="text-gray-300">{emp.firstName} {emp.lastName}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+              <div className="flex gap-2">
+                <button onClick={() => saveTm(editingTeam)} className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 rounded-lg text-xs text-white">Save</button>
+                <button onClick={() => setEditingTeam(null)} className="px-3 py-1.5 bg-gray-700 rounded-lg text-xs text-gray-300">Cancel</button>
+              </div>
+            </div>
+          )}
+        </>
+      )}
+    </Section>
+  )
+}
+
+// ══════════════════════════════════════════
+// CHECKLIST TEMPLATES
+// ══════════════════════════════════════════
+function ChecklistSettings() {
+  const [templates, setTemplates] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [editing, setEditing] = useState(null)
+
+  useEffect(() => { load() }, [])
+
+  async function load() {
+    setLoading(true)
+    try {
+      setTemplates(await getChecklistTemplatesAsync())
+    } catch {}
+    setLoading(false)
+  }
+
+  async function saveTemplate(tpl) {
+    const saved = await saveChecklistTemplateAsync(tpl)
+    setTemplates(prev => tpl.id ? prev.map(t => t.id === saved.id ? saved : t) : [...prev, saved])
+    setEditing(null)
+  }
+
+  function addSection() {
+    setEditing({ ...editing, sections: [...(editing.sections || []), { name: '', items: [{ task: '', required: true }] }] })
+  }
+
+  function removeSection(idx) {
+    setEditing({ ...editing, sections: editing.sections.filter((_, i) => i !== idx) })
+  }
+
+  function updateSection(idx, field, value) {
+    const sections = [...editing.sections]
+    sections[idx] = { ...sections[idx], [field]: value }
+    setEditing({ ...editing, sections })
+  }
+
+  function addItem(sectionIdx) {
+    const sections = [...editing.sections]
+    sections[sectionIdx].items = [...sections[sectionIdx].items, { task: '', required: true }]
+    setEditing({ ...editing, sections })
+  }
+
+  function removeItem(sectionIdx, itemIdx) {
+    const sections = [...editing.sections]
+    sections[sectionIdx].items = sections[sectionIdx].items.filter((_, i) => i !== itemIdx)
+    setEditing({ ...editing, sections })
+  }
+
+  function updateItem(sectionIdx, itemIdx, field, value) {
+    const sections = [...editing.sections]
+    sections[sectionIdx].items = sections[sectionIdx].items.map((item, i) =>
+      i === itemIdx ? { ...item, [field]: value } : item
+    )
+    setEditing({ ...editing, sections })
+  }
+
+  return (
+    <Section title="Cleaning Checklists" desc="Create per-room checklist templates. Assigned to service types and snapshotted onto each visit.">
+      {loading ? <p className="text-sm text-gray-500">Loading...</p> : (
+        <>
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-xs text-gray-500 uppercase tracking-wider">Templates</h3>
+            <button onClick={() => setEditing({ name: '', sections: [{ name: 'Kitchen', items: [{ task: '', required: true }] }] })}
+              className="px-3 py-1 bg-blue-600 hover:bg-blue-500 rounded-lg text-xs text-white">+ Add</button>
+          </div>
+
+          <div className="space-y-1">
+            {templates.map(tpl => (
+              <div key={tpl.id} className="flex items-center justify-between bg-gray-800/50 rounded-lg px-3 py-2">
+                <div>
+                  <span className="text-sm text-white">{tpl.name}</span>
+                  <span className="text-xs text-gray-500 ml-2">
+                    {(tpl.sections || []).length} sections, {(tpl.sections || []).reduce((sum, s) => sum + (s.items || []).length, 0)} items
+                  </span>
+                </div>
+                <div className="flex gap-2">
+                  <button onClick={() => setEditing(tpl)} className="text-xs text-gray-400 hover:text-white">Edit</button>
+                </div>
+              </div>
+            ))}
+            {templates.length === 0 && <p className="text-xs text-gray-600">No checklists yet. Run the v5 migration to seed defaults.</p>}
+          </div>
+
+          {editing && (
+            <div className="bg-gray-800 rounded-lg p-4 space-y-4">
+              <div className="flex items-center justify-between">
+                <h4 className="text-sm font-medium text-white">{editing.id ? 'Edit' : 'Add'} Checklist</h4>
+                <button onClick={() => setEditing(null)} className="text-xs text-gray-500 hover:text-white">Close</button>
+              </div>
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">Template Name</label>
+                <input value={editing.name} onChange={e => setEditing({ ...editing, name: e.target.value })}
+                  className="w-full max-w-sm px-3 py-1.5 bg-gray-900 border border-gray-700 rounded-lg text-sm text-white" />
+              </div>
+
+              {(editing.sections || []).map((section, si) => (
+                <div key={si} className="bg-gray-900 rounded-lg p-3 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <input value={section.name} onChange={e => updateSection(si, 'name', e.target.value)}
+                      placeholder="Section name (e.g. Kitchen)"
+                      className="px-2 py-1 bg-transparent border-b border-gray-700 text-sm font-medium text-white focus:outline-none focus:border-blue-500" />
+                    <button onClick={() => removeSection(si)} className="text-xs text-gray-600 hover:text-red-400">Remove section</button>
+                  </div>
+                  {section.items.map((item, ii) => (
+                    <div key={ii} className="flex items-center gap-2 ml-2">
+                      <input value={item.task} onChange={e => updateItem(si, ii, 'task', e.target.value)}
+                        placeholder="Task description"
+                        className="flex-1 px-2 py-1 bg-gray-800 border border-gray-700 rounded text-xs text-white" />
+                      <label className="flex items-center gap-1 text-xs text-gray-500 whitespace-nowrap">
+                        <input type="checkbox" checked={item.required} onChange={e => updateItem(si, ii, 'required', e.target.checked)} />
+                        Req
+                      </label>
+                      <button onClick={() => removeItem(si, ii)} className="text-xs text-gray-600 hover:text-red-400">x</button>
+                    </div>
+                  ))}
+                  <button onClick={() => addItem(si)} className="text-xs text-blue-400 hover:text-blue-300 ml-2">+ Add task</button>
+                </div>
+              ))}
+
+              <button onClick={addSection} className="text-xs text-blue-400 hover:text-blue-300">+ Add section</button>
+              <div className="flex gap-2">
+                <button onClick={() => saveTemplate(editing)} className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 rounded-lg text-xs text-white">Save</button>
+                <button onClick={() => setEditing(null)} className="px-3 py-1.5 bg-gray-700 rounded-lg text-xs text-gray-300">Cancel</button>
+              </div>
+            </div>
+          )}
+        </>
+      )}
     </Section>
   )
 }

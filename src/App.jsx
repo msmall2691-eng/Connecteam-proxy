@@ -15,7 +15,6 @@ import Settings from './pages/Settings'
 import Setup from './pages/Setup'
 import Revenue from './pages/Revenue'
 import WebsiteRequests from './pages/WebsiteRequests'
-// Bookings merged into WebsiteRequests
 import MyWebsite from './pages/MyWebsite'
 import AgentChat from './components/AgentChat'
 

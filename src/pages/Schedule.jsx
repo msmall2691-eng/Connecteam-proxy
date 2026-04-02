@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Link } from 'react-router-dom'
 import { getApiKey } from '../lib/api'
-import { getClients, getClientsAsync, getJobs, getJobsAsync } from '../lib/store'
+import { getClients, getClientsAsync, getJobs, getJobsAsync, getVisitsAsync, getEmployeesAsync } from '../lib/store'
 import { isSupabaseConfigured } from '../lib/supabase'
 
 // Rental calendar config (localStorage)

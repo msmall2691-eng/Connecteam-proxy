@@ -582,9 +582,32 @@ export default async function handler(req, res) {
           } catch (e) { /* ignore */ }
         }
 
+        // Try to find or create a matching property for this client
+        let propertyId = null
+        if (clientId && address) {
+          try {
+            const propRes = await fetch(`${supabaseUrl}/rest/v1/properties?client_id=eq.${clientId}&limit=10`, { headers: sbHeaders })
+            if (propRes.ok) {
+              const props = await propRes.json()
+              const addrNorm = (address || '').toLowerCase().replace(/[^a-z0-9]/g, '')
+              const match = props.find(p => (p.address_line1 || '').toLowerCase().replace(/[^a-z0-9]/g, '').includes(addrNorm.slice(0, 15)))
+              if (match) {
+                propertyId = match.id
+              } else {
+                // Create new property from booking data
+                const newProp = await fetch(`${supabaseUrl}/rest/v1/properties`, {
+                  method: 'POST', headers: { ...sbHeaders, 'Prefer': 'return=representation' },
+                  body: JSON.stringify({ client_id: clientId, address_line1: address || '', zip: zip || '', type: 'residential', sqft: sqft ? parseInt(sqft) : null, bathrooms: bathrooms ? parseInt(bathrooms) : null, pet_hair: petHair || 'none', condition: condition || 'maintenance', is_primary: true }),
+                })
+                if (newProp.ok) { const np = await newProp.json(); propertyId = np[0]?.id }
+              }
+            }
+          } catch (e) { /* property linking is best-effort */ }
+        }
+
         const bookingRes = await fetch(`${supabaseUrl}/rest/v1/booking_requests`, {
           method: 'POST', headers: { ...sbHeaders, 'Prefer': 'return=representation' },
-          body: JSON.stringify({ client_id: clientId, website_booking_id: websiteBookingId || null, name: name || '', email: email || '', phone: phone || '', address: address || '', zip: zip || '', service_type: serviceType || 'standard', frequency: frequency || 'one-time', sqft: sqft ? parseInt(sqft) : null, bathrooms: bathrooms ? parseInt(bathrooms) : null, pet_hair: petHair || 'none', condition: condition || 'maintenance', estimate_min: estimateMin || null, estimate_max: estimateMax || null, requested_date: requestedDate, distance_miles: distanceMiles || null, status: 'pending', source: source || 'Website' }),
+          body: JSON.stringify({ client_id: clientId, property_id: propertyId, website_booking_id: websiteBookingId || null, name: name || '', email: email || '', phone: phone || '', address: address || '', zip: zip || '', service_type: serviceType || 'standard', frequency: frequency || 'one-time', sqft: sqft ? parseInt(sqft) : null, bathrooms: bathrooms ? parseInt(bathrooms) : null, pet_hair: petHair || 'none', condition: condition || 'maintenance', estimate_min: estimateMin || null, estimate_max: estimateMax || null, requested_date: requestedDate, distance_miles: distanceMiles || null, status: 'pending', source: source || 'Website' }),
         })
         if (!bookingRes.ok) return res.status(200).json({ success: true, bookingId: null, note: 'Booking received but table may need creation.' })
 

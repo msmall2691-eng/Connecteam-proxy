@@ -220,7 +220,7 @@ export default function Communications() {
 
           {viewMode === 'conversations' && (
             <div className="flex gap-1">
-              {['all', 'email', 'text', 'phone'].map(ch => (
+              {['all', 'email', 'text', 'phone', 'system'].map(ch => (
                 <button key={ch} onClick={() => setFilterChannel(ch)}
                   className={`px-2 py-1 rounded text-xs ${filterChannel === ch ? 'bg-blue-600/20 text-blue-400' : 'text-gray-500 hover:text-gray-300'}`}>
                   {ch === 'all' ? 'All' : ch.charAt(0).toUpperCase() + ch.slice(1)}
@@ -242,7 +242,7 @@ export default function Communications() {
               placeholder="Subject" className="w-full px-2.5 py-1.5 bg-gray-800 border border-gray-700 rounded-lg text-xs text-white focus:outline-none focus:ring-2 focus:ring-blue-500" />
             <select value={newConvo.channel} onChange={e => setNewConvo({ ...newConvo, channel: e.target.value })}
               className="w-full px-2.5 py-1.5 bg-gray-800 border border-gray-700 rounded-lg text-xs text-white">
-              <option value="email">Email</option><option value="text">Text/SMS</option><option value="phone">Phone</option>
+              <option value="email">Email</option><option value="text">Text/SMS</option><option value="phone">Phone</option><option value="system">System</option>
             </select>
             <div className="flex gap-2">
               <button type="submit" className="px-2.5 py-1 bg-blue-600 rounded text-xs text-white">Create</button>
