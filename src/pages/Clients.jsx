@@ -1,9 +1,10 @@
-import { useState, useEffect, useMemo } from 'react'
-import { Link } from 'react-router-dom'
+import { useState, useEffect, useMemo, useCallback } from 'react'
+import { Link, useSearchParams, useNavigate } from 'react-router-dom'
 import { getClients, getClientsAsync, saveClient, saveClientAsync, deleteClient, deleteClientAsync,
   getQuotes, getQuotesAsync, getJobs, getJobsAsync, getInvoices, getInvoicesAsync } from '../lib/store'
 import { isSupabaseConfigured } from '../lib/supabase'
 import ImportClients from '../components/ImportClients'
+import { TableSkeleton, EmptyState, StatusBadge, Checkbox, timeAgo, ConfirmDialog, Avatar } from '../components/ui'
 
 const STATUS_COLORS = {
   active: 'bg-green-900/40 text-green-400',
@@ -27,25 +28,79 @@ const EMPTY_CLIENT = {
 }
 
 export default function Clients() {
+  const navigate = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
   const [clients, setClients] = useState([])
   const [showForm, setShowForm] = useState(false)
   const [showImport, setShowImport] = useState(false)
   const [importingGoogle, setImportingGoogle] = useState(false)
   const [editing, setEditing] = useState(null)
   const [form, setForm] = useState({ ...EMPTY_CLIENT })
-  const [search, setSearch] = useState('')
-  const [filterStatus, setFilterStatus] = useState('all')
-  const [filterSource, setFilterSource] = useState('all')
-  const [filterType, setFilterType] = useState('all')
-  const [sortBy, setSortBy] = useState('name-az')
+  const [search, setSearch] = useState(searchParams.get('q') || '')
+  const [filterStatus, setFilterStatus] = useState(searchParams.get('status') || 'all')
+  const [filterSource, setFilterSource] = useState(searchParams.get('source') || 'all')
+  const [filterType, setFilterType] = useState(searchParams.get('type') || 'all')
+  const [sortBy, setSortBy] = useState(searchParams.get('sort') || 'name-az')
   const [clientStats, setClientStats] = useState({})
+  const [loading, setLoading] = useState(true)
+
+  // Persist filters to URL
+  useEffect(() => {
+    const params = {}
+    if (search) params.q = search
+    if (filterStatus !== 'all') params.status = filterStatus
+    if (filterSource !== 'all') params.source = filterSource
+    if (filterType !== 'all') params.type = filterType
+    if (sortBy !== 'name-az') params.sort = sortBy
+    setSearchParams(params, { replace: true })
+  }, [search, filterStatus, filterSource, filterType, sortBy])
+  const [page, setPage] = useState(1)
+  const PAGE_SIZE = 25
+  const [selected, setSelected] = useState(new Set())
+  const [confirmBulk, setConfirmBulk] = useState(null)
+  const [focusedRow, setFocusedRow] = useState(-1)
+
+  // Keyboard navigation for table rows
+  useEffect(() => {
+    function handleKey(e) {
+      const tag = document.activeElement?.tagName
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return
+      if (e.key === 'ArrowDown' || e.key === 'j') {
+        e.preventDefault()
+        setFocusedRow(r => Math.min(r + 1, paginatedClients.length - 1))
+      }
+      if (e.key === 'ArrowUp' || e.key === 'k') {
+        e.preventDefault()
+        setFocusedRow(r => Math.max(r - 1, 0))
+      }
+      if (e.key === 'Enter' && focusedRow >= 0 && focusedRow < paginatedClients.length) {
+        e.preventDefault()
+        navigate(`/clients/${paginatedClients[focusedRow].id}`)
+      }
+      if (e.key === 'x' && focusedRow >= 0 && focusedRow < paginatedClients.length) {
+        const id = paginatedClients[focusedRow].id
+        setSelected(prev => { const next = new Set(prev); next.has(id) ? next.delete(id) : next.add(id); return next })
+      }
+      if (e.key === 'n') {
+        e.preventDefault()
+        setForm({ ...EMPTY_CLIENT }); setEditing(null); setShowForm(true)
+      }
+    }
+    document.addEventListener('keydown', handleKey)
+    return () => document.removeEventListener('keydown', handleKey)
+  }, [focusedRow, paginatedClients])
+
+  // Reset focused row when page changes
+  useEffect(() => { setFocusedRow(-1) }, [page, filterStatus, search])
 
   useEffect(() => { reload() }, [])
 
   async function reload() {
+    setLoading(true)
     const data = isSupabaseConfigured() ? await getClientsAsync() : getClients()
     setClients(data)
     loadStats(data)
+    setLoading(false)
   }
 
   async function loadStats(clientList) {
@@ -124,8 +179,21 @@ export default function Clients() {
     return result
   }, [clients, filterStatus, filterSource, filterType, search, sortBy, clientStats])
 
+  // Reset page when filters change
+  useEffect(() => { setPage(1) }, [filterStatus, filterSource, filterType, search, sortBy])
+
+  const totalPages = Math.ceil(filtered.length / PAGE_SIZE)
+  const paginatedClients = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
+
+  if (loading && clients.length === 0) return (
+    <div className="p-6 max-w-7xl mx-auto space-y-6 animate-fade-in">
+      <div><h1 className="text-2xl font-bold text-white">Clients</h1><p className="text-sm text-gray-500 mt-1">Loading...</p></div>
+      <TableSkeleton rows={8} cols={5} />
+    </div>
+  )
+
   return (
-    <div className="p-6 max-w-7xl mx-auto space-y-6">
+    <div className="p-6 max-w-7xl mx-auto space-y-6 animate-fade-in">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-white">Clients</h1>
@@ -337,12 +405,64 @@ export default function Clients() {
         </div>
       )}
 
+      {/* Bulk action bar */}
+      {selected.size > 0 && (
+        <div className="bg-blue-950/40 border border-blue-800/30 rounded-xl p-3 flex items-center justify-between animate-slide-up">
+          <span className="text-sm text-blue-300 font-medium">{selected.size} selected</span>
+          <div className="flex gap-2">
+            <button onClick={async () => {
+              for (const id of selected) {
+                if (isSupabaseConfigured()) await saveClientAsync({ id, status: 'active' })
+              }
+              setSelected(new Set()); reload()
+            }} className="px-3 py-1.5 bg-green-600 hover:bg-green-500 rounded-lg text-xs text-white font-medium">Mark Active</button>
+            <button onClick={async () => {
+              for (const id of selected) {
+                if (isSupabaseConfigured()) await saveClientAsync({ id, status: 'inactive' })
+              }
+              setSelected(new Set()); reload()
+            }} className="px-3 py-1.5 bg-gray-700 hover:bg-gray-600 rounded-lg text-xs text-gray-300">Mark Inactive</button>
+            <button onClick={() => setConfirmBulk('delete')}
+              className="px-3 py-1.5 bg-red-600/20 hover:bg-red-600/30 rounded-lg text-xs text-red-400">Delete</button>
+            <button onClick={() => setSelected(new Set())} className="px-3 py-1.5 text-xs text-gray-500 hover:text-gray-300">Clear</button>
+          </div>
+        </div>
+      )}
+
+      {/* Bulk delete confirmation */}
+      <ConfirmDialog
+        open={confirmBulk === 'delete'}
+        title={`Delete ${selected.size} client${selected.size !== 1 ? 's' : ''}?`}
+        message="This will permanently delete the selected clients and cannot be undone."
+        confirmLabel="Delete"
+        destructive
+        onConfirm={async () => {
+          for (const id of selected) {
+            if (isSupabaseConfigured()) await deleteClientAsync(id); else deleteClient(id)
+          }
+          setSelected(new Set()); setConfirmBulk(null); reload()
+        }}
+        onCancel={() => setConfirmBulk(null)}
+      />
+
       {/* Client List */}
       <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
               <tr className="text-xs text-gray-500 uppercase tracking-wider border-b border-gray-800">
+                <th className="px-3 py-3 w-10">
+                  <Checkbox
+                    checked={paginatedClients.length > 0 && paginatedClients.every(c => selected.has(c.id))}
+                    indeterminate={paginatedClients.some(c => selected.has(c.id)) && !paginatedClients.every(c => selected.has(c.id))}
+                    onChange={e => {
+                      const next = new Set(selected)
+                      if (e.target.checked) paginatedClients.forEach(c => next.add(c.id))
+                      else paginatedClients.forEach(c => next.delete(c.id))
+                      setSelected(next)
+                    }}
+                  />
+                </th>
                 <th className="px-5 py-3 text-left">Client</th>
                 <th className="px-3 py-3 text-left">Contact</th>
                 <th className="px-3 py-3 text-left">Type</th>
@@ -355,14 +475,28 @@ export default function Clients() {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-800/50">
-              {filtered.map(client => (
-                <tr key={client.id} className="text-gray-300 hover:bg-gray-800/30 transition-colors">
+              {paginatedClients.map((client, rowIdx) => (
+                <tr key={client.id} className={`text-gray-300 hover:bg-gray-800/30 transition-colors ${selected.has(client.id) ? 'bg-blue-950/20' : ''} ${focusedRow === rowIdx ? 'ring-1 ring-inset ring-blue-500/50 bg-blue-950/10' : ''}`}>
+                  <td className="px-3 py-3">
+                    <Checkbox
+                      checked={selected.has(client.id)}
+                      onChange={e => {
+                        const next = new Set(selected)
+                        if (e.target.checked) next.add(client.id); else next.delete(client.id)
+                        setSelected(next)
+                      }}
+                    />
+                  </td>
                   <td className="px-5 py-3">
-                    <Link to={`/clients/${client.id}`} className="font-medium text-white hover:text-blue-400 transition-colors">
-                      {client.name}
-                    </Link>
-                    {client.companyName && <p className="text-xs text-gray-400 mt-0.5">{client.companyName}</p>}
-                    {client.address && <p className="text-xs text-gray-500 mt-0.5">{client.address}</p>}
+                    <div className="flex items-center gap-3">
+                      <Avatar name={client.name} size="sm" />
+                      <div className="min-w-0">
+                        <Link to={`/clients/${client.id}`} className="font-medium text-white hover:text-blue-400 transition-colors block truncate">
+                          {client.name}
+                        </Link>
+                        {client.companyName && <p className="text-xs text-gray-400 mt-0.5 truncate">{client.companyName}</p>}
+                      </div>
+                    </div>
                   </td>
                   <td className="px-3 py-3">
                     {client.email && <p className="text-xs">{client.email}</p>}
@@ -406,7 +540,7 @@ export default function Clients() {
               ))}
               {filtered.length === 0 && (
                 <tr>
-                  <td colSpan={9} className="px-5 py-12 text-center text-gray-500">
+                  <td colSpan={10} className="px-5 py-12 text-center text-gray-500">
                     {clients.length === 0 ? 'No clients yet. Add your first client to get started.' : 'No clients match your search.'}
                   </td>
                 </tr>
@@ -414,6 +548,38 @@ export default function Clients() {
             </tbody>
           </table>
         </div>
+
+        {/* Pagination */}
+        {totalPages > 1 && (
+          <div className="flex items-center justify-between px-5 py-3 border-t border-gray-800">
+            <p className="text-xs text-gray-500">
+              Showing {(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, filtered.length)} of {filtered.length}
+            </p>
+            <div className="flex items-center gap-1">
+              <button onClick={() => setPage(Math.max(1, page - 1))} disabled={page === 1}
+                className="px-2.5 py-1.5 bg-gray-800 hover:bg-gray-700 disabled:opacity-30 disabled:cursor-not-allowed rounded-lg text-xs text-gray-300 transition-colors">
+                Prev
+              </button>
+              {Array.from({ length: Math.min(totalPages, 7) }, (_, i) => {
+                let p
+                if (totalPages <= 7) p = i + 1
+                else if (page <= 4) p = i + 1
+                else if (page >= totalPages - 3) p = totalPages - 6 + i
+                else p = page - 3 + i
+                return (
+                  <button key={p} onClick={() => setPage(p)}
+                    className={`w-8 h-8 rounded-lg text-xs font-medium transition-colors ${
+                      p === page ? 'bg-blue-600 text-white' : 'bg-gray-800 text-gray-400 hover:bg-gray-700 hover:text-white'
+                    }`}>{p}</button>
+                )
+              })}
+              <button onClick={() => setPage(Math.min(totalPages, page + 1))} disabled={page === totalPages}
+                className="px-2.5 py-1.5 bg-gray-800 hover:bg-gray-700 disabled:opacity-30 disabled:cursor-not-allowed rounded-lg text-xs text-gray-300 transition-colors">
+                Next
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   )

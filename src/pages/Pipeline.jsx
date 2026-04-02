@@ -7,6 +7,7 @@ import {
   savePropertyAsync, generateQuoteNumber, saveVisitAsync, lookupServiceTypeId,
 } from '../lib/store'
 import { isSupabaseConfigured, getSupabase } from '../lib/supabase'
+import { CardSkeleton, StatusBadge, Avatar } from '../components/ui'
 
 // Linear workflow: Request → Quote Sent → Approved → Scheduled
 const STAGES = [
@@ -28,6 +29,8 @@ export default function Pipeline() {
   const [search, setSearch] = useState('')
   const [acting, setActing] = useState(null)
   const [toast, setToast] = useState(null)
+  const [dragCard, setDragCard] = useState(null)
+  const [dragOverStage, setDragOverStage] = useState(null)
 
   useEffect(() => { reload() }, [])
   useEffect(() => { if (toast) { const t = setTimeout(() => setToast(null), 5000); return () => clearTimeout(t) } }, [toast])
@@ -332,6 +335,41 @@ export default function Pipeline() {
     reload()
   }
 
+  // Drag and drop handlers
+  function handleDragStart(card, fromStage) {
+    setDragCard({ ...card, fromStage })
+  }
+
+  function handleDragEnd() {
+    setDragCard(null)
+    setDragOverStage(null)
+  }
+
+  async function handleDrop(toStageId) {
+    setDragOverStage(null)
+    if (!dragCard || dragCard.fromStage === toStageId) { setDragCard(null); return }
+
+    // Determine the action based on source → destination
+    const from = dragCard.fromStage
+    const to = toStageId
+
+    if (from === 'new_request' && to === 'quote_sent') {
+      await sendQuote(dragCard)
+    } else if ((from === 'quote_sent' || from === 'new_request') && to === 'approved') {
+      // Accept the quote
+      if (dragCard.type === 'client' && dragCard.quoteId) {
+        const q = allQuotes.find(q => q.id === dragCard.quoteId)
+        if (q) await saveQuoteAsync({ ...q, status: 'accepted', acceptedAt: new Date().toISOString() })
+      }
+      reload()
+    } else if ((from === 'approved' || from === 'quote_sent') && to === 'scheduled') {
+      await createJob(dragCard)
+    } else {
+      setToast({ type: 'error', message: `Can't move directly from ${from.replace('_', ' ')} to ${to.replace('_', ' ')}` })
+    }
+    setDragCard(null)
+  }
+
   // Stats
   const stats = {
     newRequests: (filtered.new_request || []).length,
@@ -342,14 +380,27 @@ export default function Pipeline() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <div className="animate-spin w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full" />
+      <div className="p-4 sm:p-6 max-w-full mx-auto space-y-4 animate-fade-in">
+        <div><h1 className="text-2xl font-bold text-white">Pipeline</h1><p className="text-sm text-gray-500 mt-1">Loading workflow...</p></div>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <div key={i} className="bg-gray-900 border border-gray-800 rounded-xl p-4 space-y-3">
+              <div className="h-5 w-24 bg-gray-800 rounded animate-pulse" />
+              {Array.from({ length: 3 }).map((_, j) => (
+                <div key={j} className="bg-gray-800/50 rounded-lg p-3 space-y-2">
+                  <div className="h-4 w-3/4 bg-gray-800 rounded animate-pulse" />
+                  <div className="h-3 w-1/2 bg-gray-800/60 rounded animate-pulse" />
+                </div>
+              ))}
+            </div>
+          ))}
+        </div>
       </div>
     )
   }
 
   return (
-    <div className="p-4 sm:p-6 max-w-full mx-auto space-y-4">
+    <div className="p-4 sm:p-6 max-w-full mx-auto space-y-4 animate-fade-in">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -414,7 +465,13 @@ export default function Pipeline() {
         {STAGES.map(stage => {
           const cards = filtered[stage.id] || []
           return (
-            <div key={stage.id} className="bg-gray-900/50 border border-gray-800 rounded-xl flex flex-col min-w-[260px] md:min-w-0 shrink-0 md:shrink">
+            <div key={stage.id}
+              onDragOver={e => { e.preventDefault(); setDragOverStage(stage.id) }}
+              onDragLeave={() => setDragOverStage(null)}
+              onDrop={e => { e.preventDefault(); handleDrop(stage.id) }}
+              className={`bg-gray-900/50 border rounded-xl flex flex-col min-w-[260px] md:min-w-0 shrink-0 md:shrink transition-colors ${
+                dragOverStage === stage.id ? 'border-blue-500/50 bg-blue-950/10' : 'border-gray-800'
+              }`}>
               {/* Column header */}
               <div className="px-4 py-3 border-b border-gray-800">
                 <div className="flex items-center justify-between">
@@ -434,49 +491,54 @@ export default function Pipeline() {
               {/* Cards */}
               <div className="flex-1 p-2 space-y-2 overflow-y-auto">
                 {cards.map(card => (
-                  <div key={card.id} className="bg-gray-900 border border-gray-800 rounded-lg p-3 hover:border-gray-700 transition-colors">
-                    {/* Name + link */}
-                    {card.type === 'client' ? (
-                      <Link to={`/clients/${card.id}`} className="text-sm font-medium text-white hover:text-blue-400 block">{card.name}</Link>
-                    ) : (
-                      <span className="text-sm font-medium text-white block">{card.name}</span>
-                    )}
+                  <div key={card.id} draggable
+                    onDragStart={() => handleDragStart(card, stage.id)}
+                    onDragEnd={handleDragEnd}
+                    className={`bg-gray-900 border border-gray-800 rounded-xl p-3 hover:border-gray-700 hover:shadow-lg hover:shadow-black/20 transition-all cursor-grab active:cursor-grabbing ${
+                      dragCard?.id === card.id ? 'opacity-40 scale-95' : ''
+                    }`}>
+                    {/* Header: Avatar + Name */}
+                    <div className="flex items-center gap-2.5">
+                      <Avatar name={card.name} size="sm" />
+                      <div className="min-w-0 flex-1">
+                        {card.type === 'client' ? (
+                          <Link to={`/clients/${card.id}`} className="text-sm font-medium text-white hover:text-blue-400 block truncate">{card.name}</Link>
+                        ) : (
+                          <span className="text-sm font-medium text-white block truncate">{card.name}</span>
+                        )}
+                        {(card.email || card.phone) && (
+                          <p className="text-[11px] text-gray-500 truncate">{card.email || card.phone}</p>
+                        )}
+                      </div>
+                    </div>
 
-                    {/* Contact */}
-                    {(card.email || card.phone) && (
-                      <p className="text-xs text-gray-500 mt-0.5 truncate">{card.email || card.phone}</p>
-                    )}
-
-                    {/* Service + address */}
+                    {/* Tags: service type + frequency */}
                     {card.serviceType && (
-                      <p className="text-xs text-gray-400 mt-1">{card.serviceType}{card.frequency && card.frequency !== 'one-time' ? ` · ${card.frequency}` : ''}</p>
-                    )}
-                    {card.address && (
-                      <p className="text-xs text-gray-600 mt-0.5 truncate">{card.address}</p>
+                      <div className="flex flex-wrap gap-1 mt-2">
+                        <span className="px-2 py-0.5 bg-blue-500/10 text-blue-400 rounded-md text-[10px] font-medium">{card.serviceType}</span>
+                        {card.frequency && card.frequency !== 'one-time' && (
+                          <span className="px-2 py-0.5 bg-purple-500/10 text-purple-400 rounded-md text-[10px] font-medium">{card.frequency}</span>
+                        )}
+                      </div>
                     )}
 
-                    {/* Price */}
+                    {/* Price + Revenue */}
                     {(card.finalPrice || card.estimateMin) && (
-                      <p className="text-xs font-mono mt-1.5">
-                        <span className={stage.id === 'scheduled' ? 'text-green-400' : 'text-blue-400'}>
+                      <div className="mt-2 flex items-center justify-between">
+                        <span className={`text-sm font-bold tabular-nums ${stage.id === 'scheduled' ? 'text-green-400' : 'text-white'}`}>
                           {card.finalPrice ? `$${card.finalPrice}` : `$${card.estimateMin}–$${card.estimateMax}`}
                         </span>
-                        {card.frequency && card.frequency !== 'one-time' && (
-                          <span className="text-gray-600 ml-1">/{card.frequency}</span>
+                        {card.revenue > 0 && (
+                          <span className="text-[10px] text-green-500/70">${card.revenue.toFixed(0)} earned</span>
                         )}
-                      </p>
+                      </div>
                     )}
 
-                    {/* Revenue for scheduled */}
-                    {card.revenue > 0 && (
-                      <p className="text-xs text-green-500/70 mt-0.5">${card.revenue.toFixed(0)} earned</p>
-                    )}
-
-                    {/* Source + age */}
-                    <div className="flex items-center justify-between mt-2">
-                      <span className="text-xs text-gray-700">{card.source || ''}</span>
-                      <span className="text-xs text-gray-700">
-                        {card.createdAt ? `${Math.floor((Date.now() - new Date(card.createdAt)) / 86400000)}d` : ''}
+                    {/* Footer: source + age */}
+                    <div className="flex items-center justify-between mt-2 pt-2 border-t border-gray-800/50">
+                      <span className="text-[10px] text-gray-600">{card.source || ''}</span>
+                      <span className="text-[10px] text-gray-600">
+                        {card.createdAt ? `${Math.floor((Date.now() - new Date(card.createdAt)) / 86400000)}d ago` : ''}
                       </span>
                     </div>
 

@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { Link } from 'react-router-dom'
 import { getApiKey } from '../lib/api'
 import { getClients, getClientsAsync, getJobs, getJobsAsync, getVisitsAsync, getScheduleAsync, getEmployeesAsync, saveVisitAsync, saveJobAsync, getPropertiesAsync, savePropertyAsync } from '../lib/store'
-import { isSupabaseConfigured } from '../lib/supabase'
+import { isSupabaseConfigured, subscribeToTable } from '../lib/supabase'
 
 // DST-safe timezone offset for America/New_York
 function easternOffset(dateStr) {
@@ -82,6 +82,8 @@ export default function Schedule() {
   const [batchSyncing, setBatchSyncing] = useState(false)
   const [completingVisit, setCompletingVisit] = useState(null)
 
+  const [lastRefresh, setLastRefresh] = useState(null)
+
   // Auto-dismiss toast after 6s
   useEffect(() => {
     if (toast) {
@@ -95,6 +97,28 @@ export default function Schedule() {
     loadTurnovers()
     loadCrmData()
     loadRentalStays()
+    setLastRefresh(new Date())
+  }, [])
+
+  // Auto-refresh schedule data every 60 seconds + real-time subscriptions
+  useEffect(() => {
+    const interval = setInterval(() => {
+      loadCrmData()
+      loadTurnovers()
+      loadRentalStays()
+      setLastRefresh(new Date())
+    }, 60000)
+
+    // Real-time: refresh when visits change in Supabase
+    let unsub
+    if (isSupabaseConfigured()) {
+      unsub = subscribeToTable('visits', () => {
+        loadCrmData()
+        setLastRefresh(new Date())
+      })
+    }
+
+    return () => { clearInterval(interval); unsub?.() }
   }, [])
 
   async function loadCrmData() {
@@ -630,12 +654,15 @@ export default function Schedule() {
   const mergedTurnovers = allTurnovers()
 
   return (
-    <div className="p-6 max-w-full mx-auto space-y-4">
+    <div className="p-6 max-w-full mx-auto space-y-4 animate-fade-in">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold text-white">Schedule</h1>
-          <p className="text-sm text-gray-500 mt-0.5">Google Calendar + Rental Turnovers</p>
+          <p className="text-sm text-gray-500 mt-0.5">
+            Live schedule &middot; auto-refreshes every 60s
+            {lastRefresh && <span className="text-gray-600"> &middot; updated {lastRefresh.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}</span>}
+          </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {/* View mode */}
@@ -1084,24 +1111,9 @@ export default function Schedule() {
 
       {/* Empty Connecteam shifts notice — hidden to reduce noise */}
 
-      {/* Google Calendar embed */}
-      {calendarConnected ? (
-        <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
-          <iframe
-            src={buildEmbedUrl()}
-            style={{ border: 0, width: '100%', height: '700px' }}
-            title="Google Calendar"
-          />
-        </div>
-      ) : (
-        <div className="bg-gray-900 border border-gray-800 rounded-xl p-12 text-center space-y-4">
-          <p className="text-gray-500">Google Calendar not connected.</p>
-          <p className="text-xs text-gray-600">Add Gmail OAuth credentials to Vercel env vars (GMAIL_CLIENT_ID, GMAIL_CLIENT_SECRET, GMAIL_REFRESH_TOKEN) to enable calendar integration.</p>
-          <Link to="/settings" className="text-sm text-blue-400 hover:text-blue-300">Go to Settings</Link>
-        </div>
-      )}
-
-      {/* Upcoming Schedule (visits-first, fallback to jobs) */}
+      {/* ═══════════════════════════════════════════════════ */}
+      {/* UPCOMING SCHEDULE — the primary actionable view     */}
+      {/* ═══════════════════════════════════════════════════ */}
       {(() => {
         const today = new Date().toISOString().split('T')[0]
         // Use visits if available, fall back to jobs
@@ -1142,76 +1154,151 @@ export default function Schedule() {
                 connecteamShiftId: j.connecteamShiftId,
                 status: j.status,
               }))
-        const sorted = items.sort((a, b) => (a.date || '').localeCompare(b.date || '')).slice(0, 20)
+        const sorted = items.sort((a, b) => (a.date || '').localeCompare(b.date || ''))
 
-        if (sorted.length === 0) return null
+        // Group items by date for clearer day-by-day view
+        const grouped = {}
+        for (const item of sorted) {
+          const dateKey = item.date || 'unscheduled'
+          if (!grouped[dateKey]) grouped[dateKey] = []
+          grouped[dateKey].push(item)
+        }
+        const dateKeys = Object.keys(grouped).sort()
+
+        // Count stats
+        const totalItems = sorted.length
+        const unsyncedCal = sorted.filter(i => !i.googleEventId).length
+        const unsyncedCT = sorted.filter(i => !i.connecteamShiftId).length
+        const turnoversCount = sorted.filter(i => i.source === 'ical_sync').length
+
         return (
           <div className="bg-gray-900 border border-gray-800 rounded-xl p-4">
             <div className="flex items-center justify-between mb-3">
-              <h3 className="text-sm font-semibold text-white">Upcoming Schedule</h3>
+              <div>
+                <h3 className="text-sm font-semibold text-white">Upcoming Schedule</h3>
+                <div className="flex gap-3 mt-1">
+                  {totalItems > 0 && <span className="text-xs text-gray-500">{totalItems} visits</span>}
+                  {turnoversCount > 0 && <span className="text-xs text-orange-400">{turnoversCount} turnovers</span>}
+                  {unsyncedCal > 0 && <span className="text-xs text-yellow-500">{unsyncedCal} not on Google Cal</span>}
+                  {unsyncedCT > 0 && <span className="text-xs text-yellow-500">{unsyncedCT} not on Connecteam</span>}
+                </div>
+              </div>
               <div className="flex items-center gap-2">
+                <button onClick={() => { loadCrmData(); loadTurnovers(); loadRentalStays(); setLastRefresh(new Date()) }}
+                  className="px-2.5 py-1 bg-gray-800 border border-gray-700 rounded text-xs text-gray-400 hover:text-white">
+                  Refresh
+                </button>
                 <button onClick={handleBatchSync} disabled={batchSyncing}
                   className="px-2.5 py-1 bg-indigo-600/20 border border-indigo-800 rounded text-xs text-indigo-400 hover:bg-indigo-600/30 disabled:opacity-50 flex items-center gap-1">
-                  {batchSyncing ? 'Syncing...' : 'Sync All'}
+                  {batchSyncing ? 'Syncing...' : 'Sync All to Calendars'}
                 </button>
-                <span className="text-xs text-gray-500">{sorted.length} upcoming</span>
               </div>
             </div>
-            <div className="space-y-1.5">
-              {sorted.map(item => (
-                <div key={item.id} className="flex flex-col sm:flex-row sm:items-center justify-between bg-gray-800/50 rounded-lg px-3 py-2.5 gap-2">
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2">
-                      <p className="text-sm text-white truncate">{item.title}</p>
-                      {item.source === 'ical_sync' && <span className="text-[10px] px-1.5 py-0.5 bg-orange-600/20 text-orange-400 rounded">turnover</span>}
-                      {item.source === 'recurring' && <span className="text-[10px] px-1.5 py-0.5 bg-blue-600/20 text-blue-400 rounded">recurring</span>}
-                      {item.source === 'booking' && <span className="text-[10px] px-1.5 py-0.5 bg-green-600/20 text-green-400 rounded">booking</span>}
+
+            {totalItems === 0 && (
+              <div className="text-center py-6">
+                <p className="text-gray-500 text-sm">No upcoming visits scheduled.</p>
+                <p className="text-xs text-gray-600 mt-1">Accept quotes, create jobs, or scan for turnovers to populate the schedule.</p>
+              </div>
+            )}
+
+            <div className="space-y-3">
+              {dateKeys.map(dateKey => {
+                const dayItems = grouped[dateKey]
+                const isToday = dateKey === today
+                const dayLabel = dateKey === 'unscheduled' ? 'Unscheduled'
+                  : new Date(dateKey + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })
+
+                return (
+                  <div key={dateKey}>
+                    <div className={`flex items-center gap-2 mb-1.5 ${isToday ? 'text-blue-400' : 'text-gray-400'}`}>
+                      <p className="text-xs font-semibold uppercase tracking-wider">{dayLabel}</p>
+                      {isToday && <span className="text-[10px] px-1.5 py-0.5 bg-blue-600/20 rounded font-medium">TODAY</span>}
+                      <span className="text-[10px] text-gray-600">{dayItems.length} visit{dayItems.length !== 1 ? 's' : ''}</span>
                     </div>
-                    <p className="text-xs text-gray-500">
-                      {new Date(item.date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
-                      {item.startTime && ` @ ${formatTime(item.startTime)}`}
-                      {item.endTime && ` – ${formatTime(item.endTime)}`}
-                      {item.clientName && <span className="text-gray-600"> &middot; {item.clientName}</span>}
-                      {item.address && <span className="text-gray-600"> &middot; {item.address.split(',')[0]}</span>}
-                    </p>
+                    <div className="space-y-1.5">
+                      {dayItems.map(item => {
+                        const isTurnover = item.source === 'ical_sync' || item.source === 'turno'
+                        return (
+                          <div key={item.id} className={`flex flex-col sm:flex-row sm:items-center justify-between rounded-lg px-3 py-2.5 gap-2 ${
+                            isTurnover ? 'bg-orange-900/15 border border-orange-800/30' : 'bg-gray-800/50'
+                          }`}>
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-2">
+                                {isTurnover && <span className="w-2 h-2 rounded-full bg-orange-500 shrink-0" />}
+                                <p className="text-sm text-white truncate">{item.title}</p>
+                                {item.source === 'ical_sync' && <span className="text-[10px] px-1.5 py-0.5 bg-orange-600/20 text-orange-400 rounded font-medium">TURNOVER</span>}
+                                {item.source === 'recurring' && <span className="text-[10px] px-1.5 py-0.5 bg-blue-600/20 text-blue-400 rounded">recurring</span>}
+                                {item.source === 'booking' && <span className="text-[10px] px-1.5 py-0.5 bg-green-600/20 text-green-400 rounded">booking</span>}
+                                {item.source === 'one_off' && <span className="text-[10px] px-1.5 py-0.5 bg-gray-600/20 text-gray-400 rounded">one-off</span>}
+                                {item.status === 'completed' && <span className="text-[10px] px-1.5 py-0.5 bg-green-600/20 text-green-400 rounded">done</span>}
+                              </div>
+                              <p className="text-xs text-gray-500">
+                                {item.startTime && `${formatTime(item.startTime)}`}
+                                {item.endTime && ` – ${formatTime(item.endTime)}`}
+                                {item.clientName && <span className="text-gray-400"> &middot; {item.clientName}</span>}
+                                {item.address && <span className="text-gray-600"> &middot; {item.address.split(',')[0]}</span>}
+                              </p>
+                            </div>
+                            <div className="flex items-center gap-1.5 shrink-0">
+                              {!item.googleEventId && (
+                                <button onClick={() => pushVisitToCalendar(item)} disabled={pushingVisitToCal === item.id}
+                                  className="px-2.5 py-1.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 rounded-lg text-xs text-white font-medium">
+                                  {pushingVisitToCal === item.id ? '...' : 'Google Cal'}
+                                </button>
+                              )}
+                              {item.googleEventId && (
+                                <span className="text-[10px] text-green-500 px-1.5">on cal</span>
+                              )}
+                              {!item.connecteamShiftId && (
+                                <button onClick={() => pushVisitToConnecteam(item)} disabled={pushingVisitToCT === item.id}
+                                  className="px-2.5 py-1.5 bg-purple-600 hover:bg-purple-500 disabled:opacity-50 rounded-lg text-xs text-white font-medium">
+                                  {pushingVisitToCT === item.id ? '...' : 'Connecteam'}
+                                </button>
+                              )}
+                              {item.connecteamShiftId && (
+                                <span className="text-[10px] text-purple-400 px-1.5">synced</span>
+                              )}
+                              {(item.status === 'scheduled' || item.status === 'confirmed' || item.status === 'in_progress') && (
+                                <button onClick={() => handleCompleteVisit(item)} disabled={completingVisit === item.id}
+                                  className="px-2 py-1 bg-green-600/20 border border-green-800 rounded text-xs text-green-400 hover:bg-green-600/30 disabled:opacity-50">
+                                  {completingVisit === item.id ? '...' : 'Done'}
+                                </button>
+                              )}
+                              {item.clientId && (
+                                <Link to={`/clients/${item.clientId}?tab=${isTurnover ? 'properties' : 'jobs'}`} className="text-xs text-gray-500 hover:text-gray-300">View</Link>
+                              )}
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
                   </div>
-                  <div className="flex items-center gap-1.5 shrink-0">
-                    {!item.googleEventId && (
-                      <button onClick={() => pushVisitToCalendar(item)} disabled={pushingVisitToCal === item.id}
-                        className="px-2.5 py-1.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 rounded-lg text-xs text-white font-medium">
-                        {pushingVisitToCal === item.id ? '...' : 'Google Cal'}
-                      </button>
-                    )}
-                    {item.googleEventId && (
-                      <span className="text-xs text-green-500 px-1.5">On cal</span>
-                    )}
-                    {!item.connecteamShiftId && (
-                      <button onClick={() => pushVisitToConnecteam(item)} disabled={pushingVisitToCT === item.id}
-                        className="px-2.5 py-1.5 bg-purple-600 hover:bg-purple-500 disabled:opacity-50 rounded-lg text-xs text-white font-medium">
-                        {pushingVisitToCT === item.id ? '...' : 'Connecteam'}
-                      </button>
-                    )}
-                    {item.connecteamShiftId && (
-                      <span className="text-xs text-purple-400 px-1.5">Synced</span>
-                    )}
-                    {item.status === 'scheduled' || item.status === 'confirmed' || item.status === 'in_progress' ? (
-                      <button onClick={() => handleCompleteVisit(item)} disabled={completingVisit === item.id}
-                        className="px-2 py-1 bg-green-600/20 border border-green-800 rounded text-xs text-green-400 hover:bg-green-600/30 disabled:opacity-50">
-                        {completingVisit === item.id ? '...' : 'Done'}
-                      </button>
-                    ) : item.status === 'completed' ? (
-                      <span className="text-xs text-green-500 px-1">Done</span>
-                    ) : null}
-                    {item.clientId && (
-                      <Link to={`/clients/${item.clientId}?tab=${item.source === 'ical_sync' ? 'properties' : 'jobs'}`} className="text-xs text-gray-500 hover:text-gray-300">View</Link>
-                    )}
-                  </div>
-                </div>
-              ))}
+                )
+              })}
             </div>
           </div>
         )
       })()}
+
+      {/* ═══════════════════════════════════════════════════ */}
+      {/* GOOGLE CALENDAR EMBED                              */}
+      {/* ═══════════════════════════════════════════════════ */}
+      {calendarConnected ? (
+        <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
+          <iframe
+            src={buildEmbedUrl()}
+            style={{ border: 0, width: '100%', height: '700px' }}
+            title="Google Calendar"
+          />
+        </div>
+      ) : (
+        <div className="bg-gray-900 border border-gray-800 rounded-xl p-12 text-center space-y-4">
+          <p className="text-gray-500">Google Calendar not connected.</p>
+          <p className="text-xs text-gray-600">Add Gmail OAuth credentials to Vercel env vars (GMAIL_CLIENT_ID, GMAIL_CLIENT_SECRET, GMAIL_REFRESH_TOKEN) to enable calendar integration.</p>
+          <Link to="/settings" className="text-sm text-blue-400 hover:text-blue-300">Go to Settings</Link>
+        </div>
+      )}
 
       {/* Legend + links */}
       {calendarConnected && (
