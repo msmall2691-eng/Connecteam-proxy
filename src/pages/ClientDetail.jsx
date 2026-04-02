@@ -27,6 +27,39 @@ const _saveProperty = (d) => sb() ? savePropertyAsync(d) : Promise.resolve(saveP
 const _saveConversation = (d) => sb() ? saveConversationAsync(d) : Promise.resolve(saveConversation(d))
 const _addMessage = (id, m) => sb() ? addMessageAsync(id, m) : Promise.resolve(addMessage(id, m))
 
+// Build HTML email for quote with "Review & Approve" button
+function buildQuoteEmailHtml({ clientName, serviceType, sqft, frequency, estimateMin, estimateMax, finalPrice, property, approveUrl, portalUrl }) {
+  const freqLabel = { 'one-time': 'One-Time', 'weekly': 'Weekly', 'biweekly': 'Every 2 Weeks', 'monthly': 'Monthly' }[frequency] || frequency
+  return `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"></head>
+<body style="margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#f8fafc;">
+<div style="max-width:560px;margin:0 auto;padding:32px 16px;">
+  <div style="text-align:center;padding:24px 0;">
+    <h1 style="font-size:20px;color:#1e40af;margin:0;">The Maine Cleaning Co.</h1>
+  </div>
+  <div style="background:white;border:1px solid #e2e8f0;border-radius:12px;padding:24px;margin-bottom:16px;">
+    <p style="color:#334155;font-size:15px;margin:0 0 12px;">Hi ${clientName.split(' ')[0]},</p>
+    <p style="color:#334155;font-size:15px;margin:0 0 20px;">Thanks for your interest! Here's your cleaning quote:</p>
+    <div style="background:#eff6ff;border:2px solid #bfdbfe;border-radius:12px;padding:20px;text-align:center;margin-bottom:20px;">
+      <div style="font-size:28px;font-weight:800;color:#1e40af;">$${estimateMin} – $${estimateMax}</div>
+      <div style="font-size:13px;color:#64748b;margin-top:4px;">per cleaning</div>
+    </div>
+    <table style="width:100%;border-collapse:collapse;">
+      <tr><td style="padding:8px 0;color:#64748b;font-size:13px;">Service</td><td style="padding:8px 0;color:#0f172a;font-size:14px;font-weight:600;text-align:right;">${serviceType}</td></tr>
+      <tr><td style="padding:8px 0;color:#64748b;font-size:13px;">Home Size</td><td style="padding:8px 0;color:#0f172a;font-size:14px;font-weight:600;text-align:right;">${sqft} sqft</td></tr>
+      <tr><td style="padding:8px 0;color:#64748b;font-size:13px;">Frequency</td><td style="padding:8px 0;color:#0f172a;font-size:14px;font-weight:600;text-align:right;">${freqLabel}</td></tr>
+      ${property ? `<tr><td style="padding:8px 0;color:#64748b;font-size:13px;">Property</td><td style="padding:8px 0;color:#0f172a;font-size:14px;font-weight:600;text-align:right;">${property}</td></tr>` : ''}
+    </table>
+    <div style="text-align:center;margin:24px 0 16px;">
+      <a href="${approveUrl}" style="display:inline-block;padding:14px 32px;background:#1e40af;color:white;border-radius:10px;text-decoration:none;font-size:16px;font-weight:600;">Review & Approve Quote</a>
+    </div>
+    <p style="font-size:12px;color:#94a3b8;text-align:center;">Or call us at (207) 572-0502 to discuss</p>
+  </div>
+  <div style="text-align:center;padding:16px 0;font-size:12px;color:#94a3b8;">
+    The Maine Cleaning & Property Management Co.<br>(207) 572-0502 · office@mainecleaningco.com
+  </div>
+</div></body></html>`
+}
+
 const TAB_META = {
   overview:      { icon: '\u2302', label: 'Overview' },
   properties:    { icon: '\uD83C\uDFE0', label: 'Properties' },
@@ -365,16 +398,35 @@ function QuotesTab({ client, properties, quotes, onReload, onSwitchTab }) {
 
     await _saveClient({ id: client.id, status: 'prospect' })
 
+    // Generate approval link (quote-specific token: quoteId|clientId|timestamp)
+    const approveToken = btoa(`${q.id}|${client.id}|${Date.now()}`).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+    const approveUrl = `${window.location.origin}/quote.html?token=${approveToken}`
+
     const portalToken = btoa(`${client.id}|${Date.now()}`).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
     const portalUrl = `${window.location.origin}/portal.html?token=${portalToken}`
 
-    const msg = `Hi ${client.name.split(' ')[0]}!\n\nHere's your cleaning quote from The Maine Cleaning Co.:\n\n${quote.isDeep ? 'Deep' : 'Standard'} Cleaning: $${quote.estimateMin} – $${quote.estimateMax}/clean\n${calcInputs.frequency !== 'one-time' ? `Frequency: ${calcInputs.frequency}\n` : ''}${selectedProperty ? `Property: ${selectedProperty.addressLine1}\n` : ''}\nView your portal: ${portalUrl}\n\nReply to accept or call (207) 572-0502!\n\n— The Maine Cleaning Co.`
+    // SMS: short, with approval link
+    const smsMsg = `Hi ${client.name.split(' ')[0]}! Here's your cleaning quote from The Maine Cleaning Co.:\n\n${quote.isDeep ? 'Deep' : 'Standard'} Cleaning: $${quote.estimateMin} – $${quote.estimateMax}/clean\n${calcInputs.frequency !== 'one-time' ? `Frequency: ${calcInputs.frequency}\n` : ''}\nReview & approve here:\n${approveUrl}\n\nOr call (207) 572-0502!`
+
+    // Email: HTML with approve button
+    const emailHtml = buildQuoteEmailHtml({
+      clientName: client.name,
+      serviceType: quote.isDeep ? 'Deep Cleaning' : 'Standard Cleaning',
+      sqft: calcInputs.sqft,
+      frequency: calcInputs.frequency,
+      estimateMin: quote.estimateMin,
+      estimateMax: quote.estimateMax,
+      finalPrice: quote.perClean,
+      property: selectedProperty?.addressLine1,
+      approveUrl,
+      portalUrl,
+    })
 
     if (channel === 'email' && client.email) {
-      try { await fetch('/api/gmail', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'send', to: client.email, subject: `Cleaning Quote — The Maine Cleaning Co.`, body: msg }) }) } catch {}
+      try { await fetch('/api/gmail', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'send', to: client.email, subject: `Your Cleaning Quote — The Maine Cleaning Co.`, body: emailHtml, isHtml: true }) }) } catch {}
     }
     if (channel === 'text' && client.phone) {
-      try { await fetch('/api/sms', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'send', to: client.phone, body: msg }) }) } catch {}
+      try { await fetch('/api/sms', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'send', to: client.phone, body: smsMsg }) }) } catch {}
     }
 
     setSending(false)
@@ -599,8 +651,19 @@ function QuotesTab({ client, properties, quotes, onReload, onSwitchTab }) {
           {previewQuote.notes && <p className="text-xs text-gray-500">Notes: {previewQuote.notes}</p>}
           {previewQuote.sentAt && <p className="text-xs text-gray-600">Sent: {new Date(previewQuote.sentAt).toLocaleString()}</p>}
 
+          {/* Signature info if accepted with signature */}
+          {previewQuote.status === 'accepted' && previewQuote.signatureData?.signedAt && (
+            <div className="bg-green-900/20 border border-green-800/50 rounded-lg p-3">
+              <p className="text-xs text-green-400 font-medium">Signed by {previewQuote.signatureData.signerName || 'Client'}</p>
+              <p className="text-xs text-gray-500">{new Date(previewQuote.signatureData.signedAt).toLocaleString()}</p>
+              {previewQuote.signatureData.signature && (
+                <img src={previewQuote.signatureData.signature} alt="Signature" className="mt-2 max-h-16 bg-white rounded p-1" />
+              )}
+            </div>
+          )}
+
           {/* Action buttons */}
-          <div className="flex gap-2 pt-2 border-t border-gray-800">
+          <div className="flex flex-wrap gap-2 pt-2 border-t border-gray-800">
             {previewQuote.status === 'draft' && (
               <>
                 {client.email && <button onClick={() => { handleSendQuote('email'); setPreviewQuote(null) }} className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 rounded-lg text-xs text-white">Email Quote</button>}
@@ -610,8 +673,16 @@ function QuotesTab({ client, properties, quotes, onReload, onSwitchTab }) {
               </>
             )}
             {previewQuote.status === 'sent' && (
-              <button onClick={() => { startAcceptQuote(previewQuote); setPreviewQuote(null) }}
-                className="px-3 py-1.5 bg-green-600 hover:bg-green-500 rounded-lg text-xs text-white font-medium">Accept → Create Job</button>
+              <>
+                <button onClick={() => { startAcceptQuote(previewQuote); setPreviewQuote(null) }}
+                  className="px-3 py-1.5 bg-green-600 hover:bg-green-500 rounded-lg text-xs text-white font-medium">Accept → Create Job</button>
+                <button onClick={() => {
+                  const token = btoa(`${previewQuote.id}|${client.id}|${Date.now()}`).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+                  const url = `${window.location.origin}/quote.html?token=${token}`
+                  navigator.clipboard.writeText(url)
+                  alert('Approval link copied!')
+                }} className="px-3 py-1.5 bg-gray-700 hover:bg-gray-600 rounded-lg text-xs text-gray-300">Copy Approval Link</button>
+              </>
             )}
             {(previewQuote.status === 'sent' || previewQuote.status === 'draft') && (
               <button onClick={async () => { await _saveQuote({ ...previewQuote, status: 'declined', declinedAt: new Date().toISOString() }); setPreviewQuote(null); onReload() }}
@@ -678,8 +749,15 @@ function QuotesTab({ client, properties, quotes, onReload, onSwitchTab }) {
                       <button onClick={() => { setPreviewQuote(q); setEditingPrice(String(q.finalPrice || q.estimateMax || 0)) }}
                         className="text-xs text-gray-400 hover:text-blue-400">View</button>
                       {q.status === 'sent' && (
-                        <button onClick={() => startAcceptQuote(q)}
-                          className="text-xs text-green-400 hover:text-green-300">Accept</button>
+                        <>
+                          <button onClick={() => startAcceptQuote(q)}
+                            className="text-xs text-green-400 hover:text-green-300">Accept</button>
+                          <button onClick={() => {
+                            const token = btoa(`${q.id}|${client.id}|${Date.now()}`).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+                            navigator.clipboard.writeText(`${window.location.origin}/quote.html?token=${token}`)
+                            alert('Approval link copied!')
+                          }} className="text-xs text-gray-400 hover:text-blue-400" title="Copy client approval link">Link</button>
+                        </>
                       )}
                       {q.status === 'draft' && (
                         <button onClick={async () => { await _saveQuote({ ...q, status: 'sent', sentAt: new Date().toISOString() }); onReload() }}
