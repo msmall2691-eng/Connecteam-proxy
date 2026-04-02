@@ -60,6 +60,8 @@ export default function Schedule() {
   const [pushingVisitToCT, setPushingVisitToCT] = useState(null)
   const [rentalStays, setRentalStays] = useState([])
   const [showStays, setShowStays] = useState(true)
+  const [batchSyncing, setBatchSyncing] = useState(false)
+  const [completingVisit, setCompletingVisit] = useState(null)
 
   // Auto-dismiss toast after 6s
   useEffect(() => {
@@ -483,6 +485,46 @@ export default function Schedule() {
       setLoadingShifts(false)
     }
   }
+
+  // Batch sync all unsynced visits to Google Calendar + Connecteam
+  async function handleBatchSync() {
+    setBatchSyncing(true)
+    try {
+      const res = await fetch('/api/visits?action=sync-all', { method: 'POST' })
+      if (res.ok) {
+        const data = await res.json()
+        setToast({ type: 'success', message: `Synced ${data.synced} of ${data.total} visits`, details: 'Google Calendar + Connecteam' })
+        loadCrmData()
+      } else {
+        setToast({ type: 'error', message: 'Batch sync failed' })
+      }
+    } catch (err) {
+      setToast({ type: 'error', message: 'Batch sync failed', details: err.message })
+    } finally {
+      setBatchSyncing(false)
+    }
+  }
+
+  // Mark a visit as complete (triggers auto-invoice)
+  async function handleCompleteVisit(item) {
+    setCompletingVisit(item.id)
+    try {
+      const res = await fetch(`/api/visits?action=complete&visitId=${item.id}`, { method: 'POST' })
+      if (res.ok) {
+        const data = await res.json()
+        const msg = data.invoice ? `Completed + Invoice #${data.invoice.invoice_number} created` : 'Marked as completed'
+        setToast({ type: 'success', message: msg, details: item.title || 'Visit' })
+        loadCrmData()
+      } else {
+        setToast({ type: 'error', message: 'Failed to complete visit' })
+      }
+    } catch (err) {
+      setToast({ type: 'error', message: 'Failed to complete visit', details: err.message })
+    } finally {
+      setCompletingVisit(null)
+    }
+  }
+
 
   async function createCalendarEvent(e) {
     e.preventDefault()
@@ -1000,7 +1042,13 @@ export default function Schedule() {
           <div className="bg-gray-900 border border-gray-800 rounded-xl p-4">
             <div className="flex items-center justify-between mb-3">
               <h3 className="text-sm font-semibold text-white">Upcoming Schedule</h3>
-              <span className="text-xs text-gray-500">{sorted.length} upcoming</span>
+              <div className="flex items-center gap-2">
+                <button onClick={handleBatchSync} disabled={batchSyncing}
+                  className="px-2.5 py-1 bg-indigo-600/20 border border-indigo-800 rounded text-xs text-indigo-400 hover:bg-indigo-600/30 disabled:opacity-50 flex items-center gap-1">
+                  {batchSyncing ? 'Syncing...' : 'Sync All'}
+                </button>
+                <span className="text-xs text-gray-500">{sorted.length} upcoming</span>
+              </div>
             </div>
             <div className="space-y-1.5">
               {sorted.map(item => (
@@ -1039,6 +1087,14 @@ export default function Schedule() {
                     {item.connecteamShiftId && (
                       <span className="text-xs text-purple-400 px-1.5">Synced</span>
                     )}
+                    {item.status === 'scheduled' || item.status === 'confirmed' || item.status === 'in_progress' ? (
+                      <button onClick={() => handleCompleteVisit(item)} disabled={completingVisit === item.id}
+                        className="px-2 py-1 bg-green-600/20 border border-green-800 rounded text-xs text-green-400 hover:bg-green-600/30 disabled:opacity-50">
+                        {completingVisit === item.id ? '...' : 'Done'}
+                      </button>
+                    ) : item.status === 'completed' ? (
+                      <span className="text-xs text-green-500 px-1">Done</span>
+                    ) : null}
                     {item.clientId && (
                       <Link to={`/clients/${item.clientId}?tab=${item.source === 'ical_sync' ? 'properties' : 'jobs'}`} className="text-xs text-gray-500 hover:text-gray-300">View</Link>
                     )}

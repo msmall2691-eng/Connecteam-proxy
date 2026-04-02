@@ -46,15 +46,41 @@ export default async function handler(req, res) {
       const supabaseUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL
       const supabaseKey = process.env.SUPABASE_SERVICE_KEY || process.env.VITE_SUPABASE_ANON_KEY
 
-      // ── CLOCK IN/OUT ──
+      // ── CLOCK IN/OUT — match to visit and record actual times ──
       if (eventType.includes('clock') || eventType.includes('time-activity')) {
         const data = event.data || event
-        // Could update job status, send notification, etc.
+        const isClockIn = eventType.includes('in') || eventType.includes('start')
+        const clockTime = new Date().toISOString()
+        const clockDate = clockTime.split('T')[0]
+
         console.log('Clock event:', data)
 
-        // Send email notification if configured
+        // Try to match this clock event to a visit
+        if (supabaseUrl && supabaseKey) {
+          const sbH = { apikey: supabaseKey, Authorization: `Bearer ${supabaseKey}`, 'Content-Type': 'application/json' }
+          try {
+            // Find today's visit for this employee (by connecteam_shift_id or date+employee match)
+            const shiftId = data.shiftId || data.shift_id
+            let matchUrl = shiftId
+              ? `${supabaseUrl}/rest/v1/visits?connecteam_shift_id=eq.${shiftId}&select=id,status,actual_start_time`
+              : `${supabaseUrl}/rest/v1/visits?scheduled_date=eq.${clockDate}&status=in.(scheduled,confirmed,in_progress)&select=id,status,actual_start_time&limit=1&order=scheduled_start_time.asc`
+            const matchRes = await fetch(matchUrl, { headers: sbH })
+            const matches = matchRes.ok ? await matchRes.json() : []
+            if (matches.length > 0) {
+              const visit = matches[0]
+              const patch = isClockIn
+                ? { actual_start_time: clockTime, status: 'in_progress' }
+                : { actual_end_time: clockTime, status: 'completed' }
+              await fetch(`${supabaseUrl}/rest/v1/visits?id=eq.${visit.id}`, {
+                method: 'PATCH', headers: sbH, body: JSON.stringify(patch),
+              })
+              console.log(`Visit ${visit.id} updated: ${isClockIn ? 'clock-in' : 'clock-out'}`)
+            }
+          } catch (e) { console.error('Visit match failed:', e.message) }
+        }
+
         await sendNotification(
-          `Employee ${data.userName || 'someone'} clocked ${eventType.includes('in') ? 'IN' : 'OUT'}`,
+          `Employee ${data.userName || 'someone'} clocked ${isClockIn ? 'IN' : 'OUT'}`,
           `Time: ${new Date().toLocaleString()}\nLocation: ${data.location || 'N/A'}`
         )
       }

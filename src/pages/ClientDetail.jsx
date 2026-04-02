@@ -1109,23 +1109,26 @@ function JobsTab({ clientId, clientName, clientAddress, jobs, properties, invoic
       price: form.price ? parseFloat(form.price) : null,
       recurrenceDay: parseInt(form.recurrenceDay),
     })
-    // Create the first visit so it appears on the schedule immediately
+    // Create visits immediately
     if (savedJob?.id && form.date) {
-      try {
-        await saveVisitAsync({
-          jobId: savedJob.id,
-          clientId,
-          propertyId: form.propertyId || null,
-          scheduledDate: form.date,
-          scheduledStartTime: form.startTime || '09:00',
-          scheduledEndTime: form.endTime || '12:00',
-          status: 'scheduled',
-          source: form.isRecurring ? 'recurring' : 'one_off',
-          serviceTypeId: form.serviceTypeId || null,
-          address,
-          clientVisible: true,
-        })
-      } catch (err) { console.error('First visit creation failed:', err) }
+      if (form.isRecurring) {
+        // Trigger server-side recurring generation (8 weeks of visits)
+        try { await fetch(`/api/visits?action=generate-recurring&jobId=${savedJob.id}&weeks=8`) } catch {}
+      } else {
+        // One-off: create single visit
+        try {
+          await saveVisitAsync({
+            jobId: savedJob.id, clientId,
+            propertyId: form.propertyId || null,
+            scheduledDate: form.date,
+            scheduledStartTime: form.startTime || '09:00',
+            scheduledEndTime: form.endTime || '12:00',
+            status: 'scheduled', source: 'one_off',
+            serviceTypeId: form.serviceTypeId || null,
+            address, clientVisible: true,
+          })
+        } catch (err) { console.error('Visit creation failed:', err) }
+      }
     }
     setForm({ title: '', date: '', status: 'scheduled', notes: '', assignee: '', isRecurring: false, recurrenceRule: 'weekly', recurrenceDay: 1, price: '', priceType: 'flat', startTime: '09:00', endTime: '12:00', propertyId: '' })
     setShowNew(false)
