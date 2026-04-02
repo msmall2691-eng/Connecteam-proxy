@@ -4,7 +4,7 @@ import { getClients, getClientsAsync, saveClient, saveClientAsync, deleteClient,
   getQuotes, getQuotesAsync, getJobs, getJobsAsync, getInvoices, getInvoicesAsync } from '../lib/store'
 import { isSupabaseConfigured } from '../lib/supabase'
 import ImportClients from '../components/ImportClients'
-import { TableSkeleton, EmptyState, StatusBadge, Checkbox, timeAgo, ConfirmDialog } from '../components/ui'
+import { TableSkeleton, EmptyState, StatusBadge, Checkbox, timeAgo, ConfirmDialog, Avatar } from '../components/ui'
 
 const STATUS_COLORS = {
   active: 'bg-green-900/40 text-green-400',
@@ -488,11 +488,15 @@ export default function Clients() {
                     />
                   </td>
                   <td className="px-5 py-3">
-                    <Link to={`/clients/${client.id}`} className="font-medium text-white hover:text-blue-400 transition-colors">
-                      {client.name}
-                    </Link>
-                    {client.companyName && <p className="text-xs text-gray-400 mt-0.5">{client.companyName}</p>}
-                    {client.address && <p className="text-xs text-gray-500 mt-0.5">{client.address}</p>}
+                    <div className="flex items-center gap-3">
+                      <Avatar name={client.name} size="sm" />
+                      <div className="min-w-0">
+                        <Link to={`/clients/${client.id}`} className="font-medium text-white hover:text-blue-400 transition-colors block truncate">
+                          {client.name}
+                        </Link>
+                        {client.companyName && <p className="text-xs text-gray-400 mt-0.5 truncate">{client.companyName}</p>}
+                      </div>
+                    </div>
                   </td>
                   <td className="px-3 py-3">
                     {client.email && <p className="text-xs">{client.email}</p>}

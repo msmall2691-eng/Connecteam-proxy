@@ -224,21 +224,29 @@ export default function Dashboard() {
 
   return (
     <div className="p-4 md:p-6 max-w-7xl mx-auto space-y-4 animate-fade-in">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-xl font-bold text-white">Dashboard</h1>
-          <p className="text-xs text-gray-500">{new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}</p>
-        </div>
-        <div className="flex gap-2">
-          {data.actionCount > 0 && (
-            <span className="px-2.5 py-1.5 bg-amber-600/20 border border-amber-800/30 rounded-lg text-xs text-amber-400 font-medium">
-              {data.actionCount} action{data.actionCount !== 1 ? 's' : ''} needed
-            </span>
-          )}
-          <Link to="/pipeline" className="px-3 py-1.5 bg-gray-800 hover:bg-gray-700 rounded-lg text-xs text-gray-300 transition-colors">Pipeline</Link>
-          <Link to="/schedule" className="px-3 py-1.5 bg-gray-800 hover:bg-gray-700 rounded-lg text-xs text-gray-300 transition-colors">Schedule</Link>
-          <Link to="/revenue" className="px-3 py-1.5 bg-gray-800 hover:bg-gray-700 rounded-lg text-xs text-gray-300 transition-colors">Revenue</Link>
+      {/* Hero Welcome Banner */}
+      <div className="relative overflow-hidden bg-gradient-to-br from-gray-900 via-gray-900 to-gray-900 border border-gray-800/50 rounded-2xl p-5 md:p-6">
+        {/* Decorative gradient blobs */}
+        <div className="absolute top-0 right-0 w-64 h-64 bg-blue-500/8 rounded-full blur-3xl pointer-events-none" />
+        <div className="absolute bottom-0 left-1/4 w-48 h-48 bg-purple-500/6 rounded-full blur-3xl pointer-events-none" />
+        <div className="relative flex items-center justify-between">
+          <div>
+            <h1 className="text-xl md:text-2xl font-bold text-white tracking-tight">
+              Good {new Date().getHours() < 12 ? 'morning' : new Date().getHours() < 17 ? 'afternoon' : 'evening'}
+            </h1>
+            <p className="text-sm text-gray-400 mt-1">{new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}</p>
+            {data.actionCount > 0 && (
+              <div className="flex items-center gap-2 mt-2">
+                <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
+                <span className="text-xs text-amber-400 font-medium">{data.actionCount} item{data.actionCount !== 1 ? 's' : ''} need your attention</span>
+              </div>
+            )}
+          </div>
+          <div className="hidden md:flex gap-2">
+            <Link to="/pipeline" className="px-4 py-2 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl text-xs text-gray-300 transition-all">Pipeline</Link>
+            <Link to="/schedule" className="px-4 py-2 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl text-xs text-gray-300 transition-all">Schedule</Link>
+            <Link to="/revenue" className="px-4 py-2 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl text-xs text-gray-300 transition-all">Revenue</Link>
+          </div>
         </div>
       </div>
 
@@ -403,15 +411,30 @@ export default function Dashboard() {
 
         {/* COLUMN 2: Jobs & Calendar */}
         <div className="space-y-4">
-          {/* Today's jobs */}
-          <Panel title="Today" icon="📅" count={data.todayJobs.length} linkTo="/schedule" color="cyan">
+          {/* Today's schedule — time block style */}
+          <Panel title="Today's Schedule" icon="📅" count={data.todayJobs.length} linkTo="/schedule" color="cyan">
             {data.todayJobs.map(j => (
-              <div key={j.id} className="flex justify-between py-1.5">
-                <div className="min-w-0"><p className="text-sm text-white truncate">{j.title}</p><p className="text-xs text-gray-500">{j.clientName} {j.startTime ? `@ ${formatTime(j.startTime)}` : ''}</p></div>
+              <div key={j.id} className="flex items-center gap-3 py-2">
+                <div className="text-right w-14 shrink-0">
+                  <p className="text-xs font-medium text-cyan-400 tabular-nums">{j.startTime ? formatTime(j.startTime) : '--'}</p>
+                </div>
+                <div className="w-0.5 h-8 bg-gradient-to-b from-cyan-500 to-cyan-500/20 rounded-full shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <Avatar name={j.clientName || j.title} size="xs" />
+                    <p className="text-sm text-white truncate">{j.title}</p>
+                  </div>
+                  <p className="text-[11px] text-gray-500 mt-0.5 ml-8">{j.clientName || ''}</p>
+                </div>
                 <StatusBadge status={j.status} />
               </div>
             ))}
-            {data.todayJobs.length === 0 && <p className="text-xs text-gray-600 py-2 text-center">No jobs scheduled for today</p>}
+            {data.todayJobs.length === 0 && (
+              <div className="py-4 text-center">
+                <p className="text-xs text-gray-600">No jobs scheduled for today</p>
+                <Link to="/schedule" className="text-xs text-blue-400 hover:text-blue-300 mt-1 inline-block">View full schedule</Link>
+              </div>
+            )}
           </Panel>
 
           {/* Push to Google Calendar */}
@@ -513,24 +536,25 @@ export default function Dashboard() {
 
 function Stat({ label, value, color = '', icon, pulse }) {
   return (
-    <div className={`bg-gray-900 border border-gray-800 rounded-xl px-3 py-2.5 text-center transition-all hover:border-gray-700 ${pulse ? 'ring-1 ring-blue-800/30' : ''}`}>
-      <p className={`text-lg font-bold tabular-nums ${color || 'text-white'}`}>{icon}{value}</p>
-      <p className="text-[11px] text-gray-500 mt-0.5">{label}</p>
+    <div className={`relative overflow-hidden bg-gray-900/80 border border-gray-800/50 rounded-xl px-3 py-3 text-center transition-all duration-200 hover:border-gray-700/50 hover:bg-gray-900 ${pulse ? 'ring-1 ring-blue-500/20' : ''}`}>
+      <p className={`text-xl font-bold tabular-nums tracking-tight ${color || 'text-white'}`}>{icon}{value}</p>
+      <p className="text-[10px] text-gray-500 mt-0.5 uppercase tracking-wider">{label}</p>
     </div>
   )
 }
 
 function Panel({ title, icon, count = 0, linkTo, color, children }) {
-  const borderColors = { purple: 'border-purple-800/30', yellow: 'border-yellow-800/30', blue: 'border-blue-800/30', cyan: 'border-cyan-800/30', green: 'border-green-800/30', orange: 'border-orange-800/30', red: 'border-red-800/30' }
+  const borderColors = { purple: 'border-purple-800/20', yellow: 'border-amber-800/20', blue: 'border-blue-800/20', cyan: 'border-cyan-800/20', green: 'border-green-800/20', orange: 'border-orange-800/20', red: 'border-red-800/20' }
+  const dotColors = { purple: 'bg-purple-500', yellow: 'bg-amber-500', blue: 'bg-blue-500', cyan: 'bg-cyan-500', green: 'bg-green-500', orange: 'bg-orange-500', red: 'bg-red-500' }
   return (
-    <div className={`bg-gray-900 border ${borderColors[color] || 'border-gray-800'} rounded-xl p-3.5`}>
-      <div className="flex items-center justify-between mb-2">
-        <div className="flex items-center gap-1.5">
-          <span className="text-sm">{icon}</span>
-          <span className="text-sm font-medium text-white">{title}</span>
-          {count > 0 && <span className="px-1.5 py-0.5 bg-gray-800 text-gray-400 rounded text-xs">{count}</span>}
+    <div className={`bg-gray-900/80 border ${borderColors[color] || 'border-gray-800/50'} rounded-2xl p-4 transition-all duration-200 hover:bg-gray-900`}>
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center gap-2">
+          <span className={`w-2 h-2 rounded-full ${dotColors[color] || 'bg-gray-500'}`} />
+          <span className="text-sm font-semibold text-white">{title}</span>
+          {count > 0 && <span className="px-1.5 py-0.5 bg-white/5 text-gray-400 rounded-md text-[10px] font-medium">{count}</span>}
         </div>
-        {linkTo && <Link to={linkTo} className="text-xs text-gray-600 hover:text-gray-400">View</Link>}
+        {linkTo && <Link to={linkTo} className="text-xs text-gray-500 hover:text-gray-300 transition-colors">View &rarr;</Link>}
       </div>
       <div className="space-y-0.5">{children}</div>
     </div>
