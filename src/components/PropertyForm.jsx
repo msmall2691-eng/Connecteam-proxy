@@ -24,6 +24,7 @@ export default function PropertyForm({ property, onSave, onCancel }) {
     accessNotes: property?.accessNotes || '',
     isPrimary: property?.isPrimary || false,
     icalUrl: property?.icalUrl || '',
+    googleCalendarId: property?.googleCalendarId || '',
     checkoutTime: property?.checkoutTime || '10:00',
     cleaningTime: property?.cleaningTime || '11:00',
     rentalPlatform: property?.rentalPlatform || '',
@@ -113,9 +114,16 @@ export default function PropertyForm({ property, onSave, onCancel }) {
       {isRental && (
         <div className="bg-orange-900/10 border border-orange-800/30 rounded-lg p-4 space-y-3">
           <h4 className="text-sm font-medium text-orange-400">Rental Property Settings</h4>
+          <div>
+            <label className="block text-xs text-gray-500 mb-1">Google Calendar ID (recommended)</label>
+            <input value={form.googleCalendarId} onChange={e => setForm({ ...form, googleCalendarId: e.target.value })}
+              placeholder="abc123@import.calendar.google.com"
+              className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-xs text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            <p className="text-xs text-gray-600 mt-1">Import your Airbnb/VRBO iCal into Google Calendar, then paste the Calendar ID here. Google Calendar → Settings → Integrate calendar → Calendar ID</p>
+          </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs text-gray-500 mb-1">iCal URL (Airbnb/VRBO)</label>
+              <label className="block text-xs text-gray-500 mb-1">iCal URL (fallback)</label>
               <input value={form.icalUrl} onChange={e => setForm({ ...form, icalUrl: e.target.value })}
                 placeholder="https://www.airbnb.com/calendar/ical/..."
                 className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-xs text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500" />
