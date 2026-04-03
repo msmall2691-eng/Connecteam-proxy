@@ -1,63 +1,15 @@
 # Payroll Prep & Mileage Reimbursement Report
 **Company:** The Maine Cleaning & Property Management Co.
 **Pay Period:** March 22, 2026 – March 28, 2026
-**Generated:** April 03, 2026 at 04:26 PM
+**Generated:** April 03, 2026 at 04:30 PM
 **IRS Mileage Rate:** $0.70/mile
 **Mileage Threshold:** 35 miles (first job of day)
 
 ---
 
-## Week of Mar 16 – Mar 22, 2026
+## Week of Mar 22 – Mar 22, 2026
 
-### Charnette Smith (Cleaning Tech)
-
-| Hours | Hourly Pay | Miles Reported | Reimbursable Miles | Mileage Reimbursement | Total Comp |
-|---|---|---|---|---|---|
-| 8.2h | $204.17 | 148.0 | 43.0 | $30.10 | **$234.27** |
-
-| Day | Time | Hours | Location | Miles | Reimbursable | Notes |
-|---|---|---|---|---|---|---|
-| Mon 03/16 | 1:00pm–2:19pm | 1.3h | 15 Harmony Drive | 38.0 (to job) | 3.0 | Did not have service to clock in at 9 |
-| Mon 03/16 | 3:00pm–5:20pm | 2.3h | Congress St | 25.0 (between) | 25.0 |  |
-| Thu 03/19 | 1:05pm–3:42pm | 2.6h | 37 Cottage Road | 43.0 (to job) | 8.0 |  |
-| Fri 03/20 | 1:11pm–3:05pm | 1.9h | Moors Point Rd | 42.0 (to job) | 7.0 |  |
-
-**Flags:**
-- Timesheets not approved (0/3)
-- Timesheets not submitted (0/3)
-
-### Laila Kea (Cleaning Tech)
-
-| Hours | Hourly Pay | Miles Reported | Reimbursable Miles | Mileage Reimbursement | Total Comp |
-|---|---|---|---|---|---|
-| 9.3h | $233.33 | 86.0 | 34.0 | $23.80 | **$257.13** |
-
-| Day | Time | Hours | Location | Miles | Reimbursable | Notes |
-|---|---|---|---|---|---|---|
-| Mon 03/16 | 1:03pm–2:18pm | 1.3h | Crestwood Dr | 30.0 (to job) | 0 |  |
-| Mon 03/16 | 3:10pm–5:31pm | 2.4h | Kincaid St | 25.0 (between) | 25.0 |  |
-| Thu 03/19 | 12:52pm–3:44pm | 2.9h | Red Barn Cir | — (to job) | 0 |  |
-| Fri 03/20 | 1:00pm–3:06pm | 2.1h | Moors Point Rd | 22.0 (to job) | 0 |  |
-| Fri 03/20 | 3:33pm–4:19pm | 0.8h | Central Park Ave | 9.0 (between) | 9.0 |  |
-
-**Flags:**
-- Timesheets not approved (0/3)
-- Timesheets not submitted (0/3)
-
-### Rochelle Ciazzo
-
-| Hours | Hourly Pay | Miles Reported | Reimbursable Miles | Mileage Reimbursement | Total Comp |
-|---|---|---|---|---|---|
-| 3.3h | $82.92 | 111064.0 | 111029.0 | $77720.30 | **$77803.22** |
-
-| Day | Time | Hours | Location | Miles | Reimbursable | Notes |
-|---|---|---|---|---|---|---|
-| Fri 03/20 | 1:35pm–4:54pm | 3.3h | Lands End Ln | 111064.0 (to job) | 111029.0 |  |
-
-**Flags:**
-- Unusually high mileage on Fri 03/20: 111064.0 mi — likely data entry error
-- Timesheets not approved (0/1)
-- Timesheets not submitted (0/1)
+*No activity recorded this week.*
 
 ---
 
@@ -113,23 +65,15 @@ This is the final summary ready for Square Payroll entry.
 
 | Employee | Hours | Hourly Pay | Reimbursable Miles | Mileage Reimbursement | **Total Comp** |
 |---|---|---|---|---|---|
-| Charnette Smith | 22.1h | $551.25 | 89.6 | $62.72 | **$613.97** |
-| Laila Kea | 22.5h | $563.33 | 60.0 | $42.00 | **$605.33** |
-| Rochelle Ciazzo | 3.3h | $82.92 | 111029.0 | $77720.30 | **$77803.22** |
-| **TOTAL** | **47.9h** | **$1197.50** | **111178.6** | **$77825.02** | **$79022.52** |
+| Charnette Smith | 13.9h | $347.08 | 46.6 | $32.62 | **$379.70** |
+| Laila Kea | 13.2h | $330.00 | 26.0 | $18.20 | **$348.20** |
+| **TOTAL** | **27.1h** | **$677.08** | **72.6** | **$50.82** | **$727.90** |
 
 ## Issues to Resolve Before Processing
 
-- Charnette Smith: Timesheets not approved (0/3)
-- Charnette Smith: Timesheets not submitted (0/3)
 - Charnette Smith: Very short clock-in on Thu 03/26 (0 min)
 - Charnette Smith: Timesheets not approved (0/4)
 - Charnette Smith: Timesheets not submitted (0/4)
-- Laila Kea: Timesheets not approved (0/3)
-- Laila Kea: Timesheets not submitted (0/3)
 - Laila Kea: Very short clock-in on Mon 03/23 (0 min)
 - Laila Kea: Timesheets not approved (0/4)
 - Laila Kea: Timesheets not submitted (0/4)
-- Rochelle Ciazzo: Unusually high mileage on Fri 03/20: 111064.0 mi — likely data entry error
-- Rochelle Ciazzo: Timesheets not approved (0/1)
-- Rochelle Ciazzo: Timesheets not submitted (0/1)

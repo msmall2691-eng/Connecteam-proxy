@@ -104,14 +104,15 @@ def haversine_miles(lat1, lon1, lat2, lon2):
 
 
 def get_week_boundaries(start_date, end_date):
-    """Split a date range into Monday-Sunday week boundaries."""
+    """Split a date range into week boundaries, preserving exact start/end dates."""
     weeks = []
     current = start_date
-    current -= timedelta(days=current.weekday())
     while current < end_date:
-        week_end = min(current + timedelta(days=6), end_date)
+        # Find end of current week (Sunday) or end_date, whichever is first
+        days_until_sunday = 6 - current.weekday()
+        week_end = min(current + timedelta(days=days_until_sunday), end_date)
         weeks.append((current, week_end))
-        current += timedelta(days=7)
+        current = week_end + timedelta(days=1)
     return weeks
 
 
