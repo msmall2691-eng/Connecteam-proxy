@@ -8,7 +8,7 @@ import {
   getScheduleAsync,
 } from '../lib/store'
 import { isSupabaseConfigured, subscribeToTable } from '../lib/supabase'
-import { Skeleton, CardSkeleton, StatusBadge, ProgressBar, timeAgo, InsightCard, Avatar } from '../components/ui'
+import { Skeleton, CardSkeleton, StatusBadge, ProgressBar, timeAgo, InsightCard, Avatar, RevealSection } from '../components/ui'
 
 export default function Dashboard() {
   const [data, setData] = useState(null)
@@ -291,7 +291,8 @@ export default function Dashboard() {
       )}
 
       {/* Workflow Pipeline — visual funnel with progress */}
-      <div className="bg-gray-900 border border-gray-800 rounded-xl p-4">
+      <RevealSection>
+      <div className="bg-gray-900/80 border border-gray-800/50 rounded-2xl p-4">
         <div className="flex items-center justify-between mb-3">
           <h2 className="text-sm font-semibold text-white">Workflow Pipeline</h2>
           <Link to="/pipeline" className="text-xs text-gray-500 hover:text-gray-300 transition-colors">View All &rarr;</Link>
@@ -316,6 +317,7 @@ export default function Dashboard() {
           ))}
         </div>
       </div>
+      </RevealSection>
 
       {/* Stale Quotes Warning — quotes sent > 3 days with no response */}
       {data.staleQuotes.length > 0 && (
@@ -373,6 +375,7 @@ export default function Dashboard() {
         </div>
       )}
 
+      <RevealSection delay={100}>
       <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4">
         {/* COLUMN 1: Quotes & Leads */}
         <div className="space-y-4">
@@ -530,6 +533,7 @@ export default function Dashboard() {
           </div>
         </div>
       </div>
+      </RevealSection>
     </div>
   )
 }

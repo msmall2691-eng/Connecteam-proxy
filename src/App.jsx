@@ -308,6 +308,17 @@ export default function App() {
       {/* AI Agent panel */}
       {chatOpen && <Suspense fallback={null}><AgentChat onClose={() => setChatOpen(false)} /></Suspense>}
 
+      {/* Floating AI button — visible on desktop when chat is closed */}
+      {!chatOpen && (
+        <button onClick={() => setChatOpen(true)}
+          className="hidden md:flex fixed bottom-6 right-6 z-40 w-12 h-12 rounded-2xl bg-gradient-to-br from-purple-600 to-pink-500 shadow-lg shadow-purple-500/30 hover:shadow-purple-500/50 items-center justify-center text-white transition-all duration-200 hover:scale-105 active:scale-95"
+          title="Open AI Agent">
+          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z" />
+          </svg>
+        </button>
+      )}
+
       {/* Keyboard shortcuts help */}
       {showShortcuts && (
         <div className="fixed inset-0 z-[200] flex items-center justify-center" onClick={() => setShowShortcuts(false)}>

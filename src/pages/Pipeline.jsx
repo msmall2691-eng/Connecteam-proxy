@@ -473,19 +473,23 @@ export default function Pipeline() {
                 dragOverStage === stage.id ? 'border-blue-500/50 bg-blue-950/10' : 'border-gray-800'
               }`}>
               {/* Column header */}
-              <div className="px-4 py-3 border-b border-gray-800">
+              <div className={`px-4 py-3 border-b border-gray-800/50 bg-gradient-to-r ${
+                stage.color === 'blue' ? 'from-blue-500/5 to-transparent' :
+                stage.color === 'purple' ? 'from-purple-500/5 to-transparent' :
+                stage.color === 'amber' ? 'from-amber-500/5 to-transparent' : 'from-green-500/5 to-transparent'
+              }`}>
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
-                    <span className={`w-2 h-2 rounded-full ${
-                      stage.color === 'blue' ? 'bg-blue-500' :
-                      stage.color === 'purple' ? 'bg-purple-500' :
-                      stage.color === 'amber' ? 'bg-amber-500' : 'bg-green-500'
+                    <span className={`w-2.5 h-2.5 rounded-full shadow-sm ${
+                      stage.color === 'blue' ? 'bg-blue-500 shadow-blue-500/30' :
+                      stage.color === 'purple' ? 'bg-purple-500 shadow-purple-500/30' :
+                      stage.color === 'amber' ? 'bg-amber-500 shadow-amber-500/30' : 'bg-green-500 shadow-green-500/30'
                     }`} />
                     <span className="text-sm font-semibold text-white">{stage.label}</span>
                   </div>
-                  <span className="text-xs text-gray-500 bg-gray-800 rounded-full px-2 py-0.5">{cards.length}</span>
+                  <span className="text-[10px] text-gray-500 bg-white/5 rounded-full px-2 py-0.5 font-medium">{cards.length}</span>
                 </div>
-                <p className="text-xs text-gray-600 mt-0.5">{stage.desc}</p>
+                <p className="text-[11px] text-gray-500 mt-1">{stage.desc}</p>
               </div>
 
               {/* Cards */}
