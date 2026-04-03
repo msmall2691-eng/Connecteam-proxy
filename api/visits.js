@@ -27,6 +27,66 @@ export default async function handler(req, res) {
   }
 
   // ════════════════════════════════════════════════
+  // ACTION: update-checklist — update per-item checklist completion + photos
+  // POST /api/visits?action=update-checklist
+  // Body: { visitId, checklist: [{section, item, completed, photoUrl}] }
+  // ════════════════════════════════════════════════
+  if (action === 'update-checklist' && req.method === 'POST') {
+    const visitId = req.query.visitId || req.body?.visitId
+    const updates = req.body?.checklist || []
+    const photosBefore = req.body?.photosBefore || null
+    const photosAfter = req.body?.photosAfter || null
+    if (!visitId) return res.status(400).json({ error: 'visitId required' })
+
+    try {
+      const vRes = await fetch(`${supabaseUrl}/rest/v1/visits?id=eq.${visitId}&select=checklist_snapshot,photos_before,photos_after`, { headers: sbHeaders })
+      const visits = await vRes.json()
+      if (!visits?.length) return res.status(404).json({ error: 'Visit not found' })
+
+      let snapshot = visits[0].checklist_snapshot || { sections: [] }
+
+      // Apply per-item updates
+      for (const update of updates) {
+        const section = snapshot.sections?.find(s => s.name === update.section)
+        if (section) {
+          const item = section.items?.find(i => i.task === update.item)
+          if (item) {
+            if (update.completed !== undefined) item.completed = update.completed
+            if (update.photoUrl) {
+              item.photos = item.photos || []
+              item.photos.push({ url: update.photoUrl, timestamp: new Date().toISOString() })
+            }
+            if (update.notes) item.notes = update.notes
+          }
+        }
+      }
+
+      // Calculate completion percentage
+      let totalItems = 0, completedItems = 0
+      for (const section of (snapshot.sections || [])) {
+        for (const item of (section.items || [])) {
+          totalItems++
+          if (item.completed) completedItems++
+        }
+      }
+      snapshot.completionPercent = totalItems > 0 ? Math.round((completedItems / totalItems) * 100) : 0
+      snapshot.lastUpdated = new Date().toISOString()
+
+      const patch = { checklist_snapshot: snapshot }
+      if (photosBefore) patch.photos_before = photosBefore
+      if (photosAfter) patch.photos_after = photosAfter
+
+      await fetch(`${supabaseUrl}/rest/v1/visits?id=eq.${visitId}`, {
+        method: 'PATCH', headers: sbHeaders, body: JSON.stringify(patch),
+      })
+
+      return res.status(200).json({ visitId, completionPercent: snapshot.completionPercent, snapshot })
+    } catch (err) {
+      return res.status(500).json({ error: err.message })
+    }
+  }
+
+  // ════════════════════════════════════════════════
   // ACTION: complete — mark visit done + auto-create invoice
   // POST /api/visits?action=complete&visitId=xxx
   // ════════════════════════════════════════════════
@@ -92,7 +152,42 @@ export default async function handler(req, res) {
         }
       }
 
-      return res.status(200).json({ success: true, visitId, status: 'completed', invoice, square: squareResult })
+      // Auto-pay via Stripe if client has card on file (and Square didn't already handle it)
+      let stripeResult = null
+      if (invoice && price > 0 && !squareResult?.sent) {
+        const STRIPE_KEY = process.env.STRIPE_SECRET_KEY
+        if (STRIPE_KEY) {
+          try {
+            // Check if client has stripe_customer_id
+            const clientRes = await fetch(
+              `${supabaseUrl}/rest/v1/clients?id=eq.${visit.client_id}&select=stripe_customer_id`,
+              { headers: sbHeaders }
+            )
+            const clients = await clientRes.json()
+            const stripeCustomerId = clients?.[0]?.stripe_customer_id
+            if (stripeCustomerId) {
+              const chargeRes = await fetch(`https://${req.headers.host}/api/stripe`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  action: 'charge-card',
+                  stripeCustomerId,
+                  amount: price,
+                  description: `${visit.job?.title || 'Cleaning'} — ${visit.client?.name || 'Client'}`,
+                  invoiceNumber: invoice.invoice_number,
+                  clientId: visit.client_id,
+                }),
+              })
+              stripeResult = await chargeRes.json()
+            }
+          } catch (e) {
+            console.error('Stripe auto-pay failed:', e.message)
+            stripeResult = { error: e.message }
+          }
+        }
+      }
+
+      return res.status(200).json({ success: true, visitId, status: 'completed', invoice, square: squareResult, stripe: stripeResult })
     } catch (err) {
       return res.status(500).json({ error: err.message })
     }

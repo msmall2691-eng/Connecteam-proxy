@@ -113,7 +113,114 @@ export default async function handler(req, res) {
       return res.status(200).json({ received: true })
     }
 
-    return res.status(400).json({ error: 'Unknown action. Use: create-payment, check, webhook' })
+    // ── SAVE CARD (create Setup Intent for card-on-file) ──
+    if (action === 'save-card' && req.method === 'POST') {
+      const { clientName, clientEmail, clientId } = req.body
+      if (!clientEmail) return res.status(400).json({ error: 'clientEmail required' })
+
+      // Find or create Stripe customer
+      let customerId = null
+      const supabaseUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL
+      const supabaseKey = process.env.SUPABASE_SERVICE_KEY || process.env.VITE_SUPABASE_ANON_KEY
+
+      if (supabaseUrl && supabaseKey && clientId) {
+        const sbHeaders = { apikey: supabaseKey, Authorization: `Bearer ${supabaseKey}` }
+        const cRes = await fetch(`${supabaseUrl}/rest/v1/clients?id=eq.${clientId}&select=stripe_customer_id`, { headers: sbHeaders })
+        const clients = await cRes.json()
+        customerId = clients?.[0]?.stripe_customer_id
+      }
+
+      if (!customerId) {
+        const params = new URLSearchParams()
+        params.append('email', clientEmail)
+        if (clientName) params.append('name', clientName)
+        if (clientId) params.append('metadata[client_id]', clientId)
+        const custRes = await fetch(`${stripeBase}/customers`, { method: 'POST', headers, body: params })
+        const customer = await custRes.json()
+        if (customer.error) return res.status(400).json({ error: customer.error.message })
+        customerId = customer.id
+
+        // Save to Supabase
+        if (supabaseUrl && supabaseKey && clientId) {
+          await fetch(`${supabaseUrl}/rest/v1/clients?id=eq.${clientId}`, {
+            method: 'PATCH',
+            headers: { apikey: supabaseKey, Authorization: `Bearer ${supabaseKey}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ stripe_customer_id: customerId }),
+          }).catch(() => {})
+        }
+      }
+
+      // Create Setup Intent (for saving card without charging)
+      const siParams = new URLSearchParams()
+      siParams.append('customer', customerId)
+      siParams.append('payment_method_types[]', 'card')
+      siParams.append('usage', 'off_session')
+      const siRes = await fetch(`${stripeBase}/setup_intents`, { method: 'POST', headers, body: siParams })
+      const si = await siRes.json()
+      if (si.error) return res.status(400).json({ error: si.error.message })
+
+      return res.status(200).json({ clientSecret: si.client_secret, customerId, setupIntentId: si.id })
+    }
+
+    // ── CHARGE CARD ON FILE (auto-pay for completed visits) ──
+    if (action === 'charge-card' && req.method === 'POST') {
+      const { stripeCustomerId, amount, description, invoiceNumber, clientId } = req.body
+      if (!stripeCustomerId || !amount) return res.status(400).json({ error: 'stripeCustomerId and amount required' })
+
+      const amountCents = Math.round(parseFloat(amount) * 100)
+      if (amountCents <= 0) return res.status(400).json({ error: 'amount must be positive' })
+
+      // Get default payment method
+      const custRes = await fetch(`${stripeBase}/customers/${stripeCustomerId}`, { headers })
+      const customer = await custRes.json()
+      if (customer.error) return res.status(400).json({ error: customer.error.message })
+
+      const paymentMethod = customer.invoice_settings?.default_payment_method || customer.default_source
+      if (!paymentMethod) {
+        return res.status(400).json({ error: 'No card on file for this customer. Send a save-card link first.' })
+      }
+
+      // Create PaymentIntent and charge immediately
+      const piParams = new URLSearchParams()
+      piParams.append('amount', String(amountCents))
+      piParams.append('currency', 'usd')
+      piParams.append('customer', stripeCustomerId)
+      piParams.append('payment_method', paymentMethod)
+      piParams.append('off_session', 'true')
+      piParams.append('confirm', 'true')
+      if (description) piParams.append('description', description)
+      if (invoiceNumber) piParams.append('metadata[invoice_number]', invoiceNumber)
+      if (clientId) piParams.append('metadata[client_id]', clientId)
+
+      const piRes = await fetch(`${stripeBase}/payment_intents`, { method: 'POST', headers, body: piParams })
+      const pi = await piRes.json()
+
+      if (pi.error) {
+        return res.status(400).json({ error: pi.error.message, code: pi.error.code })
+      }
+
+      // Update invoice if paid
+      if (pi.status === 'succeeded' && invoiceNumber) {
+        const supabaseUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL
+        const supabaseKey = process.env.SUPABASE_SERVICE_KEY || process.env.VITE_SUPABASE_ANON_KEY
+        if (supabaseUrl && supabaseKey) {
+          await fetch(`${supabaseUrl}/rest/v1/invoices?invoice_number=eq.${invoiceNumber}`, {
+            method: 'PATCH',
+            headers: { apikey: supabaseKey, Authorization: `Bearer ${supabaseKey}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ status: 'paid', paid_at: new Date().toISOString(), payment_method: 'stripe_auto' }),
+          }).catch(() => {})
+        }
+      }
+
+      return res.status(200).json({
+        paid: pi.status === 'succeeded',
+        status: pi.status,
+        paymentIntentId: pi.id,
+        amount: parseFloat(amount),
+      })
+    }
+
+    return res.status(400).json({ error: 'Unknown action. Use: create-payment, save-card, charge-card, check, webhook' })
   } catch (err) {
     return res.status(500).json({ error: err.message })
   }

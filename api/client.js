@@ -50,6 +50,11 @@ export default async function handler(req, res) {
     return handleQuoteApproval(req, res, supabaseUrl, sbHeaders, action)
   }
 
+  // ── PM PORTAL — property manager view of visits + photos for a property ──
+  if (action === 'pm-portal') {
+    return handlePmPortal(req, res, supabaseUrl, sbHeaders)
+  }
+
   // ── PORTAL ──
   return handlePortal(req, res, supabaseUrl, sbHeaders, action)
 }
@@ -522,4 +527,81 @@ function buildConfirmationEmail(clientName, service, date, time, address, price,
   </div>
 </div>
 </body></html>`
+}
+
+// ─────────────────────────────────────────────────────────────
+// PM Portal — Property manager view of visits, checklists, photos
+// GET /api/client?action=pm-portal&propertyId=xxx
+// GET /api/client?action=pm-portal&token=xxx  (property-level token)
+// ─────────────────────────────────────────────────────────────
+async function handlePmPortal(req, res, supabaseUrl, sbHeaders) {
+  let propertyId = req.query.propertyId
+  const token = req.query.token
+
+  // Token-based access for PMs without login
+  if (token && !propertyId) {
+    try {
+      const decoded = Buffer.from(token, 'base64url').toString()
+      const [pid, ts] = decoded.split('|')
+      if (pid && Date.now() - parseInt(ts) < 365 * 86400000) propertyId = pid
+    } catch {}
+  }
+
+  if (!propertyId) return res.status(400).json({ error: 'propertyId or token required' })
+
+  try {
+    // Fetch property details
+    const propRes = await fetch(
+      `${supabaseUrl}/rest/v1/properties?id=eq.${propertyId}&select=*,client:clients(name,email,phone)`,
+      { headers: sbHeaders }
+    )
+    const props = await propRes.json()
+    if (!props?.length) return res.status(404).json({ error: 'Property not found' })
+    const property = props[0]
+
+    // Fetch visits for this property (last 30 days + upcoming)
+    const thirtyDaysAgo = new Date(Date.now() - 30 * 86400000).toISOString().split('T')[0]
+    const vRes = await fetch(
+      `${supabaseUrl}/rest/v1/visits?property_id=eq.${propertyId}&scheduled_date=gte.${thirtyDaysAgo}&order=scheduled_date.desc&select=*,employee:employees(name),job:jobs(title)`,
+      { headers: sbHeaders }
+    )
+    const visits = (await vRes.json()) || []
+
+    return res.status(200).json({
+      property: {
+        id: property.id,
+        name: property.name,
+        address: [property.address_line1, property.city, property.state, property.zip].filter(Boolean).join(', '),
+        type: property.type,
+        accessNotes: property.access_notes,
+        cleaningNotes: property.cleaning_notes,
+        petDetails: property.pet_details,
+      },
+      visits: visits.map(v => ({
+        id: v.id,
+        date: v.scheduled_date,
+        startTime: v.scheduled_start_time,
+        endTime: v.scheduled_end_time,
+        status: v.status,
+        title: v.job?.title || 'Cleaning',
+        cleaner: v.employee?.name || 'Unassigned',
+        actualStart: v.actual_start_time,
+        actualEnd: v.actual_end_time,
+        checklist: v.checklist_snapshot || null,
+        completionPercent: v.checklist_snapshot?.completionPercent || 0,
+        photosBefore: v.photos_before || [],
+        photosAfter: v.photos_after || [],
+        employeeNotes: v.employee_notes,
+        source: v.source,
+      })),
+      summary: {
+        total: visits.length,
+        completed: visits.filter(v => v.status === 'completed').length,
+        upcoming: visits.filter(v => v.status === 'scheduled' || v.status === 'confirmed').length,
+        inProgress: visits.filter(v => v.status === 'in_progress' || v.status === 'in_transit').length,
+      },
+    })
+  } catch (err) {
+    return res.status(500).json({ error: err.message })
+  }
 }
