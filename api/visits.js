@@ -3,12 +3,18 @@
 // GET /api/visits?action=generate-recurring&jobId=xxx — generate for one job
 // Called via daily cron (7am UTC) or manually
 
+import { requireAuth, setAdminCors } from './_auth.js'
+
 export default async function handler(req, res) {
-  res.setHeader('Access-Control-Allow-Origin', '*')
+  setAdminCors(req, res)
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type')
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-API-Key')
 
   if (req.method === 'OPTIONS') return res.status(200).end()
+
+  // Auth check — cron actions (generate-recurring, follow-up, review-request) are public
+  const user = await requireAuth(req, res)
+  if (!user) return
 
   const supabaseUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL
   const supabaseKey = process.env.SUPABASE_SERVICE_KEY || process.env.VITE_SUPABASE_ANON_KEY

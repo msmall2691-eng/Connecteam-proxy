@@ -5,12 +5,25 @@
 // GET  /api/campaigns?action=run-sequences — cron: process pending sequence steps
 // POST /api/campaigns?action=trigger-sequence — enroll a client in a sequence
 
+import { requireAuth, requireRole, setAdminCors } from './_auth.js'
+
 export default async function handler(req, res) {
-  res.setHeader('Access-Control-Allow-Origin', '*')
+  setAdminCors(req, res)
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type')
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-API-Key')
 
   if (req.method === 'OPTIONS') return res.status(200).end()
+
+  // run-sequences is a cron action (public); everything else requires manager+
+  const action = req.query.action || req.body?.action
+  if (action === 'run-sequences') {
+    // Cron — verified by _auth.js PUBLIC_ACTIONS
+    const user = await requireAuth(req, res)
+    if (!user) return
+  } else {
+    const user = await requireRole(req, res, ['owner', 'admin', 'manager'])
+    if (!user) return
+  }
 
   const supabaseUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL
   const supabaseKey = process.env.SUPABASE_SERVICE_KEY || process.env.VITE_SUPABASE_ANON_KEY

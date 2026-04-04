@@ -135,6 +135,18 @@ Or pass directly: `python3 scripts/report.py --api-key YOUR_KEY`
 - `notifications` — Dashboard alerts
 - `payroll_exports` — Payroll period snapshots
 
+### RBAC & Security (v9)
+- `user_profiles` — Links Supabase auth to roles (owner/admin/manager/dispatcher/technician/client)
+- `employee_availability` — Weekly availability windows per employee
+- `time_off_requests` — PTO/sick day requests with approval workflow
+- `audit_log` — Comprehensive change tracking on clients, jobs, invoices, employees, visits
+- `documents` — File/contract management (contracts, insurance certs, property docs)
+- `supply_items` + `supply_usage` — Inventory tracking with auto-decrement
+- `shift_offers` — Offer open shifts to employees, track accept/decline
+- `webhooks` + `webhook_deliveries` — Outbound event notifications to third parties
+- `notifications` — Enhanced per-user/per-role in-app alerts with action URLs
+- RLS policies on ALL tables scoped by user role
+
 ### Schema Migrations
 - `sql/supabase-schema.sql` — Initial schema (v1)
 - `sql/supabase-migration-v2.sql` — Properties, quotes, rental calendars, payment transactions
@@ -144,6 +156,7 @@ Or pass directly: `python3 scripts/report.py --api-key YOUR_KEY`
 - `sql/supabase-migration-v6-scheduling-redesign.sql` — Visits as single source of truth, calendar sync log, client portal tokens, visit reminders, recurring visit generation functions
 - `sql/supabase-migration-v7-workflow-enhancements.sql` — Visit status history, zone fields, Turno integration, confirmation tokens, deprecation comments on jobs
 - `sql/supabase-migration-v8-campaigns.sql` — Campaigns (blast + sequence), campaign steps, enrollments, sequence triggers, review request tracking
+- `sql/supabase-migration-v9-rbac-and-gaps.sql` — RBAC, RLS policies, audit log, employee availability, time-off, supplies, documents, shift offers, webhooks, notifications, client health scoring
 
 ### Scheduling Architecture (v6+v7)
 - **Jobs** = service agreements (what, who, how often, price). NOT individual occurrences.
@@ -156,6 +169,69 @@ Or pass directly: `python3 scripts/report.py --api-key YOUR_KEY`
 - **Recurring visit generation** = `/api/visits?action=generate-recurring` cron (Monday 7am)
 - **Client confirmation** = visits have `confirm_token` for SMS/email one-click confirm
 - See `docs/scheduling-redesign-plan.md` for full implementation plan
+
+### Employee Portal API (`/api/employee-portal`)
+```
+GET  ?action=my-schedule&days=7            — upcoming visits for logged-in employee
+GET  ?action=my-visits&date=YYYY-MM-DD     — visits for a specific date
+POST ?action=clock-in&visitId=xxx          — clock in with GPS (body: {latitude, longitude})
+POST ?action=clock-out&visitId=xxx         — clock out with GPS + mileage
+POST ?action=update-checklist              — update checklist items from mobile
+GET  ?action=my-shift-offers               — pending shift offers
+POST ?action=respond-offer                 — accept/decline (body: {offerId, response, reason})
+GET  ?action=my-pay-history                — own pay history (last 90 days)
+POST ?action=log-supply                    — log supply usage (body: {visitId, supplyItemId, quantity})
+```
+
+### Staff Management API (`/api/staff`)
+```
+# Availability
+GET  ?action=availability&employeeId=xxx   — weekly availability
+POST ?action=set-availability              — set weekly slots (body: {employeeId, slots[]})
+
+# Time-Off
+GET  ?action=time-off-requests             — list requests (filtered by role)
+POST ?action=request-time-off              — submit request (body: {type, start_date, end_date, reason})
+POST ?action=review-time-off               — approve/deny (body: {requestId, decision, notes})
+
+# Shift Offers
+POST ?action=create-shift-offer            — offer visit to employees (body: {visitId, employeeIds[], expiresInHours})
+GET  ?action=shift-offers&visitId=xxx      — list offers for a visit
+
+# Supplies
+GET  ?action=supplies                      — list all supply items
+POST ?action=add-supply                    — add new item (body: {name, category, unit, ...})
+POST ?action=restock                       — add stock (body: {supplyItemId, quantity})
+GET  ?action=low-stock                     — items below reorder threshold
+
+# Documents
+GET  ?action=documents&clientId=xxx        — list documents (filter by entity)
+POST ?action=upload-document               — add document record (body: {name, type, storage_url, ...})
+POST ?action=delete-document               — remove document
+
+# Notifications
+GET  ?action=notifications&unread=true     — in-app notifications for current user
+POST ?action=mark-read                     — mark notifications read (body: {notificationIds[]})
+POST ?action=create-notification           — create notification (body: {title, body, type, ...})
+
+# Webhooks (admin only)
+GET  ?action=webhooks                      — list webhook subscriptions
+POST ?action=create-webhook                — subscribe (body: {url, events[], secret})
+POST ?action=delete-webhook                — unsubscribe
+
+# Health Scoring
+GET  ?action=refresh-health                — recalculate all client health scores (cron: Monday 6am)
+GET  ?action=churn-risk                    — active clients with high churn risk
+GET  ?action=expiring-documents            — documents expiring within 30 days
+```
+
+### Authentication
+- All admin API routes now require auth via `Authorization: Bearer <supabase_jwt>`
+- Public endpoints (webhooks, client portal, crons) bypass auth
+- Role hierarchy: owner > admin > manager > dispatcher > technician > viewer > client
+- API key auth: set `ADMIN_API_KEY` env var, pass via `X-API-Key` header
+- Auth middleware: `api/_auth.js` — import `requireAuth`, `requireRole`, `setAdminCors`
+- Webhook dispatch: `api/_webhooks.js` — import `dispatchWebhook`, `createNotification`
 
 ## Notes
 - Connecteam API rate limits to ~5 requests per 10 seconds

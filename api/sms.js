@@ -2,11 +2,23 @@
 // Requires TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_PHONE_NUMBER in env
 
 import crypto from 'crypto'
+import { requireAuth, setAdminCors } from './_auth.js'
 
 export default async function handler(req, res) {
-  res.setHeader('Access-Control-Allow-Origin', '*')
+  const action = req.query.action || req.body?.action
+
+  // Webhook is public (Twilio posts here)
+  if (action === 'webhook') {
+    res.setHeader('Access-Control-Allow-Origin', '*')
+  } else {
+    setAdminCors(req, res)
+    // Require auth for send/list actions
+    const user = await requireAuth(req, res)
+    if (!user) return
+  }
+
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type')
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-API-Key')
 
   if (req.method === 'OPTIONS') return res.status(200).end()
 

@@ -4,13 +4,18 @@
 // GET /api/reminders?action=preview — shows what would be sent
 
 import crypto from 'crypto'
+import { requireAuth, setAdminCors } from './_auth.js'
 
 export default async function handler(req, res) {
-  res.setHeader('Access-Control-Allow-Origin', '*')
+  setAdminCors(req, res)
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type')
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-API-Key')
 
   if (req.method === 'OPTIONS') return res.status(200).end()
+
+  // Auth check — send/preview are cron-compatible (public in _auth.js)
+  const user = await requireAuth(req, res)
+  if (!user) return
 
   const supabaseUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL
   const supabaseKey = process.env.SUPABASE_SERVICE_KEY || process.env.VITE_SUPABASE_ANON_KEY

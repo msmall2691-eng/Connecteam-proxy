@@ -4,10 +4,22 @@
 // Invoice actions: location, create-customer, search-customer, create, send, list
 // Requires SQUARE_ACCESS_TOKEN in env
 
+import { requireAuth, setAdminCors } from './_auth.js'
+
 export default async function handler(req, res) {
-  res.setHeader('Access-Control-Allow-Origin', '*')
+  const action = req.query.action || req.body?.action
+
+  // Webhook is public (Square posts here)
+  if (action === 'webhook') {
+    res.setHeader('Access-Control-Allow-Origin', '*')
+  } else {
+    setAdminCors(req, res)
+    const user = await requireAuth(req, res)
+    if (!user) return
+  }
+
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type')
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-API-Key')
 
   if (req.method === 'OPTIONS') return res.status(200).end()
 

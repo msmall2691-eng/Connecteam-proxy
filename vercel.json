@@ -34,6 +34,14 @@
     {
       "path": "/api/campaigns?action=run-sequences",
       "schedule": "0 12 * * *"
+    },
+    {
+      "path": "/api/staff?action=refresh-health",
+      "schedule": "0 6 * * 1"
+    },
+    {
+      "path": "/api/staff?action=expiring-documents",
+      "schedule": "0 9 * * 1"
     }
   ]
 }

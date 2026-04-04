@@ -24,9 +24,11 @@ const PUBLIC_ACTIONS = new Set([
   'webhook', 'turno-webhook', 'fb-webhook', 'fb-verify',
   // Cron jobs (verified by Vercel's cron secret or internal call)
   'generate-recurring', 'calendar-sync', 'scan', 'send', 'follow-up',
-  'review-request', 'run-sequences',
+  'review-request', 'run-sequences', 'refresh-health', 'expiring-documents',
   // Booking form (public)
   'book', 'availability',
+  // Lead intake (external forms)
+  'create', 'list',
 ])
 
 // Cron jobs are called by Vercel's cron scheduler — verify with CRON_SECRET
