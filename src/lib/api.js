@@ -9,6 +9,30 @@ export function setApiKey(key) {
   localStorage.setItem('connecteam_api_key', key)
 }
 
+// Get the current Supabase auth token for API calls
+async function getAuthToken() {
+  try {
+    const { getSupabase, isSupabaseConfigured } = await import('./supabase')
+    if (!isSupabaseConfigured()) return null
+    const sb = getSupabase()
+    if (!sb) return null
+    const { data } = await sb.auth.getSession()
+    return data?.session?.access_token || null
+  } catch {
+    return null
+  }
+}
+
+// Authenticated fetch helper — adds Bearer token to any /api/* call
+export async function authFetch(url, options = {}) {
+  const token = await getAuthToken()
+  const headers = { ...options.headers }
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`
+  }
+  return fetch(url, { ...options, headers })
+}
+
 // Simple fetch — no client-side retry (proxy is stateless, Vercel Hobby has 10s timeout)
 export async function apiGet(path, params = {}) {
   const query = new URLSearchParams({ path, ...params })
